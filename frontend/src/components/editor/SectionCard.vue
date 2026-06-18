@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { AlertTriangle, ChevronDown, ChevronUp, FileImage, GripVertical, Link, List, Plus, Table, Trash2, Type } from '@lucide/vue'
+import { getNotices } from '@/api/notices.api'
+import { getReusableBlocks } from '@/api/reusable-blocks.api'
 import BlockEditor from './BlockEditor.vue'
 import type { EditorBlock, EditorBlockType, EditorSection } from '@/types/editor'
 import { randomId } from '@/types/editor'
+import type { NoticeTemplateResponse, ReusableBlockResponse } from '@/types/api'
 
 const props = defineProps<{ section: EditorSection; selectedBlockId?: string }>()
 const emit = defineEmits<{
@@ -11,6 +14,18 @@ const emit = defineEmits<{
   delete: []
   selectBlock: [id: string]
 }>()
+
+const notices = ref<NoticeTemplateResponse[]>([])
+const reusableBlocks = ref<ReusableBlockResponse[]>([])
+
+onMounted(async () => {
+  const [loadedNotices, loadedBlocks] = await Promise.all([
+    getNotices(),
+    getReusableBlocks(),
+  ])
+  notices.value = loadedNotices
+  reusableBlocks.value = loadedBlocks
+})
 
 const subsections = computed(() => {
   let count = 0
@@ -47,10 +62,12 @@ function addBlock(afterId?: string, type: EditorBlockType = 'parrafo', content?:
     tabla: tableContent(3, 3),
     advertencia: 'Advertencia importante.',
     nota: 'Nota informativa.',
+    'nota-ref': '',
     imagen: '/api/v1/assets/{id}/file',
     enlace: 'Texto del enlace|https://',
     formula: 'P = ρ · g · H · Q',
     grafico: 'Gráfico imprimible',
+    'bloque-ref': '',
   }
   const block: EditorBlock = { id: randomId('block'), type, content: content ?? defaultContent[type], languageCode: 'ES' }
   const blocks = [...props.section.blocks]
@@ -68,6 +85,20 @@ function insertTable() {
   const rows = Number(window.prompt('Número de filas', '3') || 3)
   const cols = Number(window.prompt('Número de columnas', '3') || 3)
   addBlock(undefined, 'tabla', tableContent(Math.max(rows, 1), Math.max(cols, 1)))
+}
+
+function insertNotice(event: Event) {
+  const select = event.target as HTMLSelectElement
+  if (!select.value) return
+  addBlock(undefined, 'nota-ref', select.value)
+  select.value = ''
+}
+
+function insertReusableBlock(event: Event) {
+  const select = event.target as HTMLSelectElement
+  if (!select.value) return
+  addBlock(undefined, 'bloque-ref', select.value)
+  select.value = ''
 }
 </script>
 
@@ -94,6 +125,18 @@ function insertTable() {
         <button @click="addBlock(undefined, 'imagen')"><FileImage :size="14" /> Imagen</button>
         <button @click="addBlock(undefined, 'enlace')"><Link :size="14" /> Enlace</button>
         <button @click="addBlock(undefined, 'advertencia')"><AlertTriangle :size="14" /> Advertencia</button>
+        <select class="toolbar-select" @change="insertNotice">
+          <option value="">Insertar nota</option>
+          <option v-for="notice in notices" :key="notice.id" :value="notice.id">
+            {{ notice.code }} - {{ notice.titleEs }}
+          </option>
+        </select>
+        <select class="toolbar-select" @change="insertReusableBlock">
+          <option value="">Insertar bloque</option>
+          <option v-for="block in reusableBlocks" :key="block.id" :value="block.id">
+            {{ block.code }} - {{ block.title }}
+          </option>
+        </select>
       </div>
       <BlockEditor
         v-for="block in section.blocks"
@@ -125,5 +168,6 @@ function insertTable() {
 .section-toolbar { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; margin: -2px 0 12px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,.04); }
 .section-toolbar button { border: 1px solid var(--border); background: var(--input-background); padding: 6px 8px; display: inline-flex; align-items: center; gap: 5px; border-radius: var(--radius); color: var(--foreground); }
 .section-toolbar button:hover { border-color: var(--dikoin-blue); color: var(--dikoin-blue); background: var(--dikoin-blue-lighter); }
+.toolbar-select { border: 1px solid var(--border); background: #fff; padding: 6px 8px; border-radius: var(--radius); color: var(--foreground); max-width: 220px; }
 .add-block { border: 1px dashed var(--border); background: #fff; color: var(--dikoin-blue); padding: 8px 10px; border-radius: var(--radius); display: inline-flex; gap: 6px; align-items: center; }
 </style>

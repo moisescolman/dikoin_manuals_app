@@ -33,10 +33,12 @@ const labels: Record<EditorBlockType, string> = {
   tabla: 'Tabla',
   advertencia: 'Advertencia',
   nota: 'Nota',
+  'nota-ref': 'Nota de biblioteca',
   imagen: 'Imagen',
   enlace: 'Enlace',
   formula: 'Fórmula',
   grafico: 'Gráfico',
+  'bloque-ref': 'Bloque común',
 }
 
 const icon = computed(() => {
@@ -49,10 +51,12 @@ const icon = computed(() => {
     tabla: Table,
     advertencia: AlertTriangle,
     nota: Info,
+    'nota-ref': Info,
     imagen: FileImage,
     enlace: Link,
     formula: Calculator,
     grafico: BarChart2,
+    'bloque-ref': BarChart2,
   }
   return map[props.block.type]
 })
@@ -142,6 +146,12 @@ function linkParts() {
     <div v-else-if="block.type === 'nota'" class="callout note" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })">
       {{ block.content }}
     </div>
+    <div v-else-if="block.type === 'nota-ref'" class="library-ref note-ref">
+      Nota enlazada #{{ block.content }}
+    </div>
+    <div v-else-if="block.type === 'bloque-ref'" class="library-ref reusable-ref">
+      Bloque común enlazado #{{ block.content }}
+    </div>
     <div v-else-if="block.type === 'formula'" class="formula" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })">
       {{ block.content }}
     </div>
@@ -181,6 +191,9 @@ function linkParts() {
 .callout { padding: 10px; border-left: 4px solid; }
 .warning { background: var(--dikoin-orange-light); border-color: var(--dikoin-orange); color: #78350f; }
 .note { background: var(--dikoin-blue-light); border-color: var(--dikoin-blue); color: var(--dikoin-blue-dark); }
+.library-ref { border-left: 4px solid; padding: 10px; font-weight: 700; }
+.note-ref { background: #fff7ed; border-color: var(--dikoin-orange); color: #78350f; }
+.reusable-ref { background: var(--dikoin-blue-lighter); border-color: var(--dikoin-blue); color: var(--dikoin-blue-dark); }
 .formula { font-family: Georgia, serif; font-size: 22px; padding: 8px; }
 .add-after { margin-top: 8px; border: 1px dashed var(--border); background: #fff; color: var(--dikoin-blue); padding: 5px 8px; border-radius: var(--radius); }
 </style>

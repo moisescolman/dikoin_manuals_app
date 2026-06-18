@@ -9,6 +9,8 @@ import ManualEditorView from '@/views/ManualEditorView.vue'
 import ImportManualView from '@/views/ImportManualView.vue'
 import ProductsView from '@/views/ProductsView.vue'
 import AssetsView from '@/views/AssetsView.vue'
+import NotesView from '@/views/NotesView.vue'
+import ReusableBlocksView from '@/views/ReusableBlocksView.vue'
 import TemplatesView from '@/views/TemplatesView.vue'
 import HistoryView from '@/views/HistoryView.vue'
 import ClientPortalView from '@/views/ClientPortalView.vue'
@@ -29,6 +31,8 @@ const router = createRouter({
         { path: 'manuales/:id/editor', name: 'manual-editor', component: ManualEditorView, props: true },
         { path: 'importar', name: 'import', component: ImportManualView },
         { path: 'productos', name: 'products', component: ProductsView },
+        { path: 'notas', name: 'notes', component: NotesView },
+        { path: 'bloques', name: 'reusable-blocks', component: ReusableBlocksView },
         { path: 'assets', name: 'assets', component: AssetsView },
         { path: 'plantillas', name: 'templates', component: TemplatesView },
         { path: 'historial/:id?', name: 'history', component: HistoryView, props: true },

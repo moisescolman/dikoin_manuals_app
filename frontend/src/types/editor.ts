@@ -9,10 +9,12 @@ export type EditorBlockType =
   | 'tabla'
   | 'advertencia'
   | 'nota'
+  | 'nota-ref'
   | 'imagen'
   | 'enlace'
   | 'formula'
   | 'grafico'
+  | 'bloque-ref'
 
 export interface EditorBlock {
   id: string
@@ -65,10 +67,12 @@ export function editorBlockTypeToBackend(type: EditorBlockType): BlockType {
     tabla: 'TABLE',
     advertencia: 'WARNING',
     nota: 'NOTE',
+    'nota-ref': 'NOTE',
     imagen: 'IMAGE',
     enlace: 'PARAGRAPH',
     formula: 'FORMULA',
     grafico: 'CHART',
+    'bloque-ref': 'PARAGRAPH',
   }
   return map[type]
 }
@@ -84,6 +88,12 @@ export function parseContent(block: ManualBlockResponse): string {
     }
     if (parsed.type === 'link') {
       return `${parsed.text ?? 'Enlace'}|${parsed.href ?? 'https://'}`
+    }
+    if (parsed.type === 'notice_ref') {
+      return String(parsed.noticeTemplateId ?? '')
+    }
+    if (parsed.type === 'reusable_block_ref') {
+      return String(parsed.reusableBlockId ?? '')
     }
     return parsed.text ?? parsed.latex ?? parsed.src ?? parsed.title ?? block.contentJson
   } catch {
@@ -119,6 +129,12 @@ export function blockContentToJson(block: EditorBlock): string {
   if (block.type === 'grafico') {
     return JSON.stringify({ type: 'chart', title: block.content, printable: true })
   }
+  if (block.type === 'nota-ref') {
+    return JSON.stringify({ type: 'notice_ref', noticeTemplateId: Number(block.content) })
+  }
+  if (block.type === 'bloque-ref') {
+    return JSON.stringify({ type: 'reusable_block_ref', reusableBlockId: Number(block.content) })
+  }
   return JSON.stringify({ type: block.type, text: block.content })
 }
 
@@ -135,7 +151,7 @@ export function sectionsFromBackend(sections: ManualSectionResponse[] = []): Edi
     blocks: section.blocks.map((block) => ({
       id: randomId('block'),
       backendId: block.id,
-      type: backendBlockTypeToEditor(block.blockType),
+      type: contentTypeFromJson(block.contentJson) || backendBlockTypeToEditor(block.blockType),
       content: parseContent(block),
       languageCode: block.languageCode,
     })),
@@ -174,4 +190,15 @@ export function versionRequestFromEditor(params: {
       })),
     })),
   }
+}
+
+function contentTypeFromJson(contentJson: string): EditorBlockType | null {
+  try {
+    const parsed = JSON.parse(contentJson)
+    if (parsed.type === 'notice_ref') return 'nota-ref'
+    if (parsed.type === 'reusable_block_ref') return 'bloque-ref'
+  } catch {
+    return null
+  }
+  return null
 }

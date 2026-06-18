@@ -219,11 +219,72 @@ export interface TemplateResponse {
   contactPhone?: string
   website?: string
   logoPath?: string
-  logoAssetId?: number
+  logoAssetId?: number | null
   logoUrl?: string
   headerConfigJson?: string
   footerConfigJson?: string
   active: boolean
   createdAt?: string
   updatedAt?: string
+}
+
+export type NoticeType = 'WARNING' | 'ALERT' | 'NOTE' | 'SUGGESTION'
+
+export interface NoticeTemplateResponse {
+  id: number
+  code: string
+  type: NoticeType
+  titleEs: string
+  titleEn?: string
+  productCategory?: string
+  productCodes?: string
+  contentEs: string
+  contentEn?: string
+  active: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface NoticeTemplateRequest {
+  code: string
+  type: NoticeType
+  titleEs: string
+  titleEn?: string
+  productCategory?: string
+  productCodes?: string
+  contentEs: string
+  contentEn?: string
+  active: boolean
+}
+
+export interface ReusableBlockResponse {
+  id: number
+  code: string
+  title: string
+  productCategory?: string
+  productCodes?: string
+  contentJson: string
+  active: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ReusableBlockRequest {
+  code: string
+  title: string
+  productCategory?: string
+  productCodes?: string
+  contentJson: string
+  active: boolean
+}
+
+export interface ReusableBlockUsageResponse {
+  manualId: number
+  manualCode: string
+  manualTitle: string
+  productCode: string
+  sectionId?: number
+  sectionNumber?: string
+  sectionTitle?: string
+  blockId?: number
 }

@@ -10,12 +10,15 @@ import { useManualsStore } from '@/stores/manuals.store'
 import type { ManualStatus } from '@/types/api'
 import { formatDate } from '@/utils/formatters'
 
+type StatusFilter = 'ALL' | ManualStatus
+type LangFilter = 'ALL' | 'ES_READY' | 'EN_READY' | 'EN_PENDING'
+
 const router = useRouter()
 const route = useRoute()
 const store = useManualsStore()
 const search = ref(typeof route.query.search === 'string' ? route.query.search : '')
-const statusFilter = ref<'ALL' | ManualStatus>('ALL')
-const langFilter = ref('ALL')
+const statusFilter = ref<StatusFilter>(statusFromQuery(route.query.status))
+const langFilter = ref<LangFilter>(langFromQuery(route.query.lang))
 const selected = ref<number[]>([])
 const exportMessage = ref('')
 const searchFocused = ref(false)
@@ -29,10 +32,13 @@ onMounted(() => store.fetchManuals(search.value))
 watch(search, (value) => {
   if (!value) store.fetchManuals()
 })
-watch(() => route.query.search, (value) => {
-  search.value = typeof value === 'string' ? value : ''
+watch(() => route.query, (query) => {
+  search.value = typeof query.search === 'string' ? query.search : ''
+  statusFilter.value = statusFromQuery(query.status)
+  langFilter.value = langFromQuery(query.lang)
   store.fetchManuals(search.value)
 })
+watch([statusFilter, langFilter], syncFiltersToRoute)
 
 const filtered = computed(() => store.manuals.filter((manual) => {
   if (statusFilter.value !== 'ALL' && manual.activeStatus !== statusFilter.value) return false
@@ -44,6 +50,7 @@ const filtered = computed(() => store.manuals.filter((manual) => {
 
 async function performSearch() {
   await store.fetchManuals(search.value)
+  syncFiltersToRoute()
 }
 
 async function exportPdf(id: number) {
@@ -88,6 +95,36 @@ function toggle(id: number) {
 
 function closeSuggestionsLater() {
   window.setTimeout(() => { searchFocused.value = false }, 150)
+}
+
+function statusFromQuery(value: unknown): StatusFilter {
+  return ['DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED'].includes(String(value))
+    ? String(value) as ManualStatus
+    : 'ALL'
+}
+
+function langFromQuery(value: unknown): LangFilter {
+  return ['ES_READY', 'EN_READY', 'EN_PENDING'].includes(String(value))
+    ? String(value) as LangFilter
+    : 'ALL'
+}
+
+function syncFiltersToRoute() {
+  const query = {
+    search: search.value || undefined,
+    status: statusFilter.value === 'ALL' ? undefined : statusFilter.value,
+    lang: langFilter.value === 'ALL' ? undefined : langFilter.value,
+  }
+
+  if (
+    route.query.search === query.search &&
+    route.query.status === query.status &&
+    route.query.lang === query.lang
+  ) {
+    return
+  }
+
+  router.replace({ name: 'manuals', query })
 }
 </script>
 

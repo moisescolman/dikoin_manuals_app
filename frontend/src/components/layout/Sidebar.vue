@@ -2,6 +2,7 @@
 import {
   Archive,
   BookOpen,
+  Boxes,
   Database,
   FileClock,
   FileText,
@@ -10,6 +11,7 @@ import {
   LogOut,
   Package,
   Settings,
+  StickyNote,
   Upload,
 } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -25,6 +27,8 @@ const nav = [
   { name: 'manuals', label: 'Manuales', icon: BookOpen },
   { name: 'import', label: 'Importar manual', icon: Upload },
   { name: 'products', label: 'Productos', icon: Package },
+  { name: 'notes', label: 'Notas', icon: StickyNote },
+  { name: 'reusable-blocks', label: 'Bloques', icon: Boxes },
   { name: 'templates', label: 'Plantillas', icon: LayoutTemplate },
   { name: 'assets', label: 'Assets', icon: Archive },
   { name: 'history', label: 'Historial', icon: FileClock },

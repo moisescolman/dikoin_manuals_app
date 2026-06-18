@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, CheckCircle, Clock, FileText, Languages, Package, Upload } from '@lucide/vue'
 import { getDashboard } from '@/api/dashboard.api'
@@ -15,6 +15,20 @@ const manualsStore = useManualsStore()
 const stats = ref<DashboardResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
+
+const manualStats = computed(() => {
+  const manuals = manualsStore.manuals
+  return {
+    manuals: manuals.length,
+    publishedManuals: manuals.filter((manual) => manual.activeStatus === 'PUBLISHED').length,
+    draftManuals: manuals.filter((manual) => manual.activeStatus === 'DRAFT').length,
+    manualsWithEnglishPending: manuals.filter((manual) => !manual.enReady).length,
+  }
+})
+
+function openManuals(query: Record<string, string> = {}) {
+  router.push({ name: 'manuals', query })
+}
 
 onMounted(async () => {
   loading.value = true
@@ -34,7 +48,7 @@ onMounted(async () => {
     <div class="header-row">
       <div>
         <h1 class="page-title">Dashboard</h1>
-        <p class="text-muted">Estado general del sistema de manuales conectado al backend.</p>
+        <p class="text-muted">Estado general del sistema de manuales.</p>
       </div>
       <div class="actions">
         <button class="btn btn-outline" @click="router.push({ name: 'manuals' })"><BookOpen :size="15" /> Ver manuales</button>
@@ -45,11 +59,11 @@ onMounted(async () => {
     <BackendError :message="error || manualsStore.error" />
 
     <div class="stats-grid">
-      <article class="stat-card"><Package /><span>Productos</span><strong>{{ stats?.products ?? '-' }}</strong></article>
-      <article class="stat-card"><FileText /><span>Manuales</span><strong>{{ stats?.manuals ?? '-' }}</strong></article>
-      <article class="stat-card"><CheckCircle /><span>Publicados</span><strong>{{ stats?.publishedManuals ?? '-' }}</strong></article>
-      <article class="stat-card"><Clock /><span>Borradores</span><strong>{{ stats?.draftManuals ?? '-' }}</strong></article>
-      <article class="stat-card"><Languages /><span>EN pendiente</span><strong>{{ stats?.manualsWithEnglishPending ?? '-' }}</strong></article>
+      <button type="button" class="stat-card" @click="router.push({ name: 'products' })"><Package /><span>Productos</span><strong>{{ stats?.products ?? '-' }}</strong></button>
+      <button type="button" class="stat-card" @click="openManuals()"><FileText /><span>Manuales</span><strong>{{ manualStats.manuals }}</strong></button>
+      <button type="button" class="stat-card" @click="openManuals({ status: 'PUBLISHED' })"><CheckCircle /><span>Publicados</span><strong>{{ manualStats.publishedManuals }}</strong></button>
+      <button type="button" class="stat-card" @click="openManuals({ status: 'DRAFT' })"><Clock /><span>Borradores</span><strong>{{ manualStats.draftManuals }}</strong></button>
+      <button type="button" class="stat-card" @click="openManuals({ lang: 'EN_PENDING' })"><Languages /><span>EN pendiente</span><strong>{{ manualStats.manualsWithEnglishPending }}</strong></button>
     </div>
 
     <div class="panel card">
@@ -82,10 +96,11 @@ onMounted(async () => {
 .header-row, .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .actions, .langs { display: flex; gap: 8px; flex-wrap: wrap; }
 .stats-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 14px; }
-.stat-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: grid; gap: 8px; }
+.stat-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: grid; gap: 8px; text-align: left; cursor: pointer; }
 .stat-card svg { color: var(--dikoin-blue); }
 .stat-card span { color: var(--muted-foreground); font-size: 12px; }
 .stat-card strong { font-size: 28px; }
+.stat-card:hover { border-color: var(--dikoin-blue); box-shadow: 0 6px 18px rgba(0, 124, 184, .08); }
 .panel { overflow: hidden; }
 .panel-head { padding: 16px; border-bottom: 1px solid var(--border); }
 .panel-head h2 { margin: 0; font-size: 16px; }

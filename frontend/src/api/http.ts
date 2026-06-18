@@ -7,6 +7,18 @@ export const http = axios.create({
   timeout: 30000,
 })
 
+export function toBackendUrl(value?: string | null) {
+  if (!value) return ''
+  if (/^(https?:|data:|blob:)/.test(value)) return value
+
+  const apiUrl = new URL(API_BASE_URL)
+  if (value.startsWith('/')) {
+    return `${apiUrl.origin}${value}`
+  }
+
+  return `${API_BASE_URL.replace(/\/$/, '')}/${value.replace(/^\//, '')}`
+}
+
 http.interceptors.request.use((config) => {
   const raw = localStorage.getItem('dikoin_user')
   if (raw) {

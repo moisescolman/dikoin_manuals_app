@@ -70,7 +70,7 @@ async function submit() {
     <div class="head">
       <div>
         <h1 class="page-title">Importar manual</h1>
-        <p class="text-muted">El backend extrae texto, secciones, tablas e imágenes y genera un borrador.</p>
+        <p class="text-muted">El sistema extrae texto, secciones, tablas e imágenes y genera un borrador.</p>
       </div>
       <button class="btn btn-outline" @click="router.push({ name: 'manuals' })">Ver manuales</button>
     </div>

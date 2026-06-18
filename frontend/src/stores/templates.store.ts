@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getApiError } from '@/api/http'
-import { getActiveTemplate, getTemplates, updateTemplate } from '@/api/templates.api'
+import { activateTemplate, createTemplate, getActiveTemplate, getTemplates, updateTemplate, uploadTemplateLogo } from '@/api/templates.api'
 import type { TemplateResponse } from '@/types/api'
 
 export const useTemplatesStore = defineStore('templates', () => {
@@ -24,9 +24,29 @@ export const useTemplatesStore = defineStore('templates', () => {
   }
 
   async function saveTemplate(id: number, payload: Partial<TemplateResponse>) {
-    active.value = await updateTemplate(id, payload)
+    const updated = await updateTemplate(id, payload)
+    active.value = updated.active ? updated : active.value
     await fetchTemplates()
+    return updated
   }
 
-  return { templates, active, loading, error, fetchTemplates, saveTemplate }
+  async function addTemplate(payload: Partial<TemplateResponse>) {
+    const created = await createTemplate(payload)
+    await fetchTemplates()
+    return created
+  }
+
+  async function setActive(id: number) {
+    active.value = await activateTemplate(id)
+    await fetchTemplates()
+    return active.value
+  }
+
+  async function uploadLogo(id: number, file: File, onProgress?: (progress: number) => void) {
+    const updated = await uploadTemplateLogo(id, file, onProgress)
+    await fetchTemplates()
+    return updated
+  }
+
+  return { templates, active, loading, error, fetchTemplates, saveTemplate, addTemplate, setActive, uploadLogo }
 })

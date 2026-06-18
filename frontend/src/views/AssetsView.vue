@@ -30,7 +30,7 @@ async function upload() {
   <section class="assets-page">
     <div>
       <h1 class="page-title">Assets</h1>
-      <p class="text-muted">Imágenes, logos, documentos fuente y recursos reutilizables almacenados por el backend.</p>
+      <p class="text-muted">Imágenes, logos, documentos fuente y recursos reutilizables almacenados.</p>
     </div>
 
     <BackendError :message="store.error" />
@@ -80,11 +80,50 @@ async function upload() {
 </template>
 
 <style scoped>
-.assets-page { padding: 24px; display: grid; gap: 16px; }
-.upload-card { padding: 14px; display: grid; grid-template-columns: 190px 160px minmax(240px, 1fr) auto; gap: 12px; align-items: end; }
-label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 700; }
-.file-input { border: 1px dashed var(--border); background: var(--input-background); padding: 9px 10px; color: var(--foreground); }
-.file-input input { display: none; }
-.success-msg { background: var(--dikoin-green-light); color: #065f46; border: 1px solid #86efac; padding: 10px; border-radius: var(--radius); }
-@media (max-width: 980px) { .upload-card { grid-template-columns: 1fr; } }
+.assets-page {
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.upload-card {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 190px 160px minmax(240px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.file-input {
+  border: 1px dashed var(--border);
+  background: var(--input-background);
+  padding: 9px 10px;
+  color: var(--foreground);
+}
+
+.file-input input {
+  display: none;
+}
+
+.success-msg {
+  background: var(--dikoin-green-light);
+  color: #065f46;
+  border: 1px solid #86efac;
+  padding: 10px;
+  border-radius: var(--radius);
+}
+
+@media (max-width: 980px) {
+  .upload-card {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
