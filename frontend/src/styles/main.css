@@ -1,0 +1,141 @@
+:root {
+  --background: #f0f2f5;
+  --foreground: #1a1f2e;
+  --card: #ffffff;
+  --muted: #eaf3fa;
+  --muted-foreground: #5a6472;
+  --border: #ccdce8;
+  --input-background: #f4f8fc;
+  --dikoin-blue-dark: #004a73;
+  --dikoin-blue: #007cb8;
+  --dikoin-blue-mid: #0098d9;
+  --dikoin-blue-light: #c5d9f0;
+  --dikoin-blue-lighter: #eaf3fa;
+  --dikoin-orange: #f59e0b;
+  --dikoin-orange-light: #fef3c7;
+  --dikoin-green: #10b981;
+  --dikoin-green-light: #d1fae5;
+  --dikoin-red: #dc2626;
+  --dikoin-red-light: #fee2e2;
+  --radius: 4px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Inter, Roboto, Arial, sans-serif;
+  font-size: 14px;
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 7px 11px;
+  background: #fff;
+  color: var(--foreground);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+}
+
+.btn-primary {
+  background: var(--dikoin-blue);
+  color: #fff;
+}
+
+.btn-outline {
+  border-color: var(--border);
+}
+
+.btn-danger {
+  background: var(--dikoin-red);
+  color: #fff;
+}
+
+.field {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-background);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.field:focus {
+  border-color: var(--dikoin-blue);
+  box-shadow: 0 0 0 2px rgba(0, 124, 184, .14);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  background: #e8f1f8;
+  color: var(--muted-foreground);
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+
+.table td {
+  padding: 10px;
+  border-bottom: 1px solid rgba(204, 220, 232, .65);
+  background: #fff;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.mono {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+}
