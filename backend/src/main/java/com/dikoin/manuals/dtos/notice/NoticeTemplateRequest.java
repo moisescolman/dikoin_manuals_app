@@ -9,6 +9,8 @@ public record NoticeTemplateRequest(
         @NotNull NoticeType type,
         @NotBlank String titleEs,
         String titleEn,
+        String productCategory,
+        String productCodes,
         @NotBlank String contentEs,
         String contentEn,
         boolean active

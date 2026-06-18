@@ -1,19 +1,18 @@
 package com.dikoin.manuals.entidades;
 
-import com.dikoin.manuals.enums.NoticeType;
 import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "notice_templates")
+@Table(name = "reusable_blocks")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class NoticeTemplate {
+public class ReusableBlock {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -22,15 +21,8 @@ public class NoticeTemplate {
     @Column(nullable = false, unique = true, length = 80)
     private String code;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 30)
-    private NoticeType type;
-
     @Column(nullable = false, length = 220)
-    private String titleEs;
-
-    @Column(length = 220)
-    private String titleEn;
+    private String title;
 
     @Column(length = 120)
     private String productCategory;
@@ -40,11 +32,7 @@ public class NoticeTemplate {
 
     @Lob
     @Column(nullable = false, columnDefinition = "LONGTEXT")
-    private String contentEs;
-
-    @Lob
-    @Column(columnDefinition = "LONGTEXT")
-    private String contentEn;
+    private String contentJson;
 
     @Column(nullable = false)
     private boolean active;
@@ -55,6 +43,7 @@ public class NoticeTemplate {
     @PrePersist
     void onCreate() {
         createdAt = LocalDateTime.now();
+        updatedAt = createdAt;
         active = true;
     }
 

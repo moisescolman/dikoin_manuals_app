@@ -82,11 +82,19 @@ public class ImportServiceImpl implements ImportService {
                     .orElseGet(() -> manualRepository.save(Manual.builder()
                             .code(manualCode)
                             .title(title)
+                            .titleEs(languageCode == LanguageCode.ES ? title : title)
+                            .titleEn(languageCode == LanguageCode.EN ? title : null)
                             .category("Importado")
                             .product(product)
                             .build()));
 
             manual.setTitle(title);
+            manual.setTitleEs(languageCode == LanguageCode.ES ? title : manual.getTitleEs());
+            manual.setTitleEn(languageCode == LanguageCode.EN ? title : manual.getTitleEn());
+            manual.setCategory("Importado");
+            manual.setProduct(product);
+            manual.setEnabled(true);
+            manual.setDeletedAt(null);
             manualRepository.save(manual);
 
             ParsedDocument parsed = parseDocument(storedFile, extension, manual);

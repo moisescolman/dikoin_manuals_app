@@ -12,6 +12,7 @@ public interface ManualRepository extends JpaRepository<Manual, Long> {
     Optional<Manual> findByCodeIgnoreCase(String code);
     Optional<Manual> findByIdAndDeletedAtIsNull(Long id);
     boolean existsByCodeIgnoreCase(String code);
+    long countByDeletedAtIsNull();
 
     @Query("""
             select m from Manual m

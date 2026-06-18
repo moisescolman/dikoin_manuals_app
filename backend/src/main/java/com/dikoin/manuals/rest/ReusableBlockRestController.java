@@ -1,0 +1,44 @@
+package com.dikoin.manuals.rest;
+
+import com.dikoin.manuals.dtos.reusableblock.ReusableBlockRequest;
+import com.dikoin.manuals.dtos.reusableblock.ReusableBlockResponse;
+import com.dikoin.manuals.dtos.reusableblock.ReusableBlockUsageResponse;
+import com.dikoin.manuals.servicios.ReusableBlockService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/v1/reusable-blocks")
+@RequiredArgsConstructor
+public class ReusableBlockRestController {
+
+    private final ReusableBlockService reusableBlockService;
+
+    @GetMapping
+    public List<ReusableBlockResponse> findAll(@RequestParam(defaultValue = "false") boolean includeInactive) {
+        return reusableBlockService.findAll(includeInactive);
+    }
+
+    @GetMapping("/{id}")
+    public ReusableBlockResponse findById(@PathVariable Long id) {
+        return reusableBlockService.findById(id);
+    }
+
+    @PostMapping
+    public ReusableBlockResponse create(@Valid @RequestBody ReusableBlockRequest request) {
+        return reusableBlockService.create(request);
+    }
+
+    @PutMapping("/{id}")
+    public ReusableBlockResponse update(@PathVariable Long id, @Valid @RequestBody ReusableBlockRequest request) {
+        return reusableBlockService.update(id, request);
+    }
+
+    @GetMapping("/{id}/usages")
+    public List<ReusableBlockUsageResponse> findUsages(@PathVariable Long id) {
+        return reusableBlockService.findUsages(id);
+    }
+}

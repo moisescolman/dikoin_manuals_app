@@ -21,11 +21,11 @@ public class DashboardServiceImpl implements DashboardService {
     public DashboardResponse getDashboard() {
         return new DashboardResponse(
                 productRepository.count(),
-                manualRepository.count(),
-                manualVersionRepository.countByStatus(ManualStatus.PUBLISHED),
-                manualVersionRepository.countByStatus(ManualStatus.DRAFT),
-                manualVersionRepository.countByStatus(ManualStatus.REVIEW),
-                manualVersionRepository.countByEnReadyFalse()
+                manualRepository.countByDeletedAtIsNull(),
+                manualVersionRepository.countByStatusAndActiveTrueAndManualDeletedAtIsNull(ManualStatus.PUBLISHED),
+                manualVersionRepository.countByStatusAndActiveTrueAndManualDeletedAtIsNull(ManualStatus.DRAFT),
+                manualVersionRepository.countByStatusAndActiveTrueAndManualDeletedAtIsNull(ManualStatus.REVIEW),
+                manualVersionRepository.countByEnReadyFalseAndActiveTrueAndManualDeletedAtIsNull()
         );
     }
 }

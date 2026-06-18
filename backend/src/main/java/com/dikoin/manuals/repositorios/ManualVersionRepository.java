@@ -12,4 +12,6 @@ public interface ManualVersionRepository extends JpaRepository<ManualVersion, Lo
     Optional<ManualVersion> findByManualIdAndActiveTrue(Long manualId);
     long countByStatus(ManualStatus status);
     long countByEnReadyFalse();
+    long countByStatusAndActiveTrueAndManualDeletedAtIsNull(ManualStatus status);
+    long countByEnReadyFalseAndActiveTrueAndManualDeletedAtIsNull();
 }

@@ -15,6 +15,8 @@ public class NoticeMapper {
                 notice.getType(),
                 notice.getTitleEs(),
                 notice.getTitleEn(),
+                notice.getProductCategory(),
+                notice.getProductCodes(),
                 notice.getContentEs(),
                 notice.getContentEn(),
                 notice.isActive(),

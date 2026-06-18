@@ -10,6 +10,8 @@ public record NoticeTemplateResponse(
         NoticeType type,
         String titleEs,
         String titleEn,
+        String productCategory,
+        String productCodes,
         String contentEs,
         String contentEn,
         boolean active,

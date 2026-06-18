@@ -106,6 +106,8 @@ public class NoticeServiceImpl implements NoticeService {
                 .type(request.type())
                 .titleEs(request.titleEs())
                 .titleEn(request.titleEn())
+                .productCategory(request.productCategory())
+                .productCodes(request.productCodes())
                 .contentEs(request.contentEs())
                 .contentEn(request.contentEn())
                 .active(true)
@@ -117,6 +119,8 @@ public class NoticeServiceImpl implements NoticeService {
         notice.setType(request.type());
         notice.setTitleEs(request.titleEs());
         notice.setTitleEn(request.titleEn());
+        notice.setProductCategory(request.productCategory());
+        notice.setProductCodes(request.productCodes());
         notice.setContentEs(request.contentEs());
         notice.setContentEn(request.contentEn());
         notice.setActive(request.active());

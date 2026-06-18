@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface ManualBlockRepository extends JpaRepository<ManualBlock, Long> {
     List<ManualBlock> findBySectionIdOrderBySortOrderAsc(Long sectionId);
+    List<ManualBlock> findByContentJsonContaining(String token);
 }
