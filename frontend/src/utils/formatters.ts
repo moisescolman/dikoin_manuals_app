@@ -35,6 +35,7 @@ export function roleLabel(role?: BackendRole) {
 export function assetTypeLabel(type?: AssetType) {
   const map: Record<AssetType, string> = {
     IMAGE: 'Imagen',
+    PRODUCT_IMAGE: 'Imagen producto',
     LOGO: 'Logo',
     DOCUMENT_SOURCE: 'Documento fuente',
     PDF_EXPORT: 'PDF exportado',

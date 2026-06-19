@@ -92,17 +92,79 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.dashboard { padding: 24px; display: grid; gap: 20px; }
-.header-row, .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.actions, .langs { display: flex; gap: 8px; flex-wrap: wrap; }
-.stats-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 14px; }
-.stat-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: grid; gap: 8px; text-align: left; cursor: pointer; }
-.stat-card svg { color: var(--dikoin-blue); }
-.stat-card span { color: var(--muted-foreground); font-size: 12px; }
-.stat-card strong { font-size: 28px; }
-.stat-card:hover { border-color: var(--dikoin-blue); box-shadow: 0 6px 18px rgba(0, 124, 184, .08); }
-.panel { overflow: hidden; }
-.panel-head { padding: 16px; border-bottom: 1px solid var(--border); }
-.panel-head h2 { margin: 0; font-size: 16px; }
-@media (max-width: 1000px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+.dashboard {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.header-row,
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.actions,
+.langs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.stat-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stat-card svg {
+  color: var(--dikoin-blue);
+}
+
+.stat-card span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.stat-card strong {
+  font-size: 28px;
+}
+
+.stat-card:hover {
+  border-color: var(--dikoin-blue);
+  box-shadow: 0 6px 18px rgba(0, 124, 184, .08);
+}
+
+.panel {
+  overflow: hidden;
+}
+
+.panel-head {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+@media (max-width: 1000px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 </style>

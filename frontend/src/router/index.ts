@@ -6,6 +6,7 @@ import DashboardView from '@/views/DashboardView.vue'
 import ManualListView from '@/views/ManualListView.vue'
 import ManualDetailView from '@/views/ManualDetailView.vue'
 import ManualPrintView from '@/views/ManualPrintView.vue'
+import ManualCreateView from '@/views/ManualCreateView.vue'
 import ManualEditorView from '@/views/ManualEditorView.vue'
 import ImportManualView from '@/views/ImportManualView.vue'
 import ProductsView from '@/views/ProductsView.vue'
@@ -29,6 +30,7 @@ const router = createRouter({
       children: [
         { path: '', name: 'dashboard', component: DashboardView },
         { path: 'manuales', name: 'manuals', component: ManualListView },
+        { path: 'manuales/nuevo', name: 'manual-create', component: ManualCreateView },
         { path: 'manuales/:id', name: 'manual-detail', component: ManualDetailView, props: true },
         { path: 'manuales/:id/editor', name: 'manual-editor', component: ManualEditorView, props: true },
         { path: 'importar', name: 'import', component: ImportManualView },

@@ -16,6 +16,7 @@ export type BlockType =
 
 export type AssetType =
   | 'IMAGE'
+  | 'PRODUCT_IMAGE'
   | 'LOGO'
   | 'DOCUMENT_SOURCE'
   | 'PDF_EXPORT'
@@ -160,6 +161,8 @@ export interface ManualBlockResponse {
 export interface ManualCreateRequest {
   code?: string
   title: string
+  titleEs?: string
+  titleEn?: string
   category?: string
   productId: number
   documentTypeId?: number
@@ -203,7 +206,9 @@ export interface AssetResponse {
   mimeType?: string
   fileSize?: number
   storagePath: string
+  thumbnailPath?: string
   fileUrl?: string
+  thumbnailUrl?: string
   assetType: AssetType
   manualId?: number
   createdAt?: string

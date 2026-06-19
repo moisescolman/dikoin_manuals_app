@@ -17,3 +17,7 @@ export async function uploadAsset(params: { file: File; assetType: AssetType; ma
   })
   return data
 }
+
+export async function deleteAsset(id: number) {
+  await http.delete(`/assets/${id}`)
+}

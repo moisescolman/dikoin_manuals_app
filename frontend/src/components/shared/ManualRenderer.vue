@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toBackendUrl } from '@/api/http'
+import { getAssets } from '@/api/assets.api'
 import { getNotices } from '@/api/notices.api'
 import { getReusableBlocks } from '@/api/reusable-blocks.api'
 import { getActiveTemplate } from '@/api/templates.api'
-import type { BlockType, LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualSectionResponse, NoticeTemplateResponse, ReusableBlockResponse, TemplateResponse } from '@/types/api'
+import type { AssetResponse, BlockType, LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualSectionResponse, NoticeTemplateResponse, ReusableBlockResponse, TemplateResponse } from '@/types/api'
 
 const props = defineProps<{ manual: ManualDetailResponse; language?: LanguageCode }>()
 const notices = ref<NoticeTemplateResponse[]>([])
 const reusableBlocks = ref<ReusableBlockResponse[]>([])
+const productImages = ref<AssetResponse[]>([])
 const activeTemplate = ref<TemplateResponse | null>(null)
 const measurementRef = ref<HTMLElement | null>(null)
 const measurePageRef = ref<HTMLElement | null>(null)
 const contentPages = ref<ContentUnit[][]>([])
 const renderedLogoSrc = ref('')
+const renderedProductImageSrc = ref('')
 
 const headerDefaults = {
   showLogo: true,
@@ -68,6 +71,13 @@ onMounted(async () => {
   ])
   notices.value = loadedNotices
   reusableBlocks.value = loadedBlocks
+  try {
+    productImages.value = await getAssets({ manualId: props.manual.id, assetType: 'PRODUCT_IMAGE' })
+    renderedProductImageSrc.value = await loadProductImageDataUrl()
+  } catch {
+    productImages.value = []
+    renderedProductImageSrc.value = ''
+  }
   try {
     activeTemplate.value = await getActiveTemplate()
     renderedLogoSrc.value = await loadLogoDataUrl()
@@ -186,8 +196,28 @@ function logoSrc() {
   return renderedLogoSrc.value || templateLogo()
 }
 
+function productImageSrc() {
+  const image = productImages.value[0]
+  return renderedProductImageSrc.value || (image?.fileUrl ? toBackendUrl(image.fileUrl) : '')
+}
+
 async function loadLogoDataUrl() {
   const src = templateLogo()
+  if (!src || src.startsWith('data:')) return src
+
+  try {
+    const response = await fetch(src)
+    if (!response.ok) return src
+    const blob = await response.blob()
+    return await blobToDataUrl(blob)
+  } catch {
+    return src
+  }
+}
+
+async function loadProductImageDataUrl() {
+  const image = productImages.value[0]
+  const src = image?.fileUrl ? toBackendUrl(image.fileUrl) : ''
   if (!src || src.startsWith('data:')) return src
 
   try {
@@ -303,6 +333,14 @@ function contentPageForSection(sectionId: number) {
         <strong v-if="headerConfig().showCompanyName">{{ templateCompany() }}</strong>
       </div>
       <div class="cover-content">
+        <div class="cover-product">
+          <img v-if="productImageSrc()" :src="productImageSrc()" :alt="manual.productName" />
+        </div>
+        <div class="cover-title-block">
+          <h1>{{ manual.productName }}</h1>
+          <p>{{ manualTitle() }}</p>
+          <strong>{{ manual.documentTypeName || manual.category || 'Manual' }}</strong>
+        </div>
         <p class="manual-code">{{ manual.code }}</p>
         <h1>{{ manualTitle() }}</h1>
         <p>{{ manual.productCode }} · {{ manual.productName }}</p>
@@ -540,15 +578,25 @@ function contentPageForSection(sectionId: number) {
 }
 
 .cover-mark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
 }
 
 .cover-content {
-  align-self: center;
+  align-self: stretch;
   display: grid;
-  gap: 12px;
+  grid-template-rows: minmax(250px, 1fr) auto auto;
+  gap: 22px;
+  align-items: end;
+  justify-items: center;
+  text-align: center;
+}
+
+.cover-content > h1,
+.cover-content > p:not(.manual-code),
+.cover-content > span {
+  display: none;
 }
 
 .cover-content h1 {
@@ -566,10 +614,50 @@ function contentPageForSection(sectionId: number) {
   color: var(--muted-foreground);
 }
 
+.cover-product {
+  align-self: center;
+  width: 100%;
+  min-height: 250px;
+  display: grid;
+  place-items: center;
+}
+
+.cover-product img {
+  max-width: 88%;
+  max-height: 330px;
+  object-fit: contain;
+}
+
+.cover-title-block {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.cover-title-block p {
+  color: var(--dikoin-blue);
+  font-size: 15px;
+  font-weight: 800;
+  border-top: 1px solid var(--dikoin-blue);
+  width: min(100%, 650px);
+  padding-top: 6px;
+}
+
+.cover-title-block strong {
+  width: min(100%, 650px);
+  background: var(--dikoin-blue);
+  color: #fff;
+  padding: 5px 10px;
+}
+
 .manual-code {
   font-family: Consolas, Monaco, 'Courier New', monospace;
-  font-weight: 700;
-  color: var(--dikoin-blue) !important;
+  justify-self: start;
+  align-self: end;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted-foreground) !important;
 }
 
 .toc-page h1 {

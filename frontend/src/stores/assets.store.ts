@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getApiError } from '@/api/http'
-import { getAssets, uploadAsset } from '@/api/assets.api'
+import { deleteAsset, getAssets, uploadAsset } from '@/api/assets.api'
 import type { AssetResponse, AssetType } from '@/types/api'
 
 export const useAssetsStore = defineStore('assets', () => {
@@ -27,5 +27,10 @@ export const useAssetsStore = defineStore('assets', () => {
     return asset
   }
 
-  return { assets, loading, error, fetchAssets, upload }
+  async function remove(id: number) {
+    await deleteAsset(id)
+    assets.value = assets.value.filter((asset) => asset.id !== id)
+  }
+
+  return { assets, loading, error, fetchAssets, upload, remove }
 })

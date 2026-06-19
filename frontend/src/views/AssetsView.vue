@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Upload } from '@lucide/vue'
+import { Eye, Trash2, Upload } from '@lucide/vue'
+import { toBackendUrl } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useAssetsStore } from '@/stores/assets.store'
-import type { AssetType } from '@/types/api'
-import { formatBytes, formatDate } from '@/utils/formatters'
+import type { AssetResponse, AssetType } from '@/types/api'
+import { assetTypeLabel, formatBytes, formatDate } from '@/utils/formatters'
 
 const store = useAssetsStore()
 const selectedFile = ref<File | null>(null)
@@ -24,13 +25,32 @@ async function upload() {
   message.value = `Asset guardado en ${asset.storagePath}`
   selectedFile.value = null
 }
+
+function assetImage(asset: AssetResponse) {
+  return asset.thumbnailUrl || asset.fileUrl
+}
+
+function canPreview(asset: AssetResponse) {
+  return Boolean(asset.fileUrl && (asset.mimeType?.startsWith('image/') || ['IMAGE', 'PRODUCT_IMAGE', 'LOGO', 'EXTRACTED_IMAGE'].includes(asset.assetType)))
+}
+
+function openAsset(asset: AssetResponse) {
+  if (!asset.fileUrl) return
+  window.open(toBackendUrl(asset.fileUrl), '_blank', 'noopener')
+}
+
+async function removeAsset(asset: AssetResponse) {
+  if (!window.confirm(`Eliminar ${asset.originalFilename}?`)) return
+  await store.remove(asset.id)
+  message.value = 'Asset eliminado.'
+}
 </script>
 
 <template>
   <section class="assets-page">
     <div>
       <h1 class="page-title">Assets</h1>
-      <p class="text-muted">Imágenes, logos, documentos fuente y recursos reutilizables almacenados.</p>
+      <p class="text-muted">Imagenes, logos, documentos fuente y recursos reutilizables almacenados.</p>
     </div>
 
     <BackendError :message="store.error" />
@@ -41,6 +61,7 @@ async function upload() {
         Tipo
         <select v-model="assetType" class="field">
           <option value="IMAGE">Imagen</option>
+          <option value="PRODUCT_IMAGE">Imagen producto</option>
           <option value="LOGO">Logo</option>
           <option value="DOCUMENT_SOURCE">Documento fuente</option>
           <option value="TEMPLATE_RESOURCE">Recurso plantilla</option>
@@ -58,20 +79,34 @@ async function upload() {
       <button class="btn btn-primary" :disabled="!selectedFile" @click="upload"><Upload :size="14" /> Subir</button>
     </div>
 
-    <div class="card">
+    <div class="card assets-card">
       <table class="table">
-        <thead><tr><th>Nombre</th><th>Tipo</th><th>MIME</th><th>Tamaño</th><th>Manual</th><th>Ruta</th><th>Fecha</th></tr></thead>
+        <thead>
+          <tr><th>Vista</th><th>Nombre</th><th>Tipo</th><th>MIME</th><th>Tamano</th><th>Manual</th><th>Ruta</th><th>Fecha</th><th>Acciones</th></tr>
+        </thead>
         <tbody>
-          <tr v-if="store.loading"><td colspan="7">Cargando assets...</td></tr>
-          <tr v-else-if="!store.assets.length"><td colspan="7">No hay assets.</td></tr>
+          <tr v-if="store.loading"><td colspan="9">Cargando assets...</td></tr>
+          <tr v-else-if="!store.assets.length"><td colspan="9">No hay assets.</td></tr>
           <tr v-for="asset in store.assets" :key="asset.id">
+            <td>
+              <button v-if="assetImage(asset)" class="thumb" type="button" @click="openAsset(asset)">
+                <img :src="toBackendUrl(assetImage(asset) || '')" :alt="asset.originalFilename" />
+              </button>
+              <span v-else class="thumb empty">-</span>
+            </td>
             <td>{{ asset.originalFilename }}</td>
-            <td>{{ asset.assetType }}</td>
+            <td>{{ assetTypeLabel(asset.assetType) }}</td>
             <td>{{ asset.mimeType || '-' }}</td>
             <td>{{ formatBytes(asset.fileSize) }}</td>
             <td>{{ asset.manualId || '-' }}</td>
-            <td class="mono">{{ asset.storagePath }}</td>
+            <td class="mono path-cell">{{ asset.storagePath }}</td>
             <td>{{ formatDate(asset.createdAt) }}</td>
+            <td>
+              <div class="row-actions">
+                <button title="Visualizar" :disabled="!canPreview(asset)" @click="openAsset(asset)"><Eye :size="15" /></button>
+                <button title="Eliminar" @click="removeAsset(asset)"><Trash2 :size="15" /></button>
+              </div>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -92,6 +127,10 @@ async function upload() {
   grid-template-columns: 190px 160px minmax(240px, 1fr) auto;
   gap: 12px;
   align-items: end;
+}
+
+.assets-card {
+  overflow: auto;
 }
 
 label {
@@ -119,6 +158,52 @@ label {
   border: 1px solid #86efac;
   padding: 10px;
   border-radius: var(--radius);
+}
+
+.thumb {
+  width: 64px;
+  height: 44px;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb.empty {
+  color: var(--muted-foreground);
+}
+
+.path-cell {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row-actions button {
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 4px;
+}
+
+.row-actions button:hover:not(:disabled) {
+  color: var(--dikoin-blue);
+  background: var(--dikoin-blue-lighter);
 }
 
 @media (max-width: 980px) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Ban, Download, Edit, Eye, History, Search, Trash2 } from '@lucide/vue'
+import { Ban, Download, Edit, Eye, History, Plus, Search, Trash2 } from '@lucide/vue'
 import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
 import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
@@ -161,7 +161,10 @@ function syncFiltersToRoute() {
         <h1 class="page-title">Manuales</h1>
         <p class="text-muted">{{ filtered.length }} registros encontrados desde backend</p>
       </div>
-      <button class="btn btn-primary" @click="router.push({ name: 'import' })">+ Importar manual</button>
+      <div class="head-actions">
+        <button class="btn btn-primary" @click="router.push({ name: 'manual-create' })"><Plus :size="15" /> Crear manual</button>
+        <button class="btn btn-outline" @click="router.push({ name: 'import' })">+ Importar manual</button>
+      </div>
     </div>
 
     <BackendError :message="store.error" />
@@ -278,7 +281,7 @@ function syncFiltersToRoute() {
 
 <style scoped>
 .manuals-page { padding: 24px; display: grid; gap: 16px; }
-.head, .filters, .bulk, .langs, .row-actions { display: flex; align-items: center; gap: 10px; }
+.head, .head-actions, .filters, .bulk, .langs, .row-actions { display: flex; align-items: center; gap: 10px; }
 .head { justify-content: space-between; }
 .filters { padding: 12px; }
 .search-box { position: relative; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--input-background); padding: 8px 10px; min-width: 300px; }
