@@ -173,23 +173,136 @@ function twoDigits(value: string) {
 </template>
 
 <style scoped>
-.create-page { padding: 24px; display: grid; gap: 16px; }
-.head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.create-grid { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; align-items: start; }
-.wizard { padding: 16px; display: grid; gap: 12px; }
-.wizard h2 { margin: 0; font-size: 16px; }
-.form-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 700; }
-.image-upload { border: 1px dashed var(--border); background: var(--input-background); padding: 13px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--dikoin-blue); cursor: pointer; }
-.image-upload input { display: none; }
-.cover-preview { min-height: 620px; padding: 28px; display: grid; grid-template-rows: auto minmax(250px, 1fr) auto auto; gap: 24px; text-align: center; }
-.preview-logo { color: var(--dikoin-blue); font-size: 44px; font-weight: 900; letter-spacing: 2px; }
-.preview-product { display: grid; place-items: center; color: var(--muted-foreground); border: 1px dashed var(--border); background: #fff; }
-.preview-product img { max-width: 100%; max-height: 300px; object-fit: contain; }
-.preview-title { display: grid; gap: 6px; justify-items: center; }
-.preview-title h2 { margin: 0; color: var(--dikoin-blue); font-size: 28px; line-height: 1.15; }
-.preview-title p { margin: 0; color: var(--dikoin-blue); font-weight: 800; border-top: 1px solid var(--dikoin-blue); width: 100%; padding-top: 6px; }
-.preview-title strong { width: 100%; background: var(--dikoin-blue); color: #fff; padding: 5px 8px; }
-.cover-preview small { justify-self: start; color: var(--muted-foreground); }
-@media (max-width: 1060px) { .create-grid, .form-row { grid-template-columns: 1fr; } }
+.create-page {
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.create-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  gap: 16px;
+  align-items: start;
+}
+
+.wizard {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.wizard h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.image-upload {
+  border: 1px dashed var(--border);
+  background: var(--input-background);
+  padding: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--dikoin-blue);
+  cursor: pointer;
+}
+
+.image-upload input {
+  display: none;
+}
+
+.cover-preview {
+  min-height: 620px;
+  padding: 28px;
+  display: grid;
+  grid-template-rows: auto minmax(250px, 1fr) auto auto;
+  gap: 24px;
+  text-align: center;
+}
+
+.preview-logo {
+  color: var(--dikoin-blue);
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.preview-product {
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  border: 1px dashed var(--border);
+  background: #fff;
+}
+
+.preview-product img {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+}
+
+.preview-title {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.preview-title h2 {
+  margin: 0;
+  color: var(--dikoin-blue);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.preview-title p {
+  margin: 0;
+  color: var(--dikoin-blue);
+  font-weight: 800;
+  border-top: 1px solid var(--dikoin-blue);
+  width: 100%;
+  padding-top: 6px;
+}
+
+.preview-title strong {
+  width: 100%;
+  background: var(--dikoin-blue);
+  color: #fff;
+  padding: 5px 8px;
+}
+
+.cover-preview small {
+  justify-self: start;
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 1060px) {
+
+  .create-grid,
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

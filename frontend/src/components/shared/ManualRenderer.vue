@@ -7,7 +7,12 @@ import { getReusableBlocks } from '@/api/reusable-blocks.api'
 import { getActiveTemplate } from '@/api/templates.api'
 import type { AssetResponse, BlockType, LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualSectionResponse, NoticeTemplateResponse, ReusableBlockResponse, TemplateResponse } from '@/types/api'
 
-const props = defineProps<{ manual: ManualDetailResponse; language?: LanguageCode }>()
+const props = withDefaults(defineProps<{ manual: ManualDetailResponse; language?: LanguageCode; minPages?: number }>(), {
+  minPages: 0,
+})
+const emit = defineEmits<{
+  pageCount: [count: number]
+}>()
 const notices = ref<NoticeTemplateResponse[]>([])
 const reusableBlocks = ref<ReusableBlockResponse[]>([])
 const productImages = ref<AssetResponse[]>([])
@@ -63,6 +68,7 @@ const tocEntries = computed(() => {
 })
 
 const totalPages = computed(() => 2 + contentPages.value.length)
+const blankPages = computed(() => Math.max(0, props.minPages - totalPages.value))
 
 onMounted(async () => {
   const [loadedNotices, loadedBlocks] = await Promise.all([
@@ -100,6 +106,8 @@ watch(
   () => [props.manual.id, props.manual.activeVersion?.id, props.language, contentUnits.value.length, activeTemplate.value?.id],
   () => schedulePagination(),
 )
+
+watch(totalPages, (count) => emit('pageCount', count), { immediate: true })
 
 function activeLanguage() {
   return props.language || 'ES'
@@ -443,6 +451,20 @@ function contentPageForSection(sectionId: number) {
         </template>
       </main>
       <footer class="paper-footer">{{ pageIndex + 3 }}</footer>
+    </article>
+
+    <article v-for="blankIndex in blankPages" :key="`blank-${blankIndex}`" class="manual-page blank-page">
+      <header class="paper-header">
+        <div v-if="headerConfig().showLogo" class="logo" :class="{ 'logo-image': logoSrc() }">
+          <img v-if="logoSrc()" :src="logoSrc()" alt="Logo plantilla" />
+          <span v-else>DK</span>
+        </div>
+        <strong v-if="headerConfig().showCompanyName">{{ templateCompany() }}</strong>
+        <span v-if="headerConfig().showManualCode">Ref.: {{ manual.code }} Â· {{ activeLanguage() }} Â· v{{ manual.activeVersion?.versionNumber }}</span>
+      </header>
+      <div class="header-line"></div>
+      <main class="paper-content"></main>
+      <footer class="paper-footer">{{ totalPages + blankIndex }}</footer>
     </article>
 
     <div class="pagination-measure" aria-hidden="true">

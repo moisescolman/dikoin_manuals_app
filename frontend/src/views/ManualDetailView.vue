@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Download, Edit, GitBranch, History } from '@lucide/vue'
+import { ArrowLeft, Columns2, Download, Edit, GitBranch, History } from '@lucide/vue'
 import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
 import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
 import LangBadge from '@/components/shared/LangBadge.vue'
+import ManualLanguageCompare from '@/components/shared/ManualLanguageCompare.vue'
 import ManualRenderer from '@/components/shared/ManualRenderer.vue'
 import StatusBadge from '@/components/shared/StatusBadge.vue'
 import { useManualsStore } from '@/stores/manuals.store'
@@ -19,6 +20,7 @@ const store = useManualsStore()
 const tab = ref('Contenido')
 const exportMessage = ref('')
 const selectedLanguage = ref<'ES' | 'EN'>((route.query.lang === 'EN' ? 'EN' : 'ES'))
+const compareMode = ref(false)
 const selectedStatus = ref<ManualStatus>('DRAFT')
 const statusNotes = ref('')
 const statusMessage = ref('')
@@ -38,8 +40,14 @@ const languageReady = computed(() => selectedLanguage.value === 'ES'
   : store.current?.activeVersion?.enReady)
 
 function changeLanguage(lang: 'ES' | 'EN') {
+  compareMode.value = false
   selectedLanguage.value = lang
   router.replace({ name: 'manual-detail', params: { id: props.id }, query: { lang } })
+}
+
+function showLanguageCompare() {
+  tab.value = 'Contenido'
+  compareMode.value = true
 }
 
 async function exportPdf() {
@@ -101,6 +109,7 @@ async function changeStatus() {
             <button :class="{ active: selectedLanguage === 'ES' }" @click="changeLanguage('ES')">ES</button>
             <button :class="{ active: selectedLanguage === 'EN' }" @click="changeLanguage('EN')">EN</button>
           </div>
+          <button class="btn btn-outline compare-btn" :class="{ active: compareMode }" @click="showLanguageCompare"><Columns2 :size="15" /> Comparar idiomas</button>
           <button class="btn btn-primary" @click="router.push({ name: 'manual-editor', params: { id: store.current.id } })"><Edit :size="15" /> Editar manual</button>
           <button class="btn btn-outline" :disabled="exporting" @click="exportPdf"><Download :size="15" /> {{ exporting ? 'Exportando...' : 'Exportar PDF' }}</button>
           <button class="btn btn-outline" @click="router.push({ name: 'history', params: { id: store.current.id } })"><History :size="15" /> Historial</button>
@@ -109,7 +118,7 @@ async function changeStatus() {
 
       <div v-if="exportMessage" class="success-msg">{{ exportMessage }}</div>
       <div v-if="statusMessage" class="success-msg">{{ statusMessage }}</div>
-      <div v-if="!languageReady" class="empty-lang">
+      <div v-if="!compareMode && !languageReady" class="empty-lang">
         La versión {{ selectedLanguage }} todavía no tiene contenido listo. Se muestra la vista en blanco para completar o revisar.
       </div>
 
@@ -145,7 +154,8 @@ async function changeStatus() {
         </button>
       </div>
 
-      <ManualRenderer v-if="tab === 'Contenido'" :manual="store.current" :language="selectedLanguage" />
+      <ManualLanguageCompare v-if="tab === 'Contenido' && compareMode" :manual="store.current" />
+      <ManualRenderer v-else-if="tab === 'Contenido'" :manual="store.current" :language="selectedLanguage" />
       <div v-else-if="tab === 'Metadatos'" class="card info-panel">
         <p><strong>Producto:</strong> {{ store.current.productCode }} · {{ store.current.productName }}</p>
         <p><strong>Tipo documental:</strong> {{ store.current.documentTypeCode || '-' }} {{ store.current.documentTypeName || '' }}</p>
@@ -205,6 +215,8 @@ async function changeStatus() {
 .head-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .lang-switch {
@@ -226,6 +238,12 @@ async function changeStatus() {
 .lang-switch button.active {
   background: var(--dikoin-blue);
   color: #fff;
+}
+
+.compare-btn.active {
+  border-color: var(--dikoin-blue);
+  color: var(--dikoin-blue);
+  background: var(--dikoin-blue-lighter);
 }
 
 .meta-grid {
