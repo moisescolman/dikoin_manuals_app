@@ -9,6 +9,7 @@ import com.dikoin.manuals.entidades.Asset;
 import com.dikoin.manuals.entidades.Template;
 import com.dikoin.manuals.entidades.TemplateVersion;
 import com.dikoin.manuals.enums.AssetType;
+import com.dikoin.manuals.exceptions.ApiException;
 import com.dikoin.manuals.exceptions.ResourceNotFoundException;
 import com.dikoin.manuals.mappers.TemplateMapper;
 import com.dikoin.manuals.repositorios.AssetRepository;
@@ -21,7 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -83,12 +87,47 @@ public class TemplateServiceImpl implements TemplateService {
     @Transactional
     public TemplateResponse uploadLogo(Long id, MultipartFile file) {
         Template template = findTemplate(id);
+        validateLogoFile(file);
         AssetResponse response = assetStorageService.storeAsset(file, AssetType.LOGO, null);
         Asset asset = assetRepository.findById(response.id())
                 .orElseThrow(() -> new ResourceNotFoundException("Asset no encontrado: " + response.id()));
         template.setLogoAsset(asset);
         template.setLogoPath("/api/v1/assets/" + asset.getId() + "/file");
         return templateMapper.toResponse(templateRepository.save(template));
+    }
+
+    private void validateLogoFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new ApiException("Archivo vacio");
+        }
+
+        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
+        String contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
+        boolean isAllowedImage = contentType.startsWith("image/")
+                || filename.endsWith(".svg")
+                || filename.endsWith(".svgz");
+
+        if (!isAllowedImage) {
+            throw new ApiException("El logo debe ser una imagen PNG, JPG, GIF, WEBP o SVG");
+        }
+
+        if (filename.endsWith(".svg") || contentType.equals("image/svg+xml")) {
+            validateSvg(file);
+        }
+    }
+
+    private void validateSvg(MultipartFile file) {
+        try {
+            String svg = new String(file.getBytes(), StandardCharsets.UTF_8).toLowerCase(Locale.ROOT);
+            if (!svg.contains("<svg")) {
+                throw new ApiException("El archivo SVG no parece valido");
+            }
+            if (svg.contains("<script") || svg.matches("(?s).*\\son[a-z]+\\s*=.*")) {
+                throw new ApiException("El SVG no puede contener scripts ni manejadores de eventos");
+            }
+        } catch (IOException ex) {
+            throw new ApiException("No se pudo validar el SVG", ex);
+        }
     }
 
     @Override

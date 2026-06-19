@@ -50,6 +50,9 @@ public class AssetRestController {
         } catch (Exception ex) {
             contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
         }
+        if (contentType == null && path.getFileName().toString().toLowerCase().endsWith(".svg")) {
+            contentType = "image/svg+xml";
+        }
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType == null ? MediaType.APPLICATION_OCTET_STREAM_VALUE : contentType))
                 .body(resource);

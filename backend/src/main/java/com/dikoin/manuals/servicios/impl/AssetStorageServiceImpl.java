@@ -57,7 +57,7 @@ public class AssetStorageServiceImpl implements AssetStorageService {
         Asset asset = Asset.builder()
                 .originalFilename(cleanFilename(file.getOriginalFilename()))
                 .storedFilename(stored.getFileName().toString())
-                .mimeType(file.getContentType())
+                .mimeType(normalizeMimeType(file))
                 .fileSize(file.getSize())
                 .storagePath(toRelative(stored))
                 .assetType(assetType)
@@ -132,6 +132,14 @@ public class AssetStorageServiceImpl implements AssetStorageService {
     private String extension(String filename) {
         int idx = filename.lastIndexOf('.');
         return idx >= 0 ? filename.substring(idx).toLowerCase() : "";
+    }
+
+    private String normalizeMimeType(MultipartFile file) {
+        String filename = cleanFilename(file.getOriginalFilename()).toLowerCase();
+        if (filename.endsWith(".svg")) {
+            return "image/svg+xml";
+        }
+        return file.getContentType();
     }
 
     private String safeName(String value) {
