@@ -4,6 +4,7 @@ import com.dikoin.manuals.dtos.notice.BulkNoticeApplyRequest;
 import com.dikoin.manuals.dtos.notice.NoticeApplicationResponse;
 import com.dikoin.manuals.dtos.notice.NoticeTemplateRequest;
 import com.dikoin.manuals.dtos.notice.NoticeTemplateResponse;
+import com.dikoin.manuals.dtos.notice.NoticeUsageResponse;
 import com.dikoin.manuals.enums.NoticeType;
 import com.dikoin.manuals.servicios.NoticeService;
 import jakarta.validation.Valid;
@@ -32,6 +33,16 @@ public class NoticeRestController {
     @PutMapping("/{id}")
     public NoticeTemplateResponse update(@PathVariable Long id, @Valid @RequestBody NoticeTemplateRequest request) {
         return noticeService.update(id, request);
+    }
+
+    @GetMapping("/{id}/usages")
+    public List<NoticeUsageResponse> findUsages(@PathVariable Long id) {
+        return noticeService.findUsages(id);
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id) {
+        noticeService.delete(id);
     }
 
     @PostMapping("/apply")

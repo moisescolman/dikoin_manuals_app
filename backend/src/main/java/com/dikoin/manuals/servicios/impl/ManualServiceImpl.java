@@ -7,6 +7,7 @@ import com.dikoin.manuals.exceptions.ApiException;
 import com.dikoin.manuals.exceptions.ResourceNotFoundException;
 import com.dikoin.manuals.mappers.ManualMapper;
 import com.dikoin.manuals.repositorios.*;
+import com.dikoin.manuals.servicios.ManualCodeService;
 import com.dikoin.manuals.servicios.ManualService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,8 @@ public class ManualServiceImpl implements ManualService {
     private final ManualRepository manualRepository;
     private final ManualVersionRepository manualVersionRepository;
     private final ProductRepository productRepository;
+    private final DocumentTypeRepository documentTypeRepository;
+    private final ManualCodeService manualCodeService;
     private final ManualMapper manualMapper;
 
     @Override
@@ -45,19 +48,25 @@ public class ManualServiceImpl implements ManualService {
     @Override
     @Transactional
     public ManualDetailResponse create(ManualCreateRequest request) {
-        if (manualRepository.existsByCodeIgnoreCase(request.code())) {
-            throw new ApiException("Ya existe un manual con el codigo " + request.code());
-        }
-
         Product product = productRepository.findById(request.productId())
                 .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado: " + request.productId()));
+        DocumentType documentType = findDocumentType(request.documentTypeId());
+        String code = resolveManualCode(request.code(), documentType, product, request.documentYear(), request.documentVersion(), request.languageCode());
+
+        if (manualRepository.existsByCodeIgnoreCase(code)) {
+            throw new ApiException("Ya existe un manual con el codigo " + code);
+        }
 
         Manual manual = Manual.builder()
-                .code(request.code())
+                .code(code)
                 .title(request.title())
                 .titleEs(request.titleEs() == null || request.titleEs().isBlank() ? request.title() : request.titleEs())
                 .titleEn(request.titleEn())
                 .category(request.category())
+                .documentType(documentType)
+                .documentYear(manualCodeService.twoDigits(request.documentYear()))
+                .documentVersion(manualCodeService.twoDigits(request.documentVersion()))
+                .languageCode(normalizeLanguage(request.languageCode()))
                 .enabled(true)
                 .product(product)
                 .build();
@@ -75,6 +84,20 @@ public class ManualServiceImpl implements ManualService {
         manual.setTitleEs(request.titleEs() == null || request.titleEs().isBlank() ? request.title() : request.titleEs());
         manual.setTitleEn(request.titleEn());
         manual.setCategory(request.category());
+        DocumentType documentType = findDocumentType(request.documentTypeId());
+        manual.setDocumentType(documentType);
+        manual.setDocumentYear(manualCodeService.twoDigits(request.documentYear()));
+        manual.setDocumentVersion(manualCodeService.twoDigits(request.documentVersion()));
+        manual.setLanguageCode(normalizeLanguage(request.languageCode()));
+        String generatedCode = manualCodeService.generate(documentType, manual.getProduct(), manual.getDocumentYear(), manual.getDocumentVersion(), manual.getLanguageCode());
+        if (generatedCode != null && !generatedCode.equalsIgnoreCase(manual.getCode())) {
+            manualRepository.findByCodeIgnoreCase(generatedCode)
+                    .filter(existing -> !existing.getId().equals(id))
+                    .ifPresent(existing -> {
+                        throw new ApiException("Ya existe un manual con el codigo " + generatedCode);
+                    });
+            manual.setCode(generatedCode);
+        }
         manualRepository.save(manual);
         return findById(id);
     }
@@ -160,6 +183,29 @@ public class ManualServiceImpl implements ManualService {
                         .stream()
                         .findFirst()
                         .orElse(null));
+    }
+
+    private DocumentType findDocumentType(Long id) {
+        if (id == null) {
+            return null;
+        }
+        return documentTypeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Tipo documental no encontrado: " + id));
+    }
+
+    private String resolveManualCode(String fallbackCode, DocumentType documentType, Product product, String year, String version, String languageCode) {
+        String generated = manualCodeService.generate(documentType, product, year, version, languageCode);
+        if (generated != null) {
+            return generated;
+        }
+        if (fallbackCode == null || fallbackCode.isBlank()) {
+            throw new ApiException("No se pudo generar el codigo del manual. Complete tipo documental, año, version e idioma.");
+        }
+        return fallbackCode.trim();
+    }
+
+    private String normalizeLanguage(String languageCode) {
+        return languageCode == null || languageCode.isBlank() ? null : languageCode.trim().toUpperCase();
     }
 
     private ManualVersion createDefaultDraftVersion(Manual manual) {

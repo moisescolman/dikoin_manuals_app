@@ -32,6 +32,12 @@ public class NoticeTemplate {
     @Column(length = 220)
     private String titleEn;
 
+    @Column(length = 220)
+    private String visibleTitleEs;
+
+    @Column(length = 220)
+    private String visibleTitleEn;
+
     @Column(length = 120)
     private String productCategory;
 

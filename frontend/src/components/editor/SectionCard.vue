@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { AlertTriangle, ChevronDown, ChevronUp, FileImage, GripVertical, Link, List, Plus, Table, Trash2, Type } from '@lucide/vue'
+import { ChevronDown, ChevronUp, FileImage, GripVertical, Link, List, Plus, Table, Trash2, Type } from '@lucide/vue'
 import { getNotices } from '@/api/notices.api'
 import { getReusableBlocks } from '@/api/reusable-blocks.api'
 import BlockEditor from './BlockEditor.vue'
@@ -20,7 +20,7 @@ const reusableBlocks = ref<ReusableBlockResponse[]>([])
 
 onMounted(async () => {
   const [loadedNotices, loadedBlocks] = await Promise.all([
-    getNotices(),
+    getNotices('NOTE'),
     getReusableBlocks(),
   ])
   notices.value = loadedNotices
@@ -124,7 +124,6 @@ function insertReusableBlock(event: Event) {
         <button @click="insertTable"><Table :size="14" /> Tabla</button>
         <button @click="addBlock(undefined, 'imagen')"><FileImage :size="14" /> Imagen</button>
         <button @click="addBlock(undefined, 'enlace')"><Link :size="14" /> Enlace</button>
-        <button @click="addBlock(undefined, 'advertencia')"><AlertTriangle :size="14" /> Advertencia</button>
         <select class="toolbar-select" @change="insertNotice">
           <option value="">Insertar nota</option>
           <option v-for="notice in notices" :key="notice.id" :value="notice.id">

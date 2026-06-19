@@ -3,12 +3,15 @@ package com.dikoin.manuals.dtos.notice;
 import com.dikoin.manuals.enums.NoticeType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 public record NoticeTemplateRequest(
-        @NotBlank String code,
+        @Size(max = 80) String code,
         @NotNull NoticeType type,
         @NotBlank String titleEs,
         String titleEn,
+        String visibleTitleEs,
+        String visibleTitleEn,
         String productCategory,
         String productCodes,
         @NotBlank String contentEs,

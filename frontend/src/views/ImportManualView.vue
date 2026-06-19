@@ -2,19 +2,23 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { FileText, FileUp, Upload } from '@lucide/vue'
+import { getDocumentTypes } from '@/api/document-types.api'
 import { getApiError } from '@/api/http'
 import { getImportJobs, importManual } from '@/api/imports.api'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useProductsStore } from '@/stores/products.store'
-import type { ImportJobResponse, LanguageCode } from '@/types/api'
+import type { DocumentTypeResponse, ImportJobResponse, LanguageCode } from '@/types/api'
 import { formatDate } from '@/utils/formatters'
 
 const router = useRouter()
 const productsStore = useProductsStore()
 const jobs = ref<ImportJobResponse[]>([])
+const documentTypes = ref<DocumentTypeResponse[]>([])
 const selectedFile = ref<File | null>(null)
 const productId = ref<number | ''>('')
-const manualCode = ref('')
+const documentTypeId = ref<number | ''>('')
+const documentYear = ref(new Date().getFullYear().toString().slice(-2))
+const documentVersion = ref('01')
 const title = ref('')
 const languageCode = ref<LanguageCode>('ES')
 const importType = ref<'documents' | 'pdf'>('documents')
@@ -23,11 +27,24 @@ const error = ref('')
 const success = ref('')
 
 const allowedHint = computed(() => importType.value === 'pdf' ? '.pdf' : '.docx, .doc, .odt')
-const canSubmit = computed(() => Boolean(selectedFile.value && productId.value && manualCode.value && title.value))
+const selectedProduct = computed(() => productsStore.products.find((product) => product.id === Number(productId.value)))
+const selectedDocumentType = computed(() => documentTypes.value.find((type) => type.id === Number(documentTypeId.value)))
+const generatedManualCode = computed(() => {
+  if (!selectedProduct.value || !selectedDocumentType.value || !documentYear.value || !documentVersion.value) return ''
+  return `${selectedDocumentType.value.code}-${selectedProduct.value.code}-${twoDigits(documentYear.value)}${twoDigits(documentVersion.value)}[${languageCode.value}]`
+})
+const canSubmit = computed(() => Boolean(selectedFile.value && productId.value && documentTypeId.value && documentYear.value && documentVersion.value && title.value))
 
 onMounted(async () => {
-  await Promise.all([productsStore.fetchProducts(), loadJobs()])
+  await Promise.all([productsStore.fetchProducts(), loadDocumentTypes(), loadJobs()])
 })
+
+async function loadDocumentTypes() {
+  documentTypes.value = await getDocumentTypes()
+  if (!documentTypeId.value && documentTypes.value.length) {
+    documentTypeId.value = documentTypes.value[0].id
+  }
+}
 
 async function loadJobs() {
   jobs.value = await getImportJobs()
@@ -50,7 +67,10 @@ async function submit() {
     const job = await importManual({
       file: selectedFile.value,
       productId: Number(productId.value),
-      manualCode: manualCode.value,
+      manualCode: generatedManualCode.value,
+      documentTypeId: Number(documentTypeId.value),
+      documentYear: twoDigits(documentYear.value),
+      documentVersion: twoDigits(documentVersion.value),
       title: title.value,
       languageCode: languageCode.value,
       type: importType.value,
@@ -62,6 +82,13 @@ async function submit() {
   } finally {
     loading.value = false
   }
+}
+
+function twoDigits(value: string) {
+  const digits = value.replace(/\D/g, '')
+  if (digits.length === 1) return `0${digits}`
+  if (digits.length > 2) return digits.slice(-2)
+  return digits
 }
 </script>
 
@@ -100,8 +127,29 @@ async function submit() {
         </label>
 
         <label>
-          Código del manual
-          <input v-model="manualCode" class="field mono" placeholder="DMP-FLB10.1-2601" required />
+          Tipo documental
+          <select v-model="documentTypeId" class="field" required>
+            <option value="">Selecciona tipo</option>
+            <option v-for="type in documentTypes" :key="type.id" :value="type.id">
+              {{ type.code }} - {{ type.name }}
+            </option>
+          </select>
+        </label>
+
+        <div class="form-row">
+          <label>
+            Año
+            <input v-model="documentYear" class="field mono" maxlength="2" placeholder="26" required />
+          </label>
+          <label>
+            Versión
+            <input v-model="documentVersion" class="field mono" maxlength="2" placeholder="01" required />
+          </label>
+        </div>
+
+        <label>
+          Código generado
+          <input class="field mono" :value="generatedManualCode" placeholder="DMP-FLB10.1-2601[ES]" readonly />
         </label>
 
         <label>
@@ -132,7 +180,7 @@ async function submit() {
       <aside class="card help-card">
         <h2>Flujo recomendado</h2>
         <ol>
-          <li>Seleccionar producto y código real del manual.</li>
+          <li>Seleccionar producto, tipo documental, año, versión e idioma.</li>
           <li>Importar el archivo original.</li>
           <li>Revisar el borrador generado en el editor por secciones.</li>
           <li>Completar idioma pendiente y publicar.</li>
@@ -188,6 +236,12 @@ async function submit() {
   padding: 16px;
   display: grid;
   gap: 14px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 label {
@@ -252,6 +306,10 @@ label {
 
 @media (max-width: 960px) {
   .import-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-row {
     grid-template-columns: 1fr;
   }
 }

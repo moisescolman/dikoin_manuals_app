@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
-  AlertTriangle,
   BarChart2,
   Calculator,
   FileImage,
@@ -41,6 +40,8 @@ const labels: Record<EditorBlockType, string> = {
   'bloque-ref': 'Bloque común',
 }
 
+const selectableTypes = (Object.keys(labels) as EditorBlockType[]).filter((type) => type !== 'advertencia')
+
 const icon = computed(() => {
   const map: Record<EditorBlockType, unknown> = {
     titulo: Type,
@@ -49,7 +50,7 @@ const icon = computed(() => {
     'lista-ul': List,
     'lista-ol': ListOrdered,
     tabla: Table,
-    advertencia: AlertTriangle,
+    advertencia: Info,
     nota: Info,
     'nota-ref': Info,
     imagen: FileImage,
@@ -94,7 +95,7 @@ function linkParts() {
     <div v-if="selected" class="type-select">
       <component :is="icon" :size="12" />
       <select :value="block.type" @change="patch({ type: ($event.target as HTMLSelectElement).value as EditorBlockType })">
-        <option v-for="(label, key) in labels" :key="key" :value="key">{{ label }}</option>
+        <option v-for="key in selectableTypes" :key="key" :value="key">{{ labels[key] }}</option>
       </select>
     </div>
 

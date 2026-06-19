@@ -4,7 +4,10 @@ import type { ImportJobResponse, LanguageCode } from '@/types/api'
 export async function importManual(params: {
   file: File
   productId: number
-  manualCode: string
+  manualCode?: string
+  documentTypeId?: number
+  documentYear?: string
+  documentVersion?: string
   title: string
   languageCode: LanguageCode
   type: 'documents' | 'pdf'
@@ -12,7 +15,10 @@ export async function importManual(params: {
   const form = new FormData()
   form.append('file', params.file)
   form.append('productId', String(params.productId))
-  form.append('manualCode', params.manualCode)
+  if (params.manualCode) form.append('manualCode', params.manualCode)
+  if (params.documentTypeId) form.append('documentTypeId', String(params.documentTypeId))
+  if (params.documentYear) form.append('documentYear', params.documentYear)
+  if (params.documentVersion) form.append('documentVersion', params.documentVersion)
   form.append('title', params.title)
   form.append('languageCode', params.languageCode)
 

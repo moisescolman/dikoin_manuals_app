@@ -351,7 +351,7 @@ function contentPageForSection(sectionId: number) {
           </section>
           <div v-else class="doc-block">
             <div v-if="content(unit.block.contentJson).type === 'notice_ref'" class="linked-note">
-              <strong>{{ noticeById(content(unit.block.contentJson).noticeTemplateId)?.titleEs || 'Nota' }}</strong>
+              <strong>{{ noticeById(content(unit.block.contentJson).noticeTemplateId)?.visibleTitleEs || 'Nota' }}</strong>
               <p>{{ noticeById(content(unit.block.contentJson).noticeTemplateId)?.contentEs || 'Nota no encontrada' }}</p>
             </div>
             <div v-else-if="content(unit.block.contentJson).type === 'reusable_block_ref'" class="linked-block">
@@ -365,7 +365,10 @@ function contentPageForSection(sectionId: number) {
                 <ol v-else-if="innerBlock.blockType === 'ORDERED_LIST'">
                   <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
                 </ol>
-                <div v-else-if="innerBlock.blockType === 'NOTE'" class="note">NOTA: {{ content(innerBlock.contentJson).text }}</div>
+                <div v-else-if="innerBlock.blockType === 'NOTE'" class="note">
+                  <strong>{{ content(innerBlock.contentJson).title || 'Nota' }}</strong>
+                  <p>{{ content(innerBlock.contentJson).text }}</p>
+                </div>
                 <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
               </div>
             </div>
@@ -391,7 +394,10 @@ function contentPageForSection(sectionId: number) {
               </tbody>
             </table>
             <div v-else-if="unit.block.blockType === 'WARNING'" class="warning">ADVERTENCIA: {{ content(unit.block.contentJson).text }}</div>
-            <div v-else-if="unit.block.blockType === 'NOTE'" class="note">NOTA: {{ content(unit.block.contentJson).text }}</div>
+            <div v-else-if="unit.block.blockType === 'NOTE'" class="note">
+              <strong>{{ content(unit.block.contentJson).title || 'Nota' }}</strong>
+              <p>{{ content(unit.block.contentJson).text }}</p>
+            </div>
             <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula">{{ content(unit.block.contentJson).latex }}</div>
             <div v-else-if="unit.block.blockType === 'IMAGE'" class="image-placeholder">Imagen: {{ content(unit.block.contentJson).src }}</div>
             <div v-else class="text-muted">{{ unit.block.contentJson }}</div>
@@ -652,6 +658,10 @@ function contentPageForSection(sectionId: number) {
   border-left: 4px solid var(--dikoin-blue);
   background: var(--dikoin-blue-light);
   padding: 9px;
+}
+
+.note p {
+  margin: 6px 0 0;
 }
 
 .linked-note {

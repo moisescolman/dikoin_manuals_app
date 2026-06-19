@@ -66,6 +66,15 @@ export interface ProductRequest {
   active?: boolean
 }
 
+export interface DocumentTypeResponse {
+  id: number
+  code: string
+  name: string
+  description?: string
+  active: boolean
+  sortOrder: number
+}
+
 export interface ManualSummaryResponse {
   id: number
   code: string
@@ -74,6 +83,12 @@ export interface ManualSummaryResponse {
   titleEn?: string
   category?: string
   enabled?: boolean
+  documentTypeId?: number
+  documentTypeCode?: string
+  documentTypeName?: string
+  documentYear?: string
+  documentVersion?: string
+  languageCode?: string
   productId: number
   productCode: string
   productName: string
@@ -94,6 +109,12 @@ export interface ManualDetailResponse {
   titleEn?: string
   category?: string
   enabled?: boolean
+  documentTypeId?: number
+  documentTypeCode?: string
+  documentTypeName?: string
+  documentYear?: string
+  documentVersion?: string
+  languageCode?: string
   productId: number
   productCode: string
   productName: string
@@ -137,10 +158,14 @@ export interface ManualBlockResponse {
 }
 
 export interface ManualCreateRequest {
-  code: string
+  code?: string
   title: string
   category?: string
   productId: number
+  documentTypeId?: number
+  documentYear?: string
+  documentVersion?: string
+  languageCode?: string
 }
 
 export interface ManualVersionRequest {
@@ -236,6 +261,8 @@ export interface NoticeTemplateResponse {
   type: NoticeType
   titleEs: string
   titleEn?: string
+  visibleTitleEs?: string
+  visibleTitleEn?: string
   productCategory?: string
   productCodes?: string
   contentEs: string
@@ -246,15 +273,28 @@ export interface NoticeTemplateResponse {
 }
 
 export interface NoticeTemplateRequest {
-  code: string
+  code?: string
   type: NoticeType
   titleEs: string
   titleEn?: string
+  visibleTitleEs?: string
+  visibleTitleEn?: string
   productCategory?: string
   productCodes?: string
   contentEs: string
   contentEn?: string
   active: boolean
+}
+
+export interface NoticeUsageResponse {
+  manualId: number
+  manualCode: string
+  manualTitle: string
+  productCode: string
+  sectionId?: number
+  sectionNumber?: string
+  sectionTitle?: string
+  blockId?: number
 }
 
 export interface ReusableBlockResponse {

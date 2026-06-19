@@ -9,6 +9,7 @@ import com.dikoin.manuals.mappers.ImportJobMapper;
 import com.dikoin.manuals.repositorios.*;
 import com.dikoin.manuals.servicios.AssetStorageService;
 import com.dikoin.manuals.servicios.ImportService;
+import com.dikoin.manuals.servicios.ManualCodeService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -44,14 +45,25 @@ public class ImportServiceImpl implements ImportService {
     private final ProductRepository productRepository;
     private final ManualRepository manualRepository;
     private final ManualVersionRepository manualVersionRepository;
+    private final DocumentTypeRepository documentTypeRepository;
     private final ImportJobRepository importJobRepository;
     private final AssetRepository assetRepository;
     private final ImportJobMapper importJobMapper;
     private final ObjectMapper objectMapper;
+    private final ManualCodeService manualCodeService;
 
     @Override
     @Transactional
-    public ImportJobResponse importDocument(MultipartFile file, Long productId, String manualCode, String title, LanguageCode languageCode) {
+    public ImportJobResponse importDocument(
+            MultipartFile file,
+            Long productId,
+            Long documentTypeId,
+            String documentYear,
+            String documentVersion,
+            String manualCode,
+            String title,
+            LanguageCode languageCode
+    ) {
         if (file == null || file.isEmpty()) {
             throw new ApiException("Archivo vacio");
         }
@@ -77,21 +89,32 @@ public class ImportServiceImpl implements ImportService {
         try {
             Product product = productRepository.findById(productId)
                     .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado: " + productId));
+            DocumentType documentType = findDocumentType(documentTypeId);
+            LanguageCode normalizedLanguage = languageCode == null ? LanguageCode.ES : languageCode;
+            String resolvedCode = resolveManualCode(manualCode, documentType, product, documentYear, documentVersion, normalizedLanguage);
 
-            Manual manual = manualRepository.findByCodeIgnoreCase(manualCode)
+            Manual manual = manualRepository.findByCodeIgnoreCase(resolvedCode)
                     .orElseGet(() -> manualRepository.save(Manual.builder()
-                            .code(manualCode)
+                            .code(resolvedCode)
                             .title(title)
-                            .titleEs(languageCode == LanguageCode.ES ? title : title)
-                            .titleEn(languageCode == LanguageCode.EN ? title : null)
+                            .titleEs(normalizedLanguage == LanguageCode.ES ? title : title)
+                            .titleEn(normalizedLanguage == LanguageCode.EN ? title : null)
                             .category("Importado")
+                            .documentType(documentType)
+                            .documentYear(manualCodeService.twoDigits(documentYear))
+                            .documentVersion(manualCodeService.twoDigits(documentVersion))
+                            .languageCode(normalizedLanguage.name())
                             .product(product)
                             .build()));
 
             manual.setTitle(title);
-            manual.setTitleEs(languageCode == LanguageCode.ES ? title : manual.getTitleEs());
-            manual.setTitleEn(languageCode == LanguageCode.EN ? title : manual.getTitleEn());
+            manual.setTitleEs(normalizedLanguage == LanguageCode.ES ? title : manual.getTitleEs());
+            manual.setTitleEn(normalizedLanguage == LanguageCode.EN ? title : manual.getTitleEn());
             manual.setCategory("Importado");
+            manual.setDocumentType(documentType);
+            manual.setDocumentYear(manualCodeService.twoDigits(documentYear));
+            manual.setDocumentVersion(manualCodeService.twoDigits(documentVersion));
+            manual.setLanguageCode(normalizedLanguage.name());
             manual.setProduct(product);
             manual.setEnabled(true);
             manual.setDeletedAt(null);
@@ -347,6 +370,25 @@ public class ImportServiceImpl implements ImportService {
             return "";
         }
         return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
+
+    private DocumentType findDocumentType(Long id) {
+        if (id == null) {
+            return null;
+        }
+        return documentTypeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Tipo documental no encontrado: " + id));
+    }
+
+    private String resolveManualCode(String fallbackCode, DocumentType documentType, Product product, String year, String version, LanguageCode languageCode) {
+        String generated = manualCodeService.generate(documentType, product, year, version, languageCode == null ? null : languageCode.name());
+        if (generated != null) {
+            return generated;
+        }
+        if (fallbackCode == null || fallbackCode.isBlank()) {
+            throw new ApiException("No se pudo generar el codigo del manual. Complete tipo documental, año, version e idioma.");
+        }
+        return fallbackCode.trim();
     }
 
     private record ParsedDocument(String text, List<List<List<String>>> tables, int tableCount, int imageCount) {

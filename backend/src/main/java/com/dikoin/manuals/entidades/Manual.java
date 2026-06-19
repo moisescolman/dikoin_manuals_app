@@ -35,6 +35,19 @@ public class Manual {
     @Column(length = 120)
     private String category;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "document_type_id")
+    private DocumentType documentType;
+
+    @Column(length = 2)
+    private String documentYear;
+
+    @Column(length = 2)
+    private String documentVersion;
+
+    @Column(length = 10)
+    private String languageCode;
+
     @Column(nullable = false)
     private boolean enabled;
 

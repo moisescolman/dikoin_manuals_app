@@ -30,21 +30,27 @@ public class ImportJobRestController {
     public ImportJobResponse importDocument(
             @RequestParam MultipartFile file,
             @RequestParam Long productId,
-            @RequestParam String manualCode,
+            @RequestParam(required = false) Long documentTypeId,
+            @RequestParam(required = false) String documentYear,
+            @RequestParam(required = false) String documentVersion,
+            @RequestParam(required = false) String manualCode,
             @RequestParam String title,
             @RequestParam(defaultValue = "ES") LanguageCode languageCode
     ) {
-        return importService.importDocument(file, productId, manualCode, title, languageCode);
+        return importService.importDocument(file, productId, documentTypeId, documentYear, documentVersion, manualCode, title, languageCode);
     }
 
     @PostMapping("/pdf")
     public ImportJobResponse importPdf(
             @RequestParam MultipartFile file,
             @RequestParam Long productId,
-            @RequestParam String manualCode,
+            @RequestParam(required = false) Long documentTypeId,
+            @RequestParam(required = false) String documentYear,
+            @RequestParam(required = false) String documentVersion,
+            @RequestParam(required = false) String manualCode,
             @RequestParam String title,
             @RequestParam(defaultValue = "ES") LanguageCode languageCode
     ) {
-        return importService.importDocument(file, productId, manualCode, title, languageCode);
+        return importService.importDocument(file, productId, documentTypeId, documentYear, documentVersion, manualCode, title, languageCode);
     }
 }

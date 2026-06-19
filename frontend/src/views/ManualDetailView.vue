@@ -116,6 +116,7 @@ async function changeStatus() {
       <div class="meta-grid">
         <article class="card meta-card"><span>Estado</span><StatusBadge :status="store.current.activeVersion?.status" /></article>
         <article class="card meta-card"><span>Versión activa</span><strong>v{{ store.current.activeVersion?.versionNumber }}</strong></article>
+        <article class="card meta-card"><span>Tipo</span><strong>{{ store.current.documentTypeCode || '-' }}</strong></article>
         <article class="card meta-card"><span>Idiomas</span><div><LangBadge label="ES" :ready="store.current.activeVersion?.esReady" /> <LangBadge label="EN" :ready="store.current.activeVersion?.enReady" /></div></article>
         <article class="card meta-card"><span>Actualizado</span><strong>{{ formatDate(store.current.updatedAt) }}</strong></article>
       </div>
@@ -147,6 +148,8 @@ async function changeStatus() {
       <ManualRenderer v-if="tab === 'Contenido'" :manual="store.current" :language="selectedLanguage" />
       <div v-else-if="tab === 'Metadatos'" class="card info-panel">
         <p><strong>Producto:</strong> {{ store.current.productCode }} · {{ store.current.productName }}</p>
+        <p><strong>Tipo documental:</strong> {{ store.current.documentTypeCode || '-' }} {{ store.current.documentTypeName || '' }}</p>
+        <p><strong>Nomenclatura:</strong> {{ store.current.documentYear || '--' }}{{ store.current.documentVersion || '--' }} [{{ store.current.languageCode || '--' }}]</p>
         <p><strong>Categoría:</strong> {{ store.current.category || '-' }}</p>
         <p><strong>Creado:</strong> {{ formatDate(store.current.createdAt) }}</p>
       </div>
@@ -227,7 +230,7 @@ async function changeStatus() {
 
 .meta-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 

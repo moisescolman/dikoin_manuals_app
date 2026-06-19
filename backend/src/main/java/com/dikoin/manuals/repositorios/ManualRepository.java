@@ -17,6 +17,7 @@ public interface ManualRepository extends JpaRepository<Manual, Long> {
     @Query("""
             select m from Manual m
             join fetch m.product p
+            left join fetch m.documentType dt
             where m.deletedAt is null
             and (
                 :search is null
@@ -24,6 +25,8 @@ public interface ManualRepository extends JpaRepository<Manual, Long> {
                 or lower(m.title) like lower(concat('%', :search, '%'))
                 or lower(coalesce(m.titleEs, '')) like lower(concat('%', :search, '%'))
                 or lower(coalesce(m.titleEn, '')) like lower(concat('%', :search, '%'))
+                or lower(coalesce(dt.code, '')) like lower(concat('%', :search, '%'))
+                or lower(coalesce(dt.name, '')) like lower(concat('%', :search, '%'))
                 or lower(p.code) like lower(concat('%', :search, '%'))
                 or lower(p.name) like lower(concat('%', :search, '%'))
             )

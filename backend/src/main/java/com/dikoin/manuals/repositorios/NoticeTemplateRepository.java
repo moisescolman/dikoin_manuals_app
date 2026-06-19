@@ -8,6 +8,7 @@ import java.util.List;
 
 public interface NoticeTemplateRepository extends JpaRepository<NoticeTemplate, Long> {
     boolean existsByCodeIgnoreCase(String code);
+    List<NoticeTemplate> findByCodeStartingWithIgnoreCase(String code);
     List<NoticeTemplate> findByActiveTrueOrderByUpdatedAtDesc();
     List<NoticeTemplate> findByTypeAndActiveTrueOrderByUpdatedAtDesc(NoticeType type);
 }

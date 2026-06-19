@@ -234,15 +234,16 @@ function syncFiltersToRoute() {
       <table class="table">
         <thead>
           <tr>
-            <th></th><th>Código</th><th>Producto</th><th>Título</th><th>Estado</th><th>Idiomas</th><th>Modificado</th><th>Versión</th><th>Acciones</th>
+            <th></th><th>Código</th><th>Tipo</th><th>Producto</th><th>Título</th><th>Estado</th><th>Idiomas</th><th>Modificado</th><th>Versión</th><th>Acciones</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="store.loading"><td colspan="9">Cargando manuales...</td></tr>
-          <tr v-else-if="!filtered.length"><td colspan="9">No hay manuales para mostrar.</td></tr>
+          <tr v-if="store.loading"><td colspan="10">Cargando manuales...</td></tr>
+          <tr v-else-if="!filtered.length"><td colspan="10">No hay manuales para mostrar.</td></tr>
           <tr v-for="manual in filtered" :key="manual.id">
             <td><input type="checkbox" :checked="selected.includes(manual.id)" @change="toggle(manual.id)" /></td>
             <td class="mono">{{ manual.code }}</td>
+            <td class="mono">{{ manual.documentTypeCode || '-' }}</td>
             <td>{{ manual.productCode }}</td>
             <td class="manual-title" @click="router.push({ name: 'manual-detail', params: { id: manual.id } })">{{ manual.title }}</td>
             <td><StatusBadge :status="manual.activeStatus" /></td>

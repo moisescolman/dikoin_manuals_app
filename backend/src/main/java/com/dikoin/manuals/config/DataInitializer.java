@@ -18,6 +18,7 @@ public class DataInitializer implements CommandLineRunner {
     private final ProductRepository productRepository;
     private final ManualRepository manualRepository;
     private final ManualVersionRepository manualVersionRepository;
+    private final DocumentTypeRepository documentTypeRepository;
     private final TemplateRepository templateRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -26,6 +27,7 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) {
         seedRoles();
         seedUsers();
+        seedDocumentTypes();
         seedProductsAndManuals();
         seedTemplate();
     }
@@ -47,6 +49,25 @@ public class DataInitializer implements CommandLineRunner {
         saveUser("Tecnico DIKOIN", "tecnico@dikoin.local", UserRole.TECNICO);
         saveUser("Revisor DIKOIN", "revisor@dikoin.local", UserRole.REVISOR);
         saveUser("Cliente Demo", "cliente@dikoin.local", UserRole.CLIENTE);
+    }
+
+    private void seedDocumentTypes() {
+        saveDocumentType("DMP", "Cuaderno de practicas", "Documentacion de practicas de laboratorio", 1);
+        saveDocumentType("DMT", "Tablas no resueltas", "Tablas o anexos tecnicos pendientes de resolucion", 2);
+        saveDocumentType("DMS", "Manual de software", "Manual de uso de software asociado al equipo", 3);
+        saveDocumentType("DMM", "Manual de montaje", "Instrucciones de montaje del equipo", 4);
+        saveDocumentType("DMC", "Manual de pruebas", "Manual de pruebas y comprobaciones", 5);
+    }
+
+    private void saveDocumentType(String code, String name, String description, int sortOrder) {
+        documentTypeRepository.findByCodeIgnoreCase(code)
+                .orElseGet(() -> documentTypeRepository.save(DocumentType.builder()
+                        .code(code)
+                        .name(name)
+                        .description(description)
+                        .active(true)
+                        .sortOrder(sortOrder)
+                        .build()));
     }
 
     private void saveUser(String name, String email, UserRole roleName) {
@@ -96,6 +117,10 @@ public class DataInitializer implements CommandLineRunner {
                 .code(code)
                 .title(title)
                 .category("Practicas")
+                .documentType(documentTypeRepository.findByCodeIgnoreCase("DMP").orElse(null))
+                .documentYear("26")
+                .documentVersion(published ? "01" : "03")
+                .languageCode("ES")
                 .product(product)
                 .build());
 
