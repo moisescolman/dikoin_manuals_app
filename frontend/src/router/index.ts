@@ -5,6 +5,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import ManualListView from '@/views/ManualListView.vue'
 import ManualDetailView from '@/views/ManualDetailView.vue'
+import ManualPrintView from '@/views/ManualPrintView.vue'
 import ManualEditorView from '@/views/ManualEditorView.vue'
 import ImportManualView from '@/views/ImportManualView.vue'
 import ProductsView from '@/views/ProductsView.vue'
@@ -20,6 +21,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginView },
+    { path: '/manuales/:id/print', name: 'manual-print', component: ManualPrintView, props: true },
     {
       path: '/',
       component: AppLayout,

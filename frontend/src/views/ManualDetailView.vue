@@ -2,7 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Download, Edit, GitBranch, History } from '@lucide/vue'
-import { exportManualPdf } from '@/api/exports.api'
+import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
+import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
 import LangBadge from '@/components/shared/LangBadge.vue'
 import ManualRenderer from '@/components/shared/ManualRenderer.vue'
@@ -22,6 +23,7 @@ const selectedStatus = ref<ManualStatus>('DRAFT')
 const statusNotes = ref('')
 const statusMessage = ref('')
 const changingStatus = ref(false)
+const exporting = ref(false)
 
 onMounted(() => store.fetchManual(Number(props.id)))
 watch(() => store.current?.activeVersion?.status, (status) => {
@@ -41,8 +43,33 @@ function changeLanguage(lang: 'ES' | 'EN') {
 }
 
 async function exportPdf() {
-  const result = await exportManualPdf(Number(props.id))
-  exportMessage.value = result.status === 'COMPLETED' ? `PDF generado: ${result.pdfPath}` : result.logMessage || 'Exportación solicitada'
+  exporting.value = true
+  exportMessage.value = 'Generando PDF...'
+  try {
+    const result = await exportManualPdf(Number(props.id), selectedLanguage.value)
+    if (result.status !== 'COMPLETED') {
+      exportMessage.value = result.logMessage || 'Exportación solicitada'
+      return
+    }
+    const pdf = await downloadExportPdf(result.id)
+    const url = URL.createObjectURL(pdf)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = pdfFilename(result.pdfPath)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    exportMessage.value = 'PDF generado y descargado.'
+  } catch (error) {
+    exportMessage.value = getApiError(error)
+  } finally {
+    exporting.value = false
+  }
+}
+
+function pdfFilename(path: string | undefined) {
+  return path?.split('/').pop() || `manual-${props.id}.pdf`
 }
 
 async function changeStatus() {
@@ -75,7 +102,7 @@ async function changeStatus() {
             <button :class="{ active: selectedLanguage === 'EN' }" @click="changeLanguage('EN')">EN</button>
           </div>
           <button class="btn btn-primary" @click="router.push({ name: 'manual-editor', params: { id: store.current.id } })"><Edit :size="15" /> Editar manual</button>
-          <button class="btn btn-outline" @click="exportPdf"><Download :size="15" /> Exportar PDF</button>
+          <button class="btn btn-outline" :disabled="exporting" @click="exportPdf"><Download :size="15" /> {{ exporting ? 'Exportando...' : 'Exportar PDF' }}</button>
           <button class="btn btn-outline" @click="router.push({ name: 'history', params: { id: store.current.id } })"><History :size="15" /> Historial</button>
         </div>
       </div>
@@ -139,7 +166,7 @@ async function changeStatus() {
       </div>
       <div v-else class="card info-panel">
         <GitBranch :size="18" />
-        <p>Las exportaciones PDF se generan desde el botón superior. El backend devuelve la ruta del archivo generado.</p>
+        <p>Las exportaciones PDF se generan desde el botón superior y se descargan al terminar.</p>
       </div>
     </template>
   </section>

@@ -2,7 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Ban, Download, Edit, Eye, History, Search, Trash2 } from '@lucide/vue'
-import { exportManualPdf } from '@/api/exports.api'
+import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
+import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
 import LangBadge from '@/components/shared/LangBadge.vue'
 import StatusBadge from '@/components/shared/StatusBadge.vue'
@@ -21,6 +22,7 @@ const statusFilter = ref<StatusFilter>(statusFromQuery(route.query.status))
 const langFilter = ref<LangFilter>(langFromQuery(route.query.lang))
 const selected = ref<number[]>([])
 const exportMessage = ref('')
+const exportingIds = ref<number[]>([])
 const searchFocused = ref(false)
 const disabledMessage = ref('')
 const bulkNoticeOpen = ref(false)
@@ -54,10 +56,34 @@ async function performSearch() {
 }
 
 async function exportPdf(id: number) {
-  const result = await exportManualPdf(id)
-  exportMessage.value = result.status === 'COMPLETED'
-    ? `PDF generado: ${result.pdfPath}`
-    : result.logMessage || 'Exportación solicitada'
+  exportMessage.value = 'Generando PDF...'
+  exportingIds.value = [...exportingIds.value, id]
+  try {
+    const result = await exportManualPdf(id)
+    if (result.status !== 'COMPLETED') {
+      exportMessage.value = result.logMessage || 'Exportación solicitada'
+      return
+    }
+    const pdf = await downloadExportPdf(result.id)
+    const url = URL.createObjectURL(pdf)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = pdfFilename(result.pdfPath, id)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    exportMessage.value = 'PDF generado y descargado.'
+  } catch (error) {
+    exportMessage.value = getApiError(error)
+  } finally {
+    exportingIds.value = exportingIds.value.filter((item) => item !== id)
+  }
+}
+
+function pdfFilename(path: string | undefined, id: number) {
+  const filename = path?.split('/').pop()
+  return filename || `manual-${id}.pdf`
 }
 
 async function deleteManual(id: number) {
@@ -236,7 +262,7 @@ function syncFiltersToRoute() {
                 <button class="lang-action" title="Ver español" @click="router.push({ name: 'manual-detail', params: { id: manual.id }, query: { lang: 'ES' } })">ES</button>
                 <button class="lang-action" title="Ver inglés" @click="router.push({ name: 'manual-detail', params: { id: manual.id }, query: { lang: 'EN' } })">EN</button>
                 <button title="Editar" @click="router.push({ name: 'manual-editor', params: { id: manual.id } })"><Edit :size="14" /></button>
-                <button title="Exportar PDF" @click="exportPdf(manual.id)"><Download :size="14" /></button>
+                <button title="Exportar PDF" :disabled="exportingIds.includes(manual.id)" @click="exportPdf(manual.id)"><Download :size="14" /></button>
                 <button title="Historial" @click="router.push({ name: 'history', params: { id: manual.id } })"><History :size="14" /></button>
                 <button title="Deshabilitar" @click="disableManualById(manual.id)"><Ban :size="14" /></button>
                 <button title="Eliminar" @click="deleteManual(manual.id)"><Trash2 :size="14" /></button>
