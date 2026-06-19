@@ -12,5 +12,7 @@ public interface AssetStorageService {
     Path storeRawFile(MultipartFile file, String folder);
     Path resolve(String relativePath);
     Path resolveAsset(Long assetId);
+    Path resolveThumbnail(Long assetId);
     List<AssetResponse> findAll(Long manualId, AssetType assetType);
+    void delete(Long assetId);
 }

@@ -33,6 +33,9 @@ public class Asset {
     @Column(nullable = false, length = 700)
     private String storagePath;
 
+    @Column(length = 700)
+    private String thumbnailPath;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private AssetType assetType;

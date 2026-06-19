@@ -43,6 +43,21 @@ public class AssetRestController {
     @GetMapping("/{id}/file")
     public ResponseEntity<Resource> file(@PathVariable Long id) throws MalformedURLException {
         Path path = assetStorageService.resolveAsset(id);
+        return resourceResponse(path);
+    }
+
+    @GetMapping("/{id}/thumbnail")
+    public ResponseEntity<Resource> thumbnail(@PathVariable Long id) throws MalformedURLException {
+        Path path = assetStorageService.resolveThumbnail(id);
+        return resourceResponse(path);
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id) {
+        assetStorageService.delete(id);
+    }
+
+    private ResponseEntity<Resource> resourceResponse(Path path) throws MalformedURLException {
         Resource resource = new UrlResource(path.toUri());
         String contentType;
         try {

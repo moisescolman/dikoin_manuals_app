@@ -2,6 +2,7 @@ package com.dikoin.manuals.servicios.impl;
 
 import com.dikoin.manuals.dtos.manual.*;
 import com.dikoin.manuals.entidades.*;
+import com.dikoin.manuals.enums.LanguageCode;
 import com.dikoin.manuals.enums.ManualStatus;
 import com.dikoin.manuals.exceptions.ApiException;
 import com.dikoin.manuals.exceptions.ResourceNotFoundException;
@@ -209,13 +210,14 @@ public class ManualServiceImpl implements ManualService {
     }
 
     private ManualVersion createDefaultDraftVersion(Manual manual) {
+        LanguageCode initialLanguage = parseLanguage(manual.getLanguageCode());
         ManualVersion version = ManualVersion.builder()
                 .manual(manual)
                 .versionNumber("0.1")
                 .status(ManualStatus.DRAFT)
                 .active(true)
-                .esReady(false)
-                .enReady(false)
+                .esReady(initialLanguage == LanguageCode.ES)
+                .enReady(initialLanguage == LanguageCode.EN)
                 .changeNotes("Version inicial")
                 .build();
 
@@ -231,11 +233,22 @@ public class ManualServiceImpl implements ManualService {
                 .section(section)
                 .sortOrder(1)
                 .blockType(com.dikoin.manuals.enums.BlockType.PARAGRAPH)
-                .languageCode(com.dikoin.manuals.enums.LanguageCode.ES)
+                .languageCode(initialLanguage)
                 .contentJson("{\"type\":\"paragraph\",\"text\":\"Contenido inicial del manual.\"}")
                 .build());
         version.getSections().add(section);
         return manualVersionRepository.save(version);
+    }
+
+    private LanguageCode parseLanguage(String languageCode) {
+        if (languageCode == null || languageCode.isBlank()) {
+            return LanguageCode.ES;
+        }
+        try {
+            return LanguageCode.valueOf(languageCode.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            return LanguageCode.ES;
+        }
     }
 
     private ManualSection toSection(ManualVersion version, ManualSectionRequest request) {

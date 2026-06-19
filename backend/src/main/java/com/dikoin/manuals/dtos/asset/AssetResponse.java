@@ -11,7 +11,9 @@ public record AssetResponse(
         String mimeType,
         Long fileSize,
         String storagePath,
+        String thumbnailPath,
         String fileUrl,
+        String thumbnailUrl,
         AssetType assetType,
         Long manualId,
         LocalDateTime createdAt

@@ -9,4 +9,5 @@ import java.util.List;
 public interface AssetRepository extends JpaRepository<Asset, Long> {
     List<Asset> findByManualId(Long manualId);
     List<Asset> findByAssetType(AssetType assetType);
+    List<Asset> findByManualIdAndAssetType(Long manualId, AssetType assetType);
 }
