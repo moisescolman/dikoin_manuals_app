@@ -66,7 +66,6 @@ function logout() {
     </nav>
 
     <div class="sidebar-footer">
-      <!-- <div class="db-pill"><Database :size="13" /> Backend real</div> -->
       <div class="user-card">
         <div class="avatar">{{ auth.user?.fullName?.slice(0, 2).toUpperCase() }}</div>
         <div>

@@ -707,6 +707,8 @@ function contentPageForSection(sectionId: number) {
 }
 
 .measure-page {
+  height: 297mm;
+  min-height: 297mm;
   box-shadow: none;
 }
 

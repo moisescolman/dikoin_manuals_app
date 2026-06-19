@@ -297,8 +297,8 @@ function textFromEvent(event: Event) {
         <div class="logo-panel">
           <div class="logo-actions">
             <label class="logo-upload" :class="{ disabled: !canUploadLogo }">
-              <input type="file" accept="image/*" :disabled="!canUploadLogo" @change="uploadLogo" />
-              <ImageUp :size="14" /> {{ uploadingLogo ? 'Subiendo...' : 'Subir o reemplazar logo' }}
+              <input type="file" accept=".svg,image/svg+xml,image/*" :disabled="!canUploadLogo" @change="uploadLogo" />
+              <ImageUp :size="14" /> {{ uploadingLogo ? 'Subiendo...' : 'Subir o reemplazar logo (SVG/PNG)' }}
             </label>
             <button type="button" class="btn btn-outline" :disabled="!logoSrc" @click="removeLogo">
               <Trash2 :size="14" /> Quitar logo
@@ -385,8 +385,9 @@ label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px
 .paper { width: min(210mm, 100%); min-height: 297mm; margin: 0 auto; padding: 14mm; background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,.08); }
 header { display: flex; align-items: flex-end; gap: 8px; }
 header span { margin-left: auto; font-size: 11px; color: var(--muted-foreground); }
-.logo-box { width: 86px; height: 46px; display: grid; place-items: center; background: var(--dikoin-blue); color: #fff; font-weight: 800; overflow: hidden; }
-.logo-box img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.logo-box { width: 34mm; height: 10mm; display: grid; place-items: center; background: transparent; color: var(--dikoin-blue); font-weight: 800; overflow: hidden; }
+.logo-box:not(:has(img)) { width: 86px; height: 46px; background: var(--dikoin-blue); color: #fff; }
+.logo-box img { width: 100%; height: 100%; object-fit: contain; object-position: left center; background: transparent; }
 .line { height: 2px; background: var(--dikoin-blue); margin: 6px 0 22px; }
 h2 { background: var(--dikoin-blue); color: #fff; padding: 7px 9px; font-size: 15px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
