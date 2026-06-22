@@ -765,8 +765,9 @@ function contentPageForSection(sectionId: number) {
 }
 
 .note {
-  border-left: 4px solid var(--dikoin-blue);
-  background: var(--dikoin-blue-light);
+  border-left: 4px solid var(--dikoin-orange);
+  background: #fff7ed;
+  color: #78350f;
   padding: 9px;
 }
 

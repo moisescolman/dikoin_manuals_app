@@ -21,6 +21,7 @@ const saved = ref(false)
 const saving = ref(false)
 const draggingIndex = ref<number | null>(null)
 const dropTargetIndex = ref<number | null>(null)
+const sectionEditorRefs = ref<Array<{ flushEditorSync: () => void }>>([])
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
@@ -53,11 +54,16 @@ function updateSection(section: EditorSection) {
   sections.value = sections.value.map((item) => item.id === section.id ? section : item)
 }
 
+function flushSectionEditors() {
+  sectionEditorRefs.value.forEach((editorRef) => editorRef?.flushEditorSync?.())
+}
+
 function deleteSection(id: string) {
   sections.value = sections.value.filter((section) => section.id !== id)
 }
 
 function duplicateSection(index: number) {
+  flushSectionEditors()
   const source = sections.value[index]
   if (!source) return
   const duplicated: EditorSection = {
@@ -80,7 +86,9 @@ function duplicateSection(index: number) {
 }
 
 async function saveReusable(section: EditorSection) {
-  const title = window.prompt('Título del bloque reutilizable', section.titleEs || section.titleEn || 'Bloque reutilizable')
+  flushSectionEditors()
+  const currentSection = sections.value.find((item) => item.id === section.id) || section
+  const title = window.prompt('Título del bloque reutilizable', currentSection.titleEs || currentSection.titleEn || 'Bloque reutilizable')
   if (!title) return
   const code = window.prompt('Código del bloque reutilizable', `BLQ-${String(Date.now()).slice(-6)}`)
   if (!code) return
@@ -89,8 +97,8 @@ async function saveReusable(section: EditorSection) {
     status: 'DRAFT',
     active: true,
     esReady: true,
-    enReady: Boolean(section.titleEn || section.blocks.some((block) => block.languageCode === 'EN')),
-    sections: [section],
+    enReady: Boolean(currentSection.titleEn || currentSection.blocks.some((block) => block.languageCode === 'EN')),
+    sections: [currentSection],
   })
   await createReusableBlock({
     code,
@@ -146,6 +154,7 @@ function buildVersionRequest(status: ManualStatus, changeNotes: string) {
 
 async function saveDraft(changeNotes = 'Borrador autoguardado desde editor') {
   if (!manual.value) return false
+  flushSectionEditors()
   const request = buildVersionRequest('DRAFT', changeNotes)
   if (!request) return false
   await store.saveVersion(manual.value.id, request)
@@ -157,6 +166,7 @@ async function save() {
   if (!manual.value || !version.value) return
   saving.value = true
   try {
+    flushSectionEditors()
     const request = buildVersionRequest(version.value.status, 'Guardado desde editor Vue')
     if (!request) return
     await store.saveVersion(manual.value.id, request)
@@ -196,6 +206,7 @@ async function changeLanguage(lang: LanguageCode) {
 
 async function sendReview() {
   if (!manual.value || !version.value) return
+  flushSectionEditors()
   const request = buildVersionRequest('REVIEW', 'Enviado a revisión desde frontend')
   if (!request) return
   await store.saveVersion(manual.value.id, request)
@@ -246,6 +257,7 @@ function sectionTitle(section: EditorSection) {
         <div v-if="store.loading">Cargando contenido...</div>
         <RichSectionEditor
           v-for="(section, index) in sections"
+          ref="sectionEditorRefs"
           :key="section.id"
           :section="section"
           :selected="selectedSectionId === section.id"
@@ -267,7 +279,7 @@ function sectionTitle(section: EditorSection) {
 
       <aside class="props-panel card">
         <h2>Propiedades</h2>
-        <p class="text-muted">Selecciona un bloque para editar su tipo y contenido. Los datos se convierten al JSON que espera Spring.</p>
+        <p class="text-muted">Selecciona un bloque o sección para editar su tipo y contenido. Puedes arrastrar las secciones para reordenarlas. Los cambios se guardan automáticamente al cambiar de sección o idioma.</p>
         <dl>
           <dt>Versión</dt><dd>v{{ version?.versionNumber }}</dd>
           <dt>Estado</dt><dd>{{ version?.status }}</dd>

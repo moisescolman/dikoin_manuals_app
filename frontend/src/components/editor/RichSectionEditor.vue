@@ -61,6 +61,21 @@ const noteMode = ref<NoteMode>('new')
 const noticeSearch = ref('')
 const uploadingImage = ref(false)
 const syncingFromProps = ref(false)
+const hasPendingTableSync = ref(false)
+const showNoteMenu = ref(false)
+const sectionContentRef = ref<HTMLElement | null>(null)
+const tableDeletePosition = ref<{ visible: boolean; top: number; left: number }>({ visible: false, top: 0, left: 0 })
+const showTablePicker = ref(false)
+const tablePickerRows = ref(0)
+const tablePickerCols = ref(0)
+const showCustomTableModal = ref(false)
+const customTableRows = ref(2)
+const customTableCols = ref(5)
+const rememberTableSize = ref(false)
+const tablePickerMaxRows = 6
+const tablePickerMaxCols = 7
+let headingNumberFrame = 0
+const editorDirty = ref(false)
 
 const NoteBox = Node.create({
   name: 'noteBox',
@@ -119,7 +134,20 @@ const editor = useEditor({
   onFocus: () => emit('select', props.section.id),
   onUpdate: ({ editor }) => {
     if (syncingFromProps.value) return
-    patch({ blocks: mergeLanguageBlocks(blocksFromDoc(editor.getJSON())) })
+    editorDirty.value = true
+    scheduleHeadingNumbers()
+    updateTableDeletePosition()
+    if (editor.isActive('table')) {
+      hasPendingTableSync.value = true
+    }
+  },
+  onSelectionUpdate: ({ editor }) => {
+    scheduleHeadingNumbers()
+    updateTableDeletePosition()
+  },
+  onBlur: () => {
+    tableDeletePosition.value.visible = false
+    flushEditorSync()
   },
 })
 
@@ -139,9 +167,11 @@ const filteredNotices = computed(() => {
 
 onMounted(async () => {
   await loadModalData()
+  scheduleHeadingNumbers()
 })
 
 onBeforeUnmount(() => {
+  flushEditorSync()
   editor.value?.destroy()
 })
 
@@ -151,7 +181,10 @@ watch(
     if (!editor.value) return
     syncingFromProps.value = true
     editor.value.commands.setContent(docFromBlocks(visibleBlocks()))
-    queueMicrotask(() => { syncingFromProps.value = false })
+    queueMicrotask(() => {
+      syncingFromProps.value = false
+      scheduleHeadingNumbers()
+    })
   },
 )
 
@@ -167,6 +200,21 @@ function patchTitle(value: string) {
   patch(props.language === 'EN' ? { titleEn: value } : { titleEs: value })
 }
 
+function syncEditorToSection() {
+  if (!editor.value || syncingFromProps.value) return
+  hasPendingTableSync.value = false
+  editorDirty.value = false
+  patch({ blocks: mergeLanguageBlocks(blocksFromDoc(editor.value.getJSON())) })
+}
+
+function flushEditorSync() {
+  if (editorDirty.value || hasPendingTableSync.value) {
+    syncEditorToSection()
+  }
+}
+
+defineExpose({ flushEditorSync })
+
 function mergeLanguageBlocks(languageBlocks: EditorBlock[]) {
   return [
     ...props.section.blocks.filter((block) => block.languageCode !== props.language),
@@ -174,13 +222,50 @@ function mergeLanguageBlocks(languageBlocks: EditorBlock[]) {
   ]
 }
 
-function focusEditor() {
+function selectSection() {
   emit('select', props.section.id)
-  editor.value?.commands.focus()
 }
 
 function setHeading(level: 1 | 2 | 3) {
   editor.value?.chain().focus().toggleHeading({ level }).run()
+  scheduleHeadingNumbers()
+}
+
+function scheduleHeadingNumbers() {
+  if (headingNumberFrame) cancelAnimationFrame(headingNumberFrame)
+  headingNumberFrame = requestAnimationFrame(() => {
+    headingNumberFrame = 0
+    updateHeadingNumbers()
+  })
+}
+
+function updateHeadingNumbers() {
+  const root = editor.value?.view.dom
+  if (!root) return
+  let h1 = 0
+  let h2 = 0
+  let h3 = 0
+  const sectionPrefix = props.section.sectionNumber || String(props.section.sortOrder)
+  root.querySelectorAll<HTMLElement>('h1,h2,h3').forEach((heading) => {
+    if (heading.tagName === 'H1') {
+      h1++
+      h2 = 0
+      h3 = 0
+      heading.dataset.headingNumber = `${sectionPrefix}.${h1}`
+      return
+    }
+    if (heading.tagName === 'H2') {
+      if (!h1) h1 = 1
+      h2++
+      h3 = 0
+      heading.dataset.headingNumber = `${sectionPrefix}.${h1}.${h2}`
+      return
+    }
+    if (!h1) h1 = 1
+    if (!h2) h2 = 1
+    h3++
+    heading.dataset.headingNumber = `${sectionPrefix}.${h1}.${h2}.${h3}`
+  })
 }
 
 function undo() {
@@ -247,10 +332,74 @@ function textToParagraphs(text: string): JSONContent[] {
   }))
 }
 
-function insertTable() {
-  const rows = Number(window.prompt('Número de filas', '3') || 3)
-  const cols = Number(window.prompt('Número de columnas', '3') || 3)
+function insertTable(rows = 3, cols = 3) {
   editor.value?.chain().focus().insertTable({ rows: Math.max(rows, 1), cols: Math.max(cols, 1), withHeaderRow: true }).run()
+  closeTablePicker()
+}
+
+function openCustomTableModal() {
+  closeTablePicker()
+  showCustomTableModal.value = true
+}
+
+function confirmCustomTable() {
+  const rows = Math.max(Number(customTableRows.value) || 1, 1)
+  const cols = Math.max(Number(customTableCols.value) || 1, 1)
+  if (rememberTableSize.value) {
+    customTableRows.value = rows
+    customTableCols.value = cols
+  }
+  showCustomTableModal.value = false
+  insertTable(rows, cols)
+}
+
+function toggleTablePicker() {
+  showTablePicker.value = !showTablePicker.value
+  if (showTablePicker.value) {
+    tablePickerRows.value = 0
+    tablePickerCols.value = 0
+  }
+}
+
+function closeTablePicker() {
+  showTablePicker.value = false
+  tablePickerRows.value = 0
+  tablePickerCols.value = 0
+}
+
+function hoverTableSize(rows: number, cols: number) {
+  tablePickerRows.value = rows
+  tablePickerCols.value = cols
+}
+
+function tablePickerLabel() {
+  if (!tablePickerRows.value || !tablePickerCols.value) return 'Insertar tabla'
+  return `${tablePickerCols.value} x ${tablePickerRows.value}`
+}
+
+function updateTableDeletePosition() {
+  const current = editor.value
+  const wrapper = sectionContentRef.value
+  if (!current || !wrapper || !current.isActive('table')) {
+    tableDeletePosition.value.visible = false
+    return
+  }
+
+  const domAtSelection = current.view.domAtPos(current.state.selection.from).node
+  const element = domAtSelection instanceof Element ? domAtSelection : domAtSelection.parentElement
+  const table = element?.closest('table')
+  if (!table) {
+    tableDeletePosition.value.visible = false
+    return
+  }
+
+  const tableRect = table.getBoundingClientRect()
+  const wrapperRect = wrapper.getBoundingClientRect()
+  tableDeletePosition.value = {
+    visible: true,
+    top: tableRect.top - wrapperRect.top + wrapper.scrollTop - 32,
+    left: tableRect.right - wrapperRect.left + wrapper.scrollLeft - 30,
+  }
 }
 
 function openImageModal() {
@@ -259,6 +408,7 @@ function openImageModal() {
 }
 
 function openNoticeMenu(mode: NoteMode) {
+  showNoteMenu.value = false
   noteMode.value = mode
   if (mode === 'new') {
     insertGenericNote()
@@ -283,7 +433,12 @@ function insertNotice(notice: NoticeTemplateResponse) {
     content: [{ type: 'text', text: notice.contentEs || '' }],
   }).run()
   showNoticeModal.value = false
+  showNoteMenu.value = false
   noticeSearch.value = ''
+}
+
+function toggleNoteMenu() {
+  showNoteMenu.value = !showNoteMenu.value
 }
 
 function insertImage(src: string, assetId?: number) {
@@ -458,7 +613,7 @@ function imageAssetId(node: JSONContent) {
 </script>
 
 <template>
-  <article class="rich-section" :class="{ selected }" @click="focusEditor">
+  <article class="rich-section" :class="{ selected }" @click="selectSection">
     <header class="section-bar">
       <button class="drag-handle" draggable="true" title="Arrastrar sección" @click.stop @mousedown.stop>
         <GripVertical class="drag-dots" :size="17" />
@@ -470,17 +625,17 @@ function imageAssetId(node: JSONContent) {
       </button>
     </header>
 
-    <div v-if="!section.collapsed" class="section-content">
+    <div v-if="!section.collapsed" ref="sectionContentRef" class="section-content">
       <div class="toolbar" @mousedown.prevent.stop @click.stop>
         <div class="ribbon-group compact-group">
           <div class="ribbon-row">
-            <button class="tool-btn mini" title="Deshacer" @click="undo"><Undo2 :size="16" /><span>Deshacer</span></button>
-            <button class="tool-btn mini" title="Rehacer" @click="redo"><Redo2 :size="16" /><span>Rehacer</span></button>
+            <button class="tool-btn icon-only" title="Deshacer" aria-label="Deshacer" @click="undo"><Undo2 :size="16" /></button>
+            <button class="tool-btn icon-only" title="Rehacer" aria-label="Rehacer" @click="redo"><Redo2 :size="16" /></button>
           </div>
           <div class="ribbon-row">
-            <button class="tool-btn mini" title="Copiar" @click="copySelection"><Copy :size="16" /><span>Copiar</span></button>
-            <button class="tool-btn mini" title="Cortar" @click="cutSelection"><Scissors :size="16" /><span>Cortar</span></button>
-            <button class="tool-btn mini" title="Pegar" @click="pasteClipboard"><ClipboardPaste :size="16" /><span>Pegar</span></button>
+            <button class="tool-btn icon-only" title="Copiar" aria-label="Copiar" @click="copySelection"><Copy :size="16" /></button>
+            <button class="tool-btn icon-only" title="Cortar" aria-label="Cortar" @click="cutSelection"><Scissors :size="16" /></button>
+            <button class="tool-btn icon-only" title="Pegar" aria-label="Pegar" @click="pasteClipboard"><ClipboardPaste :size="16" /></button>
           </div>
           <span class="group-label">Portapapeles</span>
         </div>
@@ -491,7 +646,7 @@ function imageAssetId(node: JSONContent) {
             <button class="tool-btn" :class="{ active: editor?.isActive('heading', { level: 2 }) }" title="Título 2" @click="setHeading(2)"><Heading2 :size="24" /><span>Título 2</span></button>
             <button class="tool-btn" :class="{ active: editor?.isActive('heading', { level: 3 }) }" title="Título 3" @click="setHeading(3)"><Heading3 :size="24" /><span>Título 3</span></button>
           </div>
-          <span class="group-label">Estilos</span>
+          <span class="group-label">Títulos</span>
         </div>
 
         <div class="ribbon-group">
@@ -501,16 +656,34 @@ function imageAssetId(node: JSONContent) {
             <button class="tool-btn" title="Sangrar lista" @click="editor?.chain().focus().sinkListItem('listItem').run()"><PanelTopClose :size="20" /><span>Nivel +</span></button>
             <button class="tool-btn" title="Reducir sangría" @click="editor?.chain().focus().liftListItem('listItem').run()"><PanelTopClose class="flip" :size="20" /><span>Nivel -</span></button>
           </div>
-          <span class="group-label">Párrafo</span>
+          <span class="group-label">Listas</span>
         </div>
 
         <div class="ribbon-group">
           <div class="ribbon-row">
-            <button class="tool-btn" title="Tabla" @click="insertTable"><TableIcon :size="22" /><span>Tabla</span></button>
+            <div class="table-picker-menu">
+              <button class="tool-btn" title="Tabla" @click="toggleTablePicker"><TableIcon :size="22" /><span>Tabla</span></button>
+              <div v-if="showTablePicker" class="table-picker-popover" @mouseleave="hoverTableSize(0, 0)">
+                <strong>{{ tablePickerLabel() }}</strong>
+                <div class="table-picker-grid">
+                  <button
+                    v-for="cell in tablePickerMaxRows * tablePickerMaxCols"
+                    :key="cell"
+                    class="table-picker-cell"
+                    :class="{
+                      active: Math.ceil(cell / tablePickerMaxCols) <= tablePickerRows && ((cell - 1) % tablePickerMaxCols) + 1 <= tablePickerCols,
+                    }"
+                    @mouseenter="hoverTableSize(Math.ceil(cell / tablePickerMaxCols), ((cell - 1) % tablePickerMaxCols) + 1)"
+                    @click="insertTable(Math.ceil(cell / tablePickerMaxCols), ((cell - 1) % tablePickerMaxCols) + 1)"
+                  />
+                </div>
+                <button class="custom-table" @click="openCustomTableModal"><TableIcon :size="13" /> Insertar tabla...</button>
+              </div>
+            </div>
             <button class="tool-btn" title="Imagen" @click="openImageModal"><FileImage :size="22" /><span>Imagen</span></button>
             <div class="toolbar-menu">
-              <button class="tool-btn" title="Nota"><NotebookPen :size="22" /><span>Nota</span></button>
-              <div class="submenu">
+              <button class="tool-btn" title="Nota" @click="toggleNoteMenu"><NotebookPen :size="22" /><span>Nota</span></button>
+              <div v-if="showNoteMenu" class="submenu">
                 <button @click="openNoticeMenu('new')">Nota nueva</button>
                 <button @click="openNoticeMenu('library')">Elegir nota</button>
               </div>
@@ -533,16 +706,19 @@ function imageAssetId(node: JSONContent) {
         :editor="editor"
         class="editor-shell"
         :style="{ '--section-prefix': `${section.sectionNumber || section.sortOrder}.` }"
+        @mousedown.stop
+        @click.stop
       />
       <button
-        v-if="editor?.isActive('table')"
+        v-if="tableDeletePosition.visible"
         class="table-delete-float"
+        :style="{ top: `${tableDeletePosition.top}px`, left: `${tableDeletePosition.left}px` }"
         title="Eliminar tabla"
+        aria-label="Eliminar tabla"
         @mousedown.prevent
         @click.stop="editor?.chain().focus().deleteTable().run()"
       >
-        <Trash2 :size="15" />
-        Eliminar tabla
+        <Trash2 :size="16" />
       </button>
     </div>
 
@@ -566,6 +742,34 @@ function imageAssetId(node: JSONContent) {
       </div>
     </div>
 
+    <div v-if="showCustomTableModal" class="modal-backdrop" @click.self="showCustomTableModal = false">
+      <form class="table-dialog" @submit.prevent="confirmCustomTable">
+        <header>
+          <h3>Insertar tabla</h3>
+          <button type="button" class="modal-close" title="Cancelar" @click="showCustomTableModal = false">×</button>
+        </header>
+        <section>
+          <strong>Tamaño de la tabla</strong>
+          <label>
+            Número de columnas:
+            <input v-model.number="customTableCols" class="field" type="number" min="1" max="30" />
+          </label>
+          <label>
+            Número de filas:
+            <input v-model.number="customTableRows" class="field" type="number" min="1" max="100" />
+          </label>
+          <label class="remember-size">
+            <input v-model="rememberTableSize" type="checkbox" />
+            Recordar dimensiones para tablas nuevas
+          </label>
+        </section>
+        <footer>
+          <button type="submit" class="btn btn-primary">Aceptar</button>
+          <button type="button" class="btn btn-outline" @click="showCustomTableModal = false">Cancelar</button>
+        </footer>
+      </form>
+    </div>
+
     <div v-if="showNoticeModal" class="modal-backdrop" @click.self="showNoticeModal = false">
       <div class="modal-card notice-modal">
         <header>
@@ -585,9 +789,9 @@ function imageAssetId(node: JSONContent) {
 </template>
 
 <style scoped>
-.rich-section { background: #fff; border: 1px solid var(--border); border-radius: 0; margin-bottom: 14px; }
+.rich-section { background: #fff; border: 1px solid var(--border); border-radius: 0; margin-bottom: 14px; overflow: visible; }
 .rich-section.selected { border-color: var(--dikoin-blue); box-shadow: 0 0 0 2px rgba(14, 127, 187, .1); }
-.section-bar { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--dikoin-blue); color: #fff; }
+.section-bar { position: sticky; top: 0; z-index: 55; height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--dikoin-blue); color: #fff; }
 .drag-handle { border: 0; background: transparent; color: #fff; padding: 3px; display: inline-flex; align-items: center; cursor: grab; }
 .drag-handle:active { cursor: grabbing; }
 .drag-dots { opacity: .95; }
@@ -596,26 +800,33 @@ function imageAssetId(node: JSONContent) {
 .section-title-input::placeholder { color: rgba(255,255,255,.78); }
 .bar-icon { border: 0; background: transparent; color: #fff; padding: 4px; display: inline-flex; align-items: center; }
 .bar-icon .collapsed { transform: rotate(180deg); }
-.section-content { min-height: 332px; position: relative; }
-.toolbar { display: flex; align-items: stretch; min-height: 86px; padding: 8px 10px 6px; border-bottom: 1px solid #dce7f0; background: linear-gradient(#ffffff, #f5f9fd); overflow-x: auto; }
+.section-content { min-height: 332px; position: relative; overflow: visible; }
+.toolbar { position: sticky; top: 34px; z-index: 54; display: flex; align-items: stretch; min-height: 86px; padding: 8px 10px 6px; border-bottom: 1px solid #dce7f0; background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
 .ribbon-group { position: relative; display: grid; grid-template-rows: 1fr auto; align-items: stretch; gap: 4px; padding: 0 12px; border-right: 1px solid #d7e3ed; }
 .ribbon-group:first-child { padding-left: 2px; }
 .ribbon-group:last-child { border-right: 0; }
 .ribbon-row { display: flex; align-items: center; justify-content: center; gap: 2px; }
-.compact-group { min-width: 168px; }
+.compact-group { min-width: 112px; }
 .compact-group .ribbon-row { justify-content: flex-start; }
 .group-label { align-self: end; text-align: center; color: #6b7280; font-size: 10px; line-height: 1; }
 .tool-btn { min-width: 58px; min-height: 50px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #1f2937; padding: 5px 7px; display: grid; justify-items: center; align-content: center; gap: 4px; font-size: 10px; line-height: 1.05; }
 .tool-btn.mini { min-width: 48px; min-height: 24px; grid-auto-flow: column; grid-auto-columns: max-content; align-content: center; align-items: center; gap: 4px; padding: 3px 5px; font-size: 10px; }
+.tool-btn.icon-only { min-width: 30px; min-height: 24px; padding: 3px; display: inline-grid; place-items: center; }
 .tool-btn:hover, .tool-btn.active { border-color: #b7d7ea; color: var(--dikoin-blue); background: #eaf4fb; }
 .tool-btn.danger { color: var(--dikoin-red); }
 .toolbar .flip { transform: rotate(180deg); }
-.toolbar-menu { position: relative; }
+.toolbar-menu, .table-picker-menu { position: relative; z-index: 45; }
 .toolbar-menu > button { height: 100%; }
-.toolbar-menu:hover .submenu { display: grid; }
-.submenu { display: none; position: absolute; z-index: 20; left: 0; top: 100%; min-width: 150px; background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 20px rgba(0,0,0,.12); }
+.submenu { display: grid; position: absolute; z-index: 60; left: 0; top: calc(100% + 4px); min-width: 150px; background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 20px rgba(0,0,0,.12); }
 .submenu button { width: 100%; display: block; min-width: 0; text-align: left; justify-items: start; border: 0; background: #fff; padding: 9px 10px; font-size: 12px; }
-.editor-shell { min-height: 260px; padding: 22px 18px 40px; counter-reset: h1 h2 h3; }
+.table-picker-popover { position: absolute; z-index: 60; left: 0; top: calc(100% + 4px); width: 202px; padding: 7px; background: #fbfbfb; border: 1px solid #b7b7b7; box-shadow: 2px 4px 10px rgba(0,0,0,.16); display: grid; gap: 7px; }
+.table-picker-popover strong { display: block; padding: 2px 3px; color: #374151; font-size: 12px; font-weight: 700; }
+.table-picker-grid { display: grid; grid-template-columns: repeat(7, 24px); gap: 3px; }
+.table-picker-cell { width: 24px; height: 24px; min-width: 0; min-height: 0; border: 1px solid #7f7f7f; background: #fff; padding: 0; }
+.table-picker-cell.active { border-color: #2f80c0; background: #d8ecfb; }
+.custom-table { border: 0; border-top: 1px solid #d8d8d8; background: #fbfbfb; color: #1f2937; padding: 7px 4px 3px; display: flex; align-items: center; gap: 8px; text-align: left; font-size: 12px; }
+.custom-table:hover { color: var(--dikoin-blue); background: #edf6fd; }
+.editor-shell { min-height: 260px; padding: 22px 18px 40px; }
 .editor-shell :deep(.rich-editor-surface) { min-height: 250px; outline: 0; }
 .editor-shell :deep(.is-editor-empty:first-child::before) { content: attr(data-placeholder); float: left; color: #9aa7b4; pointer-events: none; height: 0; }
 .editor-shell :deep(.ProseMirror-focused .is-editor-empty:first-child::before) { display: none; }
@@ -625,12 +836,9 @@ function imageAssetId(node: JSONContent) {
 .editor-shell :deep(h1) { font-size: 20px; }
 .editor-shell :deep(h2) { font-size: 17px; }
 .editor-shell :deep(h3) { font-size: 15px; }
-.editor-shell :deep(h1) { counter-increment: h1; counter-reset: h2 h3; }
-.editor-shell :deep(h2) { counter-increment: h2; counter-reset: h3; }
-.editor-shell :deep(h3) { counter-increment: h3; }
-.editor-shell :deep(h1::before) { content: var(--section-prefix) counter(h1) " "; color: var(--dikoin-blue); }
-.editor-shell :deep(h2::before) { content: var(--section-prefix) counter(h1) "." counter(h2) " "; color: var(--dikoin-blue); }
-.editor-shell :deep(h3::before) { content: var(--section-prefix) counter(h1) "." counter(h2) "." counter(h3) " "; color: var(--dikoin-blue); }
+.editor-shell :deep(h1::before),
+.editor-shell :deep(h2::before),
+.editor-shell :deep(h3::before) { content: attr(data-heading-number) " "; color: var(--dikoin-blue); }
 .editor-shell :deep(ul), .editor-shell :deep(ol) { margin: 0 0 10px 22px; padding-left: 18px; }
 .editor-shell :deep(table) { width: 100%; border-collapse: collapse; margin: 12px 0; }
 .editor-shell :deep(th) { background: var(--dikoin-blue); color: #fff; }
@@ -638,12 +846,24 @@ function imageAssetId(node: JSONContent) {
 .editor-shell :deep(img) { max-width: 100%; height: auto; display: block; margin: 12px 0; }
 .editor-shell :deep(.note-box) { border-left: 4px solid var(--dikoin-orange); background: #fff7ed; color: #78350f; padding: 10px 12px; margin: 12px 0; }
 .editor-shell :deep(.note-box::before) { content: attr(title); display: block; font-weight: 800; margin-bottom: 4px; }
-.table-delete-float { position: absolute; right: 18px; bottom: 16px; z-index: 8; border: 1px solid var(--dikoin-red); background: #fff; color: var(--dikoin-red); padding: 7px 9px; border-radius: var(--radius); display: inline-flex; align-items: center; gap: 6px; font-size: 12px; box-shadow: 0 8px 20px rgba(0,0,0,.12); }
+.table-delete-float { position: absolute; z-index: 8; width: 28px; height: 28px; border: 1px solid #fecaca; background: #fff; color: var(--dikoin-red); padding: 0; border-radius: var(--radius); display: inline-grid; place-items: center; box-shadow: 0 8px 20px rgba(0,0,0,.12); }
+.table-delete-float:hover { background: var(--dikoin-red-light); border-color: var(--dikoin-red); }
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(15, 23, 42, .35); display: grid; place-items: center; padding: 24px; }
 .modal-card { width: min(760px, 100%); max-height: min(720px, 90vh); overflow: auto; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 22px 50px rgba(0,0,0,.22); padding: 16px; display: grid; gap: 14px; }
 .modal-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modal-card h3 { margin: 0; font-size: 16px; }
 .modal-card header button { border: 0; background: transparent; font-size: 24px; color: var(--muted-foreground); }
+.table-dialog { width: min(380px, 100%); background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 22px 50px rgba(0,0,0,.22); display: grid; gap: 0; }
+.table-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.table-dialog h3 { margin: 0; color: var(--dikoin-blue-dark); font-size: 16px; }
+.table-dialog .modal-close { border: 0; background: transparent; color: var(--muted-foreground); font-size: 24px; line-height: 1; }
+.table-dialog section { padding: 16px; display: grid; gap: 12px; }
+.table-dialog section strong { color: var(--foreground); font-size: 13px; }
+.table-dialog label { display: grid; grid-template-columns: 1fr 92px; align-items: center; gap: 12px; color: var(--muted-foreground); font-size: 12px; font-weight: 700; }
+.table-dialog input[type="number"] { width: 92px; padding: 7px 8px; }
+.table-dialog .remember-size { grid-template-columns: auto 1fr; justify-content: start; gap: 8px; margin-top: 4px; color: var(--foreground); font-weight: 500; }
+.table-dialog .remember-size input { width: 14px; height: 14px; }
+.table-dialog footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 16px 16px; }
 .upload-box { border: 1px dashed var(--border); background: var(--dikoin-blue-lighter); color: var(--dikoin-blue); padding: 14px; display: flex; justify-content: center; align-items: center; gap: 8px; cursor: pointer; font-weight: 800; }
 .upload-box input { display: none; }
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
