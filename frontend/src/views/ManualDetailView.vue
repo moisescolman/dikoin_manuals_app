@@ -45,6 +45,11 @@ function changeLanguage(lang: 'ES' | 'EN') {
   router.replace({ name: 'manual-detail', params: { id: props.id }, query: { lang } })
 }
 
+function openEditor() {
+  if (!store.current) return
+  router.push({ name: 'manual-editor', params: { id: store.current.id }, query: { lang: selectedLanguage.value } })
+}
+
 function showLanguageCompare() {
   tab.value = 'Contenido'
   compareMode.value = true
@@ -110,7 +115,7 @@ async function changeStatus() {
             <button :class="{ active: selectedLanguage === 'EN' }" @click="changeLanguage('EN')">EN</button>
           </div>
           <button class="btn btn-outline compare-btn" :class="{ active: compareMode }" @click="showLanguageCompare"><Columns2 :size="15" /> Comparar idiomas</button>
-          <button class="btn btn-primary" @click="router.push({ name: 'manual-editor', params: { id: store.current.id } })"><Edit :size="15" /> Editar manual</button>
+          <button class="btn btn-primary" @click="openEditor"><Edit :size="15" /> Editar manual</button>
           <button class="btn btn-outline" :disabled="exporting" @click="exportPdf"><Download :size="15" /> {{ exporting ? 'Exportando...' : 'Exportar PDF' }}</button>
           <button class="btn btn-outline" @click="router.push({ name: 'history', params: { id: store.current.id } })"><History :size="15" /> Historial</button>
         </div>

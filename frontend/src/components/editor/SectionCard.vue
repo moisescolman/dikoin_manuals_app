@@ -6,9 +6,9 @@ import { getReusableBlocks } from '@/api/reusable-blocks.api'
 import BlockEditor from './BlockEditor.vue'
 import type { EditorBlock, EditorBlockType, EditorSection } from '@/types/editor'
 import { randomId } from '@/types/editor'
-import type { NoticeTemplateResponse, ReusableBlockResponse } from '@/types/api'
+import type { LanguageCode, NoticeTemplateResponse, ReusableBlockResponse } from '@/types/api'
 
-const props = defineProps<{ section: EditorSection; selectedBlockId?: string }>()
+const props = defineProps<{ section: EditorSection; selectedBlockId?: string; language: LanguageCode }>()
 const emit = defineEmits<{
   update: [section: EditorSection]
   delete: []
@@ -29,7 +29,7 @@ onMounted(async () => {
 
 const subsections = computed(() => {
   let count = 0
-  return props.section.blocks.reduce<Record<string, string>>((map, block) => {
+  return visibleBlocks.value.reduce<Record<string, string>>((map, block) => {
     if (block.type === 'titulo' || block.type === 'subtitulo') {
       count++
       map[block.id] = `${props.section.sectionNumber || props.section.sortOrder}.${count}`
@@ -37,6 +37,12 @@ const subsections = computed(() => {
     return map
   }, {})
 })
+
+const visibleBlocks = computed(() => props.section.blocks.filter((block) => block.languageCode === props.language))
+
+const sectionTitle = computed(() => props.language === 'EN'
+  ? props.section.titleEn || ''
+  : props.section.titleEs)
 
 function patch(value: Partial<EditorSection>) {
   emit('update', { ...props.section, ...value })
@@ -69,12 +75,17 @@ function addBlock(afterId?: string, type: EditorBlockType = 'parrafo', content?:
     grafico: 'Gráfico imprimible',
     'bloque-ref': '',
   }
-  const block: EditorBlock = { id: randomId('block'), type, content: content ?? defaultContent[type], languageCode: 'ES' }
+  const block: EditorBlock = { id: randomId('block'), type, content: content ?? defaultContent[type], languageCode: props.language }
   const blocks = [...props.section.blocks]
-  const index = afterId ? blocks.findIndex((item) => item.id === afterId) + 1 : blocks.length
+  const lastVisibleIndex = [...blocks].map((item, index) => ({ item, index })).reverse().find(({ item }) => item.languageCode === props.language)?.index
+  const index = afterId ? blocks.findIndex((item) => item.id === afterId) + 1 : (lastVisibleIndex === undefined ? blocks.length : lastVisibleIndex + 1)
   blocks.splice(index, 0, block)
   patch({ blocks })
   emit('selectBlock', block.id)
+}
+
+function updateTitle(value: string) {
+  patch(props.language === 'EN' ? { titleEn: value } : { titleEs: value })
 }
 
 function deleteBlock(id: string) {
@@ -110,7 +121,7 @@ function insertReusableBlock(event: Event) {
         <ChevronUp v-else :size="16" />
       </button>
       <span class="section-num">{{ section.sectionNumber || section.sortOrder }}</span>
-      <input class="section-title" :value="section.titleEs" @input="patch({ titleEs: ($event.target as HTMLInputElement).value })" />
+      <input class="section-title" :value="sectionTitle" @input="updateTitle(($event.target as HTMLInputElement).value)" />
       <span class="drag-hint"><GripVertical :size="14" /> Arrastrar</span>
       <span class="section-status">{{ section.status }}</span>
       <button class="icon-btn danger" title="Eliminar sección" @click="emit('delete')"><Trash2 :size="14" /></button>
@@ -138,7 +149,7 @@ function insertReusableBlock(event: Event) {
         </select>
       </div>
       <BlockEditor
-        v-for="block in section.blocks"
+        v-for="block in visibleBlocks"
         :key="block.id"
         :block="block"
         :selected="selectedBlockId === block.id"

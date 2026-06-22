@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Directive } from 'vue'
 import {
   BarChart2,
   Calculator,
@@ -42,6 +43,16 @@ const labels: Record<EditorBlockType, string> = {
 
 const selectableTypes = (Object.keys(labels) as EditorBlockType[]).filter((type) => type !== 'advertencia')
 
+const vEditableText: Directive<HTMLElement, string> = {
+  mounted(el, binding) {
+    setEditableText(el, binding.value)
+  },
+  updated(el, binding) {
+    if (document.activeElement === el) return
+    setEditableText(el, binding.value)
+  },
+}
+
 const icon = computed(() => {
   const map: Record<EditorBlockType, unknown> = {
     titulo: Type,
@@ -64,6 +75,13 @@ const icon = computed(() => {
 
 function patch(value: Partial<EditorBlock>) {
   emit('update', { ...props.block, ...value })
+}
+
+function setEditableText(el: HTMLElement, value: string) {
+  const nextValue = value || ''
+  if (el.innerText !== nextValue) {
+    el.innerText = nextValue
+  }
 }
 
 function textFromEvent(event: Event) {
@@ -101,12 +119,10 @@ function linkParts() {
 
     <div v-if="block.type === 'titulo' || block.type === 'subtitulo'" class="editable-heading" :class="block.type">
       <span v-if="subNumber" class="mono">{{ subNumber }}</span>
-      <span contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })">{{ block.content }}</span>
+      <span v-editable-text="block.content" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })" />
     </div>
 
-    <p v-else-if="block.type === 'parrafo'" class="editable-p" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })">
-      {{ block.content }}
-    </p>
+    <p v-else-if="block.type === 'parrafo'" v-editable-text="block.content" class="editable-p" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })" />
 
     <div v-else-if="block.type === 'lista-ul' || block.type === 'lista-ol'" class="list-editor">
       <ul v-if="block.type === 'lista-ul'">
@@ -141,21 +157,15 @@ function linkParts() {
       </details>
     </div>
 
-    <div v-else-if="block.type === 'advertencia'" class="callout warning" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })">
-      {{ block.content }}
-    </div>
-    <div v-else-if="block.type === 'nota'" class="callout note" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })">
-      {{ block.content }}
-    </div>
+    <div v-else-if="block.type === 'advertencia'" v-editable-text="block.content" class="callout warning" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })" />
+    <div v-else-if="block.type === 'nota'" v-editable-text="block.content" class="callout note" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })" />
     <div v-else-if="block.type === 'nota-ref'" class="library-ref note-ref">
       Nota enlazada #{{ block.content }}
     </div>
     <div v-else-if="block.type === 'bloque-ref'" class="library-ref reusable-ref">
       Bloque común enlazado #{{ block.content }}
     </div>
-    <div v-else-if="block.type === 'formula'" class="formula" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })">
-      {{ block.content }}
-    </div>
+    <div v-else-if="block.type === 'formula'" v-editable-text="block.content" class="formula" contenteditable suppress-contenteditable-warning @input="patch({ content: textFromEvent($event) })" />
     <div v-else-if="block.type === 'enlace'" class="link-editor">
       <input class="field" :value="linkParts().text" placeholder="Texto del enlace" @input="patch({ content: `${($event.target as HTMLInputElement).value}|${linkParts().href}` })" />
       <input class="field mono" :value="linkParts().href" placeholder="https://..." @input="patch({ content: `${linkParts().text}|${($event.target as HTMLInputElement).value}` })" />

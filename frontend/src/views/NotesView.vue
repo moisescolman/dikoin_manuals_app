@@ -196,11 +196,16 @@ async function confirmDelete() {
         </button>
         <p v-if="!notes.length && !loading" class="text-muted">No hay notas creadas.</p>
       </aside>
+      
 
       <form class="card editor" @submit.prevent="save">
+        <div class="note-preview">
+          <strong>{{ form.visibleTitleEs || 'Nota' }}</strong>
+          <p>{{ form.contentEs || 'Texto de la nota' }}</p>
+        </div>
         <div class="readonly-code">
           <span>Codigo</span>
-          <strong class="mono">{{ form.code || 'Automatico al guardar' }}</strong>
+          <strong class="mono">{{ form.code || 'Autogenerado al guardar' }}</strong>
         </div>
         <label>Titulo de la nota <input v-model="form.titleEs" class="field" required /></label>
         <label>Titulo visible <input v-model="form.visibleTitleEs" class="field" placeholder="Nota" /></label>
@@ -211,10 +216,10 @@ async function confirmDelete() {
         <label>Texto <textarea v-model="form.contentEs" class="field note-text" rows="8" required /></label>
         <label class="check"><input v-model="form.active" type="checkbox" /> Activa</label>
 
-        <div class="note-preview">
+        <!--<div class="note-preview">
           <strong>{{ form.visibleTitleEs || 'Nota' }}</strong>
           <p>{{ form.contentEs || 'Texto de la nota' }}</p>
-        </div>
+        </div> -->
 
         <div class="form-actions">
           <button type="submit" class="btn btn-primary" :disabled="loading"><Save :size="15" /> Guardar nota</button>

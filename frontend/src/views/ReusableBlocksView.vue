@@ -190,6 +190,7 @@ async function save() {
           <SectionCard
             :section="section"
             :selected-block-id="selectedBlockId"
+            language="ES"
             @update="section = $event"
             @delete="section = emptySection()"
             @select-block="selectedBlockId = $event"

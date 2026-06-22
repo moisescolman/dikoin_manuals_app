@@ -1,18 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, Plus, Save, Send } from '@lucide/vue'
 import SectionCard from '@/components/editor/SectionCard.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useManualsStore } from '@/stores/manuals.store'
 import type { EditorSection } from '@/types/editor'
 import { randomId, sectionsFromBackend, versionRequestFromEditor } from '@/types/editor'
+import type { LanguageCode, ManualStatus } from '@/types/api'
 
 const props = defineProps<{ id: string }>()
+const route = useRoute()
 const router = useRouter()
 const store = useManualsStore()
 const sections = ref<EditorSection[]>([])
 const selectedBlockId = ref('')
+const selectedLanguage = ref<LanguageCode>(route.query.lang === 'EN' ? 'EN' : 'ES')
 const saved = ref(false)
 const saving = ref(false)
 const draggingIndex = ref<number | null>(null)
@@ -26,16 +29,27 @@ onMounted(async () => {
   sections.value = sectionsFromBackend(loaded.activeVersion?.sections || [])
 })
 
+watch(() => route.query.lang, (lang) => {
+  selectedLanguage.value = lang === 'EN' ? 'EN' : 'ES'
+})
+
 function addSection() {
   const next = sections.value.length + 1
+  const isEnglish = selectedLanguage.value === 'EN'
   sections.value.push({
     id: randomId('section'),
     sortOrder: next,
     sectionNumber: String(next),
     titleEs: 'Nueva sección',
+    titleEn: isEnglish ? 'New section' : undefined,
     status: 'PENDING',
     collapsed: false,
-    blocks: [{ id: randomId('block'), type: 'parrafo', content: 'Nuevo contenido.', languageCode: 'ES' }],
+    blocks: [{
+      id: randomId('block'),
+      type: 'parrafo',
+      content: isEnglish ? 'New content.' : 'Nuevo contenido.',
+      languageCode: selectedLanguage.value,
+    }],
   })
 }
 
@@ -74,19 +88,35 @@ function dropSection(targetIndex: number) {
   dropTargetIndex.value = null
 }
 
+function buildVersionRequest(status: ManualStatus, changeNotes: string) {
+  if (!version.value) return null
+  return versionRequestFromEditor({
+    versionNumber: version.value.versionNumber,
+    status,
+    active: true,
+    esReady: version.value.esReady,
+    enReady: version.value.enReady,
+    changeNotes,
+    sections: sections.value,
+  })
+}
+
+async function saveDraft(changeNotes = 'Borrador autoguardado desde editor') {
+  if (!manual.value) return false
+  const request = buildVersionRequest('DRAFT', changeNotes)
+  if (!request) return false
+  await store.saveVersion(manual.value.id, request)
+  sections.value = sectionsFromBackend(store.current?.activeVersion?.sections || [])
+  return true
+}
+
 async function save() {
   if (!manual.value || !version.value) return
   saving.value = true
   try {
-    await store.saveVersion(manual.value.id, versionRequestFromEditor({
-      versionNumber: version.value.versionNumber,
-      status: version.value.status,
-      active: true,
-      esReady: version.value.esReady,
-      enReady: version.value.enReady,
-      changeNotes: 'Guardado desde editor Vue',
-      sections: sections.value,
-    }))
+    const request = buildVersionRequest(version.value.status, 'Guardado desde editor Vue')
+    if (!request) return
+    await store.saveVersion(manual.value.id, request)
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
   } finally {
@@ -98,16 +128,24 @@ async function saveDraftForPreview() {
   if (!manual.value || !version.value) return
   saving.value = true
   try {
-    await store.saveVersion(manual.value.id, versionRequestFromEditor({
-      versionNumber: version.value.versionNumber,
-      status: 'DRAFT',
-      active: true,
-      esReady: version.value.esReady,
-      enReady: version.value.enReady,
-      changeNotes: 'Borrador autoguardado para vista previa',
-      sections: sections.value,
-    }))
-    router.push({ name: 'manual-detail', params: { id: manual.value.id } })
+    await saveDraft('Borrador autoguardado para vista previa')
+    router.push({ name: 'manual-detail', params: { id: manual.value.id }, query: { lang: selectedLanguage.value } })
+  } finally {
+    saving.value = false
+  }
+}
+
+async function changeLanguage(lang: LanguageCode) {
+  if (lang === selectedLanguage.value || saving.value) return
+  saving.value = true
+  try {
+    const savedDraft = await saveDraft(`Borrador autoguardado al cambiar a ${lang}`)
+    if (!savedDraft) return
+    selectedBlockId.value = ''
+    selectedLanguage.value = lang
+    saved.value = true
+    router.replace({ name: 'manual-editor', params: { id: props.id }, query: { lang } })
+    setTimeout(() => { saved.value = false }, 2000)
   } finally {
     saving.value = false
   }
@@ -115,16 +153,15 @@ async function saveDraftForPreview() {
 
 async function sendReview() {
   if (!manual.value || !version.value) return
-  await store.saveVersion(manual.value.id, versionRequestFromEditor({
-    versionNumber: version.value.versionNumber,
-    status: 'REVIEW',
-    active: true,
-    esReady: version.value.esReady,
-    enReady: version.value.enReady,
-    changeNotes: 'Enviado a revisión desde frontend',
-    sections: sections.value,
-  }))
-  router.push({ name: 'manual-detail', params: { id: manual.value.id } })
+  const request = buildVersionRequest('REVIEW', 'Enviado a revisión desde frontend')
+  if (!request) return
+  await store.saveVersion(manual.value.id, request)
+  router.push({ name: 'manual-detail', params: { id: manual.value.id }, query: { lang: selectedLanguage.value } })
+}
+
+function sectionTitle(section: EditorSection) {
+  const activeTitle = selectedLanguage.value === 'EN' ? section.titleEn : section.titleEs
+  return activeTitle || section.titleEs || section.titleEn || 'Sin título'
 }
 </script>
 
@@ -132,15 +169,19 @@ async function sendReview() {
   <section class="editor-page">
     <BackendError :message="store.error" />
     <div class="editor-top">
-      <button class="btn btn-outline" @click="router.push({ name: 'manual-detail', params: { id } })"><ArrowLeft :size="14" /> Volver</button>
+      <button class="btn btn-outline" @click="router.push({ name: 'manual-detail', params: { id }, query: { lang: selectedLanguage } })"><ArrowLeft :size="14" /> Volver</button>
       <div class="editor-title">
         <h1>{{ manual?.code || 'Editor' }}</h1>
         <span>{{ manual?.title }}</span>
       </div>
+      <div class="lang-switch">
+        <button :class="{ active: selectedLanguage === 'ES' }" :disabled="saving" @click="changeLanguage('ES')">ES</button>
+        <button :class="{ active: selectedLanguage === 'EN' }" :disabled="saving" @click="changeLanguage('EN')">EN</button>
+      </div>
       <span v-if="saved" class="saved">Guardado</span>
       <button class="btn btn-outline" :disabled="saving" @click="saveDraftForPreview"><Eye :size="14" /> Vista previa</button>
       <button class="btn btn-primary" :disabled="saving" @click="save"><Save :size="14" /> {{ saving ? 'Guardando...' : 'Guardar' }}</button>
-      <button class="btn btn-outline" @click="sendReview"><Send :size="14" /> Enviar a revisión</button>
+      <button class="btn btn-outline" :disabled="saving" @click="sendReview"><Send :size="14" /> Enviar a revisión</button>
     </div>
 
     <div class="editor-grid">
@@ -149,7 +190,7 @@ async function sendReview() {
         <button class="btn btn-primary" @click="addSection"><Plus :size="14" /> Añadir sección</button>
         <ol>
           <li v-for="(section, index) in sections" :key="section.id">
-            <button @click="section.collapsed = false">{{ section.sectionNumber || index + 1 }}. {{ section.titleEs }}</button>
+            <button @click="section.collapsed = false">{{ section.sectionNumber || index + 1 }}. {{ sectionTitle(section) }}</button>
             <div>
               <button @click="moveSection(index, -1)">↑</button>
               <button @click="moveSection(index, 1)">↓</button>
@@ -165,6 +206,7 @@ async function sendReview() {
           :key="section.id"
           :section="section"
           :selected-block-id="selectedBlockId"
+          :language="selectedLanguage"
           draggable="true"
           :class="{ dragging: draggingIndex === index, 'drop-target': dropTargetIndex === index && draggingIndex !== index }"
           @dragstart="draggingIndex = index"
@@ -184,6 +226,7 @@ async function sendReview() {
         <dl>
           <dt>Versión</dt><dd>v{{ version?.versionNumber }}</dd>
           <dt>Estado</dt><dd>{{ version?.status }}</dd>
+          <dt>Idioma</dt><dd>{{ selectedLanguage }}</dd>
           <dt>Secciones</dt><dd>{{ sections.length }}</dd>
         </dl>
       </aside>
@@ -193,10 +236,14 @@ async function sendReview() {
 
 <style scoped>
 .editor-page { height: 100%; display: flex; flex-direction: column; }
-.editor-top { height: 58px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--border); }
-.editor-title { flex: 1; min-width: 0; }
+.editor-top { min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.editor-title { flex: 1; min-width: 180px; }
 .editor-title h1 { margin: 0; font-size: 16px; }
 .editor-title span { display: block; color: var(--muted-foreground); font-size: 12px; }
+.lang-switch { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #fff; }
+.lang-switch button { border: 0; background: #fff; padding: 8px 11px; color: var(--muted-foreground); font-weight: 800; }
+.lang-switch button.active { background: var(--dikoin-blue); color: #fff; }
+.lang-switch button:disabled { cursor: wait; opacity: .7; }
 .saved { color: #065f46; font-weight: 700; font-size: 12px; }
 .editor-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr) 260px; gap: 14px; padding: 14px; overflow: hidden; }
 .index-panel, .props-panel { padding: 14px; overflow: auto; }

@@ -45,12 +45,12 @@ function fillDemo(mail: string) {
     <div class="login-box">
       <div class="login-brand">
         <div class="brand-mark">DK</div>
-        <h1>Manuales Digitales</h1>
-        <p>DIKOIN · Sistema de gestión documental</p>
+        <h1>Manuales</h1>
+        <p>DIKOIN</p>
       </div>
 
       <form class="login-card" @submit.prevent="submit">
-        <h2>Acceso a Manuales Digitales</h2>
+        <h2>Acceso</h2>
         <div v-if="localError || auth.error" class="login-error">
           <AlertCircle :size="15" />
           {{ localError || auth.error }}
