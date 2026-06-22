@@ -116,6 +116,36 @@ function parseBlockData(block: ManualBlockResponse): Record<string, unknown> | u
 }
 
 export function blockContentToJson(block: EditorBlock): string {
+  if (block.type === 'nota-ref') {
+    return JSON.stringify({ type: 'notice_ref', noticeTemplateId: Number(block.content) })
+  }
+  if (block.type === 'imagen') {
+    return JSON.stringify({
+      type: 'image',
+      src: block.content,
+      caption: block.data?.caption || '',
+      assetId: block.data?.assetId,
+      width: block.data?.width,
+      json: block.data?.json,
+    })
+  }
+  if (block.type === 'tabla') {
+    if (block.data?.json || block.data?.rows || block.data?.columns) {
+      return JSON.stringify({
+        type: 'table',
+        columns: block.data?.columns || [],
+        rows: block.data?.rows || [],
+        width: block.data?.width,
+        json: block.data?.json,
+      })
+    }
+    const rows = block.content
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.split('|').map((cell) => cell.trim()))
+    const columns = rows[0] ?? []
+    return JSON.stringify({ type: 'table', columns, rows: rows.slice(1), width: block.data?.width })
+  }
   if (block.data?.json || block.data?.html) {
     return JSON.stringify({
       type: block.data.type || block.type,
@@ -125,14 +155,6 @@ export function blockContentToJson(block: EditorBlock): string {
   }
   if (block.type === 'titulo') {
     return JSON.stringify({ type: 'heading', level: Number(block.data?.level || 1), text: block.content })
-  }
-  if (block.type === 'tabla') {
-    const rows = block.content
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => line.split('|').map((cell) => cell.trim()))
-    const columns = rows[0] ?? []
-    return JSON.stringify({ type: 'table', columns, rows: rows.slice(1) })
   }
   if (block.type === 'lista-ul' || block.type === 'lista-ol') {
     return JSON.stringify({
@@ -147,14 +169,8 @@ export function blockContentToJson(block: EditorBlock): string {
     const [text = 'Enlace', href = 'https://'] = block.content.split('|')
     return JSON.stringify({ type: 'link', text: text.trim(), href: href.trim() })
   }
-  if (block.type === 'imagen') {
-    return JSON.stringify({ type: 'image', src: block.content, caption: block.data?.caption || '', assetId: block.data?.assetId })
-  }
   if (block.type === 'grafico') {
     return JSON.stringify({ type: 'chart', title: block.content, printable: true })
-  }
-  if (block.type === 'nota-ref') {
-    return JSON.stringify({ type: 'notice_ref', noticeTemplateId: Number(block.content), title: block.data?.title, text: block.data?.text })
   }
   if (block.type === 'bloque-ref') {
     return JSON.stringify({ type: 'reusable_block_ref', reusableBlockId: Number(block.content) })

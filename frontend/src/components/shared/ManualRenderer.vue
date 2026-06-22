@@ -35,6 +35,19 @@ interface RenderBlock {
   contentJson: string
 }
 
+interface HeadingInfo {
+  number: string
+  level: number
+  text: string
+}
+
+interface TocEntry {
+  key: string | number
+  title: string
+  page?: number
+  level: number
+}
+
 type ContentUnit =
   | { key: string; kind: 'section'; section: ManualSectionResponse; index: number }
   | { key: string; kind: 'block'; block: ManualBlockResponse }
@@ -59,12 +72,82 @@ const contentUnits = computed<ContentUnit[]>(() => {
   return units
 })
 
-const tocEntries = computed(() => {
-  return contentSections.value.map((section, index) => ({
-    key: section.id,
-    title: sectionTitle(section, index),
-    page: contentPageForSection(section.id),
-  }))
+const contentSignature = computed(() => {
+  return contentSections.value.map((section) => {
+    return [
+      section.id,
+      section.sectionNumber,
+      section.titleEs,
+      section.titleEn,
+      visibleBlocks(section).map((block) => `${block.id}:${block.sortOrder}:${block.blockType}:${block.contentJson}`).join('|'),
+    ].join(':')
+  }).join('||')
+})
+
+const headingNumberMap = computed(() => {
+  const entries = new Map<number, HeadingInfo>()
+  contentSections.value.forEach((section, sectionIndex) => {
+    let h1 = 0
+    let h2 = 0
+    let h3 = 0
+    const sectionPrefix = section.sectionNumber || String(sectionIndex + 1)
+
+    visibleBlocks(section).forEach((block) => {
+      if (block.blockType !== 'HEADING') return
+
+      const parsed = content(block.contentJson)
+      const level = Math.min(3, Math.max(1, Number(parsed.level || 1)))
+      let number = ''
+
+      if (level === 1) {
+        h1++
+        h2 = 0
+        h3 = 0
+        number = `${sectionPrefix}.${h1}`
+      } else if (level === 2) {
+        if (!h1) h1 = 1
+        h2++
+        h3 = 0
+        number = `${sectionPrefix}.${h1}.${h2}`
+      } else {
+        if (!h1) h1 = 1
+        if (!h2) h2 = 1
+        h3++
+        number = `${sectionPrefix}.${h1}.${h2}.${h3}`
+      }
+
+      entries.set(block.id, {
+        number,
+        level,
+        text: parsed.text || '',
+      })
+    })
+  })
+  return entries
+})
+
+const tocEntries = computed<TocEntry[]>(() => {
+  const entries: TocEntry[] = []
+  contentSections.value.forEach((section, index) => {
+    entries.push({
+      key: `section-${section.id}`,
+      title: sectionTitle(section, index),
+      page: contentPageForSection(section.id),
+      level: 0,
+    })
+
+    visibleBlocks(section).forEach((block) => {
+      if (block.blockType !== 'HEADING') return
+      const heading = headingInfo(block)
+      entries.push({
+        key: `heading-${block.id}`,
+        title: `${heading.number} ${heading.text}`,
+        page: contentPageForBlock(block.id),
+        level: heading.level,
+      })
+    })
+  })
+  return entries
 })
 
 const totalPages = computed(() => 2 + contentPages.value.length)
@@ -103,7 +186,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.manual.id, props.manual.activeVersion?.id, props.language, contentUnits.value.length, activeTemplate.value?.id],
+  () => [props.manual.id, props.manual.activeVersion?.id, props.language, contentSignature.value, activeTemplate.value?.id],
   () => schedulePagination(),
 )
 
@@ -155,9 +238,58 @@ function tableRows(blockJson: string) {
   return []
 }
 
+function tableWidth(blockJson: string) {
+  const parsed = content(blockJson)
+  const width = parsed.width || parsed.json?.attrs?.width
+  if (!width) return undefined
+  const text = String(width)
+  return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
+}
+
+function imageSource(blockJson: string) {
+  const parsed = content(blockJson)
+  const src = parsed.src || parsed.text || parsed.json?.attrs?.src || ''
+  return src ? toBackendUrl(src) : ''
+}
+
+function imageWidth(blockJson: string) {
+  const parsed = content(blockJson)
+  const width = parsed.width || parsed.json?.attrs?.width
+  if (!width) return undefined
+  const text = String(width)
+  return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
+}
+
 function sectionTitle(section: ManualSectionResponse, index: number) {
   const title = activeLanguage() === 'EN' ? section.titleEn || '' : section.titleEs
   return `${section.sectionNumber || index + 1}. ${title}`
+}
+
+function headingInfo(block: ManualBlockResponse): HeadingInfo {
+  const parsed = content(block.contentJson)
+  return headingNumberMap.value.get(block.id) || {
+    number: '',
+    level: Math.min(3, Math.max(1, Number(parsed.level || 1))),
+    text: parsed.text || '',
+  }
+}
+
+function headingTag(block: ManualBlockResponse | RenderBlock) {
+  const level = Math.min(3, Math.max(1, Number(content(block.contentJson).level || 1)))
+  return `h${Math.min(4, level + 2)}`
+}
+
+function headingClass(block: ManualBlockResponse | RenderBlock) {
+  const level = Math.min(3, Math.max(1, Number(content(block.contentJson).level || 1)))
+  return `doc-heading doc-heading-level-${level}`
+}
+
+function headingNumber(block: ManualBlockResponse) {
+  return headingInfo(block).number
+}
+
+function headingText(block: ManualBlockResponse | RenderBlock) {
+  return content(block.contentJson).text || ''
 }
 
 function visibleBlocks(section: ManualSectionResponse) {
@@ -166,6 +298,20 @@ function visibleBlocks(section: ManualSectionResponse) {
 
 function noticeById(id: number) {
   return notices.value.find((notice) => notice.id === id)
+}
+
+function noticeTitle(notice?: NoticeTemplateResponse) {
+  if (!notice) return 'Nota'
+  return activeLanguage() === 'EN'
+    ? notice.visibleTitleEn || notice.titleEn || notice.visibleTitleEs || notice.titleEs || 'Note'
+    : notice.visibleTitleEs || notice.titleEs || 'Nota'
+}
+
+function noticeContent(notice?: NoticeTemplateResponse) {
+  if (!notice) return activeLanguage() === 'EN' ? 'Note not found' : 'Nota no encontrada'
+  return activeLanguage() === 'EN'
+    ? notice.contentEn || notice.contentEs || ''
+    : notice.contentEs || ''
 }
 
 function reusableBlockById(id: number) {
@@ -328,6 +474,13 @@ function contentPageForSection(sectionId: number) {
   })
   return pageIndex >= 0 ? pageIndex + 3 : undefined
 }
+
+function contentPageForBlock(blockId: number) {
+  const pageIndex = contentPages.value.findIndex((page) => {
+    return page.some((unit) => unit.kind === 'block' && unit.block.id === blockId)
+  })
+  return pageIndex >= 0 ? pageIndex + 3 : undefined
+}
 </script>
 
 <template>
@@ -370,7 +523,7 @@ function contentPageForSection(sectionId: number) {
       <main class="paper-content">
         <h1>Índice</h1>
         <ol class="toc-list">
-          <li v-for="entry in tocEntries" :key="entry.key">
+          <li v-for="entry in tocEntries" :key="entry.key" :class="`toc-level-${entry.level}`">
             <span>{{ entry.title }}</span>
             <span class="toc-dots"></span>
             <span>{{ entry.page || '' }}</span>
@@ -397,13 +550,13 @@ function contentPageForSection(sectionId: number) {
           </section>
           <div v-else class="doc-block">
             <div v-if="content(unit.block.contentJson).type === 'notice_ref'" class="linked-note">
-              <strong>{{ noticeById(content(unit.block.contentJson).noticeTemplateId)?.visibleTitleEs || 'Nota' }}</strong>
-              <p>{{ noticeById(content(unit.block.contentJson).noticeTemplateId)?.contentEs || 'Nota no encontrada' }}</p>
+              <strong>{{ noticeTitle(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</strong>
+              <p>{{ noticeContent(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</p>
             </div>
             <div v-else-if="content(unit.block.contentJson).type === 'reusable_block_ref'" class="linked-block">
               <strong>{{ reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.title || 'Bloque común' }}</strong>
               <div v-for="(innerBlock, innerIndex) in reusableRenderBlocks(content(unit.block.contentJson).reusableBlockId)" :key="innerIndex" class="doc-block">
-                <h3 v-if="innerBlock.blockType === 'HEADING'">{{ content(innerBlock.contentJson).text }}</h3>
+                <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
                 <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
                 <ul v-else-if="innerBlock.blockType === 'UNORDERED_LIST'">
                   <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
@@ -418,7 +571,10 @@ function contentPageForSection(sectionId: number) {
                 <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
               </div>
             </div>
-            <h3 v-else-if="unit.block.blockType === 'HEADING'">{{ content(unit.block.contentJson).text }}</h3>
+            <component :is="headingTag(unit.block)" v-else-if="unit.block.blockType === 'HEADING'" :class="headingClass(unit.block)">
+              <span class="heading-number">{{ headingNumber(unit.block) }}</span>
+              <span>{{ headingText(unit.block) }}</span>
+            </component>
             <p v-else-if="content(unit.block.contentJson).type === 'link'"><a :href="content(unit.block.contentJson).href" target="_blank">{{ content(unit.block.contentJson).text }}</a></p>
             <p v-else-if="unit.block.blockType === 'PARAGRAPH'">{{ content(unit.block.contentJson).text }}</p>
             <ul v-else-if="unit.block.blockType === 'UNORDERED_LIST'">
@@ -427,7 +583,7 @@ function contentPageForSection(sectionId: number) {
             <ol v-else-if="unit.block.blockType === 'ORDERED_LIST'">
               <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
             </ol>
-            <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table">
+            <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ width: tableWidth(unit.block.contentJson) }">
               <tbody>
                 <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
                   <template v-if="rowIndex === 0">
@@ -445,7 +601,10 @@ function contentPageForSection(sectionId: number) {
               <p>{{ content(unit.block.contentJson).text }}</p>
             </div>
             <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula">{{ content(unit.block.contentJson).latex }}</div>
-            <div v-else-if="unit.block.blockType === 'IMAGE'" class="image-placeholder">Imagen: {{ content(unit.block.contentJson).src }}</div>
+            <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image">
+              <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson) }" alt="" />
+              <figcaption v-if="content(unit.block.contentJson).caption">{{ content(unit.block.contentJson).caption }}</figcaption>
+            </figure>
             <div v-else class="text-muted">{{ unit.block.contentJson }}</div>
           </div>
         </template>
@@ -483,7 +642,14 @@ function contentPageForSection(sectionId: number) {
                   <h2>{{ sectionTitle(unit.section, unit.index) }}</h2>
                 </section>
                 <div v-else class="doc-block">
-                  <h3 v-if="unit.block.blockType === 'HEADING'">{{ content(unit.block.contentJson).text }}</h3>
+                  <div v-if="content(unit.block.contentJson).type === 'notice_ref'" class="linked-note">
+                    <strong>{{ noticeTitle(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</strong>
+                    <p>{{ noticeContent(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</p>
+                  </div>
+                  <component :is="headingTag(unit.block)" v-else-if="unit.block.blockType === 'HEADING'" :class="headingClass(unit.block)">
+                    <span class="heading-number">{{ headingNumber(unit.block) }}</span>
+                    <span>{{ headingText(unit.block) }}</span>
+                  </component>
                   <p v-else-if="unit.block.blockType === 'PARAGRAPH'">{{ content(unit.block.contentJson).text }}</p>
                   <ul v-else-if="unit.block.blockType === 'UNORDERED_LIST'">
                     <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
@@ -491,7 +657,7 @@ function contentPageForSection(sectionId: number) {
                   <ol v-else-if="unit.block.blockType === 'ORDERED_LIST'">
                     <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
                   </ol>
-                  <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table">
+                  <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ width: tableWidth(unit.block.contentJson) }">
                     <tbody>
                       <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
                         <template v-if="rowIndex === 0">
@@ -506,7 +672,10 @@ function contentPageForSection(sectionId: number) {
                   <div v-else-if="unit.block.blockType === 'WARNING'" class="warning">ADVERTENCIA: {{ content(unit.block.contentJson).text }}</div>
                   <div v-else-if="unit.block.blockType === 'NOTE'" class="note">NOTA: {{ content(unit.block.contentJson).text }}</div>
                   <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula">{{ content(unit.block.contentJson).latex }}</div>
-                  <div v-else-if="unit.block.blockType === 'IMAGE'" class="image-placeholder">Imagen: {{ content(unit.block.contentJson).src }}</div>
+                  <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image">
+                    <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson) }" alt="" />
+                    <figcaption v-if="content(unit.block.contentJson).caption">{{ content(unit.block.contentJson).caption }}</figcaption>
+                  </figure>
                   <div v-else class="text-muted">{{ unit.block.contentJson }}</div>
                 </div>
               </div>
@@ -704,6 +873,26 @@ function contentPageForSection(sectionId: number) {
   font-size: 13px;
 }
 
+.toc-list .toc-level-0 {
+  font-weight: 800;
+  color: var(--dikoin-blue-dark);
+}
+
+.toc-list .toc-level-1 {
+  padding-left: 14px;
+}
+
+.toc-list .toc-level-2 {
+  padding-left: 30px;
+  font-size: 12px;
+}
+
+.toc-list .toc-level-3 {
+  padding-left: 46px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
 .toc-dots {
   min-width: 24px;
   border-bottom: 1px dotted #8fa9bb;
@@ -730,14 +919,39 @@ function contentPageForSection(sectionId: number) {
   margin: 0 0 8px;
 }
 
-.doc-block h3 {
+.doc-heading {
   margin: 0 0 8px;
   color: var(--dikoin-blue);
+  line-height: 1.25;
+}
+
+.doc-heading-level-1 {
   font-size: 14px;
+  font-weight: 800;
+}
+
+.doc-heading-level-2 {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--dikoin-blue-dark);
+}
+
+.doc-heading-level-3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.heading-number {
+  margin-right: 6px;
+  color: var(--dikoin-blue-dark);
+  font-weight: 800;
 }
 
 .doc-table {
   width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 11px;
 }
@@ -747,11 +961,15 @@ function contentPageForSection(sectionId: number) {
   color: #fff;
   text-align: left;
   padding: 6px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .doc-table td {
   border: 1px solid #b8cce3;
   padding: 6px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .doc-table tr:nth-child(odd) td {
@@ -804,11 +1022,21 @@ function contentPageForSection(sectionId: number) {
   padding: 12px;
 }
 
-.image-placeholder {
-  border: 1px dashed var(--border);
-  padding: 24px;
-  text-align: center;
+.doc-image {
+  margin: 10px 0;
+}
+
+.doc-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.doc-image figcaption {
+  margin-top: 4px;
   color: var(--muted-foreground);
+  font-size: 10px;
 }
 
 .paper-footer {
