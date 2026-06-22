@@ -22,6 +22,7 @@ export interface EditorBlock {
   type: EditorBlockType
   content: string
   languageCode: LanguageCode
+  data?: Record<string, unknown>
 }
 
 export interface EditorSection {
@@ -80,6 +81,9 @@ export function editorBlockTypeToBackend(type: EditorBlockType): BlockType {
 export function parseContent(block: ManualBlockResponse): string {
   try {
     const parsed = JSON.parse(block.contentJson)
+    if (parsed.type === 'heading') {
+      return parsed.text ?? ''
+    }
     if (block.blockType === 'TABLE' && Array.isArray(parsed.rows)) {
       return parsed.rows.map((row: unknown[]) => row.join('|')).join('\n')
     }
@@ -101,7 +105,27 @@ export function parseContent(block: ManualBlockResponse): string {
   }
 }
 
+function parseBlockData(block: ManualBlockResponse): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(block.contentJson)
+    if (!parsed || typeof parsed !== 'object') return undefined
+    return parsed as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+}
+
 export function blockContentToJson(block: EditorBlock): string {
+  if (block.data?.json || block.data?.html) {
+    return JSON.stringify({
+      type: block.data.type || block.type,
+      text: block.content,
+      ...block.data,
+    })
+  }
+  if (block.type === 'titulo') {
+    return JSON.stringify({ type: 'heading', level: Number(block.data?.level || 1), text: block.content })
+  }
   if (block.type === 'tabla') {
     const rows = block.content
       .split('\n')
@@ -124,13 +148,13 @@ export function blockContentToJson(block: EditorBlock): string {
     return JSON.stringify({ type: 'link', text: text.trim(), href: href.trim() })
   }
   if (block.type === 'imagen') {
-    return JSON.stringify({ type: 'image', src: block.content, caption: '' })
+    return JSON.stringify({ type: 'image', src: block.content, caption: block.data?.caption || '', assetId: block.data?.assetId })
   }
   if (block.type === 'grafico') {
     return JSON.stringify({ type: 'chart', title: block.content, printable: true })
   }
   if (block.type === 'nota-ref') {
-    return JSON.stringify({ type: 'notice_ref', noticeTemplateId: Number(block.content) })
+    return JSON.stringify({ type: 'notice_ref', noticeTemplateId: Number(block.content), title: block.data?.title, text: block.data?.text })
   }
   if (block.type === 'bloque-ref') {
     return JSON.stringify({ type: 'reusable_block_ref', reusableBlockId: Number(block.content) })
@@ -154,6 +178,7 @@ export function sectionsFromBackend(sections: ManualSectionResponse[] = []): Edi
       type: contentTypeFromJson(block.contentJson) || backendBlockTypeToEditor(block.blockType),
       content: parseContent(block),
       languageCode: block.languageCode,
+      data: parseBlockData(block),
     })),
   }))
 }

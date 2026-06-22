@@ -199,10 +199,12 @@ async function confirmDelete() {
       
 
       <form class="card editor" @submit.prevent="save">
+        
         <div class="note-preview">
           <strong>{{ form.visibleTitleEs || 'Nota' }}</strong>
           <p>{{ form.contentEs || 'Texto de la nota' }}</p>
         </div>
+
         <div class="readonly-code">
           <span>Codigo</span>
           <strong class="mono">{{ form.code || 'Autogenerado al guardar' }}</strong>

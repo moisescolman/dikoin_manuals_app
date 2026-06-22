@@ -2,7 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, Plus, Save, Send } from '@lucide/vue'
-import SectionCard from '@/components/editor/SectionCard.vue'
+import { createReusableBlock } from '@/api/reusable-blocks.api'
+import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useManualsStore } from '@/stores/manuals.store'
 import type { EditorSection } from '@/types/editor'
@@ -14,7 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useManualsStore()
 const sections = ref<EditorSection[]>([])
-const selectedBlockId = ref('')
+const selectedSectionId = ref('')
 const selectedLanguage = ref<LanguageCode>(route.query.lang === 'EN' ? 'EN' : 'ES')
 const saved = ref(false)
 const saving = ref(false)
@@ -44,12 +45,7 @@ function addSection() {
     titleEn: isEnglish ? 'New section' : undefined,
     status: 'PENDING',
     collapsed: false,
-    blocks: [{
-      id: randomId('block'),
-      type: 'parrafo',
-      content: isEnglish ? 'New content.' : 'Nuevo contenido.',
-      languageCode: selectedLanguage.value,
-    }],
+    blocks: [],
   })
 }
 
@@ -59,6 +55,53 @@ function updateSection(section: EditorSection) {
 
 function deleteSection(id: string) {
   sections.value = sections.value.filter((section) => section.id !== id)
+}
+
+function duplicateSection(index: number) {
+  const source = sections.value[index]
+  if (!source) return
+  const duplicated: EditorSection = {
+    ...structuredClone(source),
+    id: randomId('section'),
+    backendId: undefined,
+    titleEs: `${source.titleEs} copia`,
+    titleEn: source.titleEn ? `${source.titleEn} copy` : undefined,
+    collapsed: false,
+    blocks: source.blocks.map((block) => ({
+      ...block,
+      id: randomId('block'),
+      backendId: undefined,
+    })),
+  }
+  const copy = [...sections.value]
+  copy.splice(index + 1, 0, duplicated)
+  sections.value = renumberSections(copy)
+  selectedSectionId.value = duplicated.id
+}
+
+async function saveReusable(section: EditorSection) {
+  const title = window.prompt('Título del bloque reutilizable', section.titleEs || section.titleEn || 'Bloque reutilizable')
+  if (!title) return
+  const code = window.prompt('Código del bloque reutilizable', `BLQ-${String(Date.now()).slice(-6)}`)
+  if (!code) return
+  const request = versionRequestFromEditor({
+    versionNumber: '1',
+    status: 'DRAFT',
+    active: true,
+    esReady: true,
+    enReady: Boolean(section.titleEn || section.blocks.some((block) => block.languageCode === 'EN')),
+    sections: [section],
+  })
+  await createReusableBlock({
+    code,
+    title,
+    productCategory: manual.value?.category || '',
+    productCodes: manual.value?.productCode || '',
+    contentJson: JSON.stringify({ blocks: request.sections[0].blocks }),
+    active: true,
+  })
+  saved.value = true
+  setTimeout(() => { saved.value = false }, 2000)
 }
 
 function moveSection(index: number, direction: -1 | 1) {
@@ -141,7 +184,7 @@ async function changeLanguage(lang: LanguageCode) {
   try {
     const savedDraft = await saveDraft(`Borrador autoguardado al cambiar a ${lang}`)
     if (!savedDraft) return
-    selectedBlockId.value = ''
+    selectedSectionId.value = ''
     selectedLanguage.value = lang
     saved.value = true
     router.replace({ name: 'manual-editor', params: { id: props.id }, query: { lang } })
@@ -201,13 +244,13 @@ function sectionTitle(section: EditorSection) {
 
       <main class="cards-panel">
         <div v-if="store.loading">Cargando contenido...</div>
-        <SectionCard
+        <RichSectionEditor
           v-for="(section, index) in sections"
           :key="section.id"
           :section="section"
-          :selected-block-id="selectedBlockId"
+          :selected="selectedSectionId === section.id"
           :language="selectedLanguage"
-          draggable="true"
+          :manual-id="manual?.id"
           :class="{ dragging: draggingIndex === index, 'drop-target': dropTargetIndex === index && draggingIndex !== index }"
           @dragstart="draggingIndex = index"
           @dragend="draggingIndex = null; dropTargetIndex = null"
@@ -215,7 +258,9 @@ function sectionTitle(section: EditorSection) {
           @drop="dropSection(index)"
           @update="updateSection"
           @delete="deleteSection(section.id)"
-          @select-block="selectedBlockId = $event"
+          @duplicate="duplicateSection(index)"
+          @save-reusable="saveReusable(section)"
+          @select="selectedSectionId = $event"
         />
         <button class="add-section" @click="addSection"><Plus :size="15" /> Añadir sección al final</button>
       </main>
@@ -252,10 +297,8 @@ function sectionTitle(section: EditorSection) {
 .index-panel li { margin: 9px 0; display: grid; gap: 5px; }
 .index-panel button { border: 0; background: transparent; color: var(--dikoin-blue); text-align: left; }
 .cards-panel { overflow: auto; padding: 0 34px 40px; }
-.cards-panel :deep(.section-card) { cursor: grab; }
-.cards-panel :deep(.section-card:active) { cursor: grabbing; }
-.cards-panel :deep(.section-card.dragging) { opacity: .55; border-color: var(--dikoin-blue); transform: scale(.995); box-shadow: 0 12px 28px rgba(0, 124, 184, .18); }
-.cards-panel :deep(.section-card.drop-target) { border-top: 4px solid var(--dikoin-blue); box-shadow: 0 0 0 3px rgba(0,124,184,.12); }
+.cards-panel :deep(.rich-section.dragging) { opacity: .55; border-color: var(--dikoin-blue); transform: scale(.995); box-shadow: 0 12px 28px rgba(0, 124, 184, .18); }
+.cards-panel :deep(.rich-section.drop-target) { border-top: 4px solid var(--dikoin-blue); box-shadow: 0 0 0 3px rgba(0,124,184,.12); }
 .add-section { width: 100%; border: 1px dashed var(--border); background: #fff; padding: 12px; color: var(--dikoin-blue); display: flex; justify-content: center; gap: 7px; }
 dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px; font-size: 13px; }
 dt { color: var(--muted-foreground); }
