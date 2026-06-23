@@ -56,12 +56,14 @@ const props = defineProps<{
   section: EditorSection
   language: LanguageCode
   selected: boolean
+  activeToolbar?: boolean
   manualId?: number
 }>()
 
 const emit = defineEmits<{
   update: [section: EditorSection]
   select: [id: string]
+  activate: [id: string, language: LanguageCode]
   delete: []
   duplicate: []
   saveReusable: []
@@ -338,7 +340,7 @@ const editor = useEditor({
       },
     },
   },
-  onFocus: () => emit('select', props.section.id),
+  onFocus: () => activateEditor(),
   onUpdate: ({ editor }) => {
     if (syncingFromProps.value) return
     editorDirty.value = true
@@ -351,6 +353,7 @@ const editor = useEditor({
     }
   },
   onSelectionUpdate: ({ editor }) => {
+    activateEditor()
     refreshToolbarState()
     scheduleHeadingNumbers()
     updateBlockActionsPosition()
@@ -478,8 +481,13 @@ function mergeLanguageBlocks(languageBlocks: EditorBlock[]) {
   ]
 }
 
-function selectSection() {
+function activateEditor() {
   emit('select', props.section.id)
+  emit('activate', props.section.id, props.language)
+}
+
+function selectSection() {
+  activateEditor()
 }
 
 function setHeading(level: 1 | 2 | 3) {
@@ -760,6 +768,7 @@ function updateNoteDeletePosition() {
 }
 
 function handleSectionClick(event: MouseEvent) {
+  activateEditor()
   const target = event.target instanceof Element ? event.target : null
   const note = target?.closest('[data-note-box]') as HTMLElement | null
   if (!note) {
@@ -781,6 +790,7 @@ function handleSectionClick(event: MouseEvent) {
 }
 
 function handleSectionMouseDown(event: MouseEvent) {
+  activateEditor()
   const target = event.target instanceof Element ? event.target : null
   const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('img') as HTMLElement | null
   if (image && image.closest('.rich-editor-surface')) {
@@ -1723,6 +1733,7 @@ function imageAssetId(node: JSONContent) {
       @click="handleSectionClick"
       @mouseleave="handleSectionMouseLeave"
     >
+      <Teleport v-if="activeToolbar" to="#manual-editor-toolbar">
       <div class="toolbar" @mousedown.prevent.stop @click.stop>
         <div class="ribbon-group compact-group">
           <div class="ribbon-row">
@@ -1807,6 +1818,7 @@ function imageAssetId(node: JSONContent) {
           <span class="group-label">Sección</span>
         </div>
       </div>
+      </Teleport>
 
       <EditorContent
         :editor="editor"
@@ -2028,7 +2040,7 @@ function imageAssetId(node: JSONContent) {
 .bar-icon { border: 0; background: transparent; color: #fff; padding: 4px; display: inline-flex; align-items: center; }
 .bar-icon .collapsed { transform: rotate(180deg); }
 .section-content { min-height: 332px; position: relative; overflow: visible; }
-.toolbar { position: sticky; top: 34px; z-index: 54; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 64px; padding: 6px 8px 5px; border-bottom: 1px solid #dce7f0; background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
+.toolbar { position: relative; z-index: 70; display: flex; flex-wrap: wrap; align-items: stretch; width: max-content; min-width: 100%; min-height: 56px; padding: 5px 8px 4px; border: 1px solid #dce7f0; border-radius: var(--radius); background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
 .ribbon-group { position: relative; display: grid; grid-template-rows: 1fr auto; align-items: stretch; gap: 3px; padding: 0 8px; border-right: 1px solid #d7e3ed; }
 .ribbon-group:first-child { padding-left: 2px; }
 .ribbon-group:last-child { border-right: 0; }

@@ -16,6 +16,7 @@ const router = useRouter()
 const store = useManualsStore()
 const sections = ref<EditorSection[]>([])
 const selectedSectionId = ref('')
+const activeEditorKey = ref('')
 const selectedLanguage = ref<LanguageCode>(route.query.lang === 'EN' ? 'EN' : 'ES')
 const languageMode = ref<LanguageCode | 'BOTH'>(selectedLanguage.value)
 const saved = ref(false)
@@ -57,6 +58,16 @@ function addSection() {
   })
 }
 
+function editorKey(sectionId: string, language: LanguageCode) {
+  return `${sectionId}:${language}`
+}
+
+function activateEditor(sectionId: string, language: LanguageCode) {
+  selectedSectionId.value = sectionId
+  selectedLanguage.value = language
+  activeEditorKey.value = editorKey(sectionId, language)
+}
+
 function updateSection(section: EditorSection) {
   sections.value = sections.value.map((item) => item.id === section.id ? section : item)
 }
@@ -83,6 +94,10 @@ function flushSectionEditors() {
 
 function deleteSection(id: string) {
   sections.value = sections.value.filter((section) => section.id !== id)
+  if (selectedSectionId.value === id) {
+    selectedSectionId.value = ''
+    activeEditorKey.value = ''
+  }
 }
 
 function duplicateSection(index: number) {
@@ -105,7 +120,7 @@ function duplicateSection(index: number) {
   const copy = [...sections.value]
   copy.splice(index + 1, 0, duplicated)
   sections.value = renumberSections(copy)
-  selectedSectionId.value = duplicated.id
+  activateEditor(duplicated.id, selectedLanguage.value)
 }
 
 async function saveReusable(section: EditorSection) {
@@ -218,6 +233,7 @@ async function changeLanguage(lang: LanguageCode) {
     const savedDraft = await saveDraft(`Borrador autoguardado al cambiar a ${lang}`)
     if (!savedDraft) return
     selectedSectionId.value = ''
+    activeEditorKey.value = ''
     selectedLanguage.value = lang
     languageMode.value = lang
     saved.value = true
@@ -235,6 +251,7 @@ async function showBothLanguages() {
     const savedDraft = await saveDraft('Borrador autoguardado al mostrar ambos idiomas')
     if (!savedDraft) return
     selectedSectionId.value = ''
+    activeEditorKey.value = ''
     languageMode.value = 'BOTH'
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
@@ -285,6 +302,9 @@ function sectionTitle(section: EditorSection) {
       <button class="btn btn-outline" :disabled="saving" @click="saveDraftForPreview"><Eye :size="14" /> Vista previa</button>
       <button class="btn btn-primary" :disabled="saving" @click="save"><Save :size="14" /> {{ saving ? 'Guardando...' : 'Guardar' }}</button>
       <button class="btn btn-outline" :disabled="saving" @click="sendReview"><Send :size="14" /> Enviar a revisión</button>
+      <div id="manual-editor-toolbar" class="editor-toolbar-dock">
+        <span v-if="!activeEditorKey" class="toolbar-empty">Selecciona una seccion para mostrar la cinta de herramientas.</span>
+      </div>
     </div>
 
     <div class="editor-grid" :class="{ 'sections-collapsed': sectionsPanelCollapsed, 'both-languages': languageMode === 'BOTH' }">
@@ -332,6 +352,7 @@ function sectionTitle(section: EditorSection) {
               ref="sectionEditorRefs"
               :section="section"
               :selected="selectedSectionId === section.id"
+              :active-toolbar="activeEditorKey === editorKey(section.id, lang)"
               :language="lang"
               :manual-id="manual?.id"
               @update="updateSectionForLanguage($event, lang)"
@@ -339,6 +360,7 @@ function sectionTitle(section: EditorSection) {
               @duplicate="duplicateSection(index)"
               @save-reusable="saveReusable(section)"
               @select="selectedSectionId = $event"
+              @activate="activateEditor"
             />
           </div>
         </div>
@@ -360,42 +382,313 @@ function sectionTitle(section: EditorSection) {
 </template>
 
 <style scoped>
-.editor-page { height: 100%; display: flex; flex-direction: column; }
-.editor-top { min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.editor-title { flex: 1; min-width: 180px; }
-.editor-title h1 { margin: 0; font-size: 16px; }
-.editor-title span { display: block; color: var(--muted-foreground); font-size: 12px; }
-.lang-switch { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #fff; }
-.lang-switch button { border: 0; background: #fff; padding: 8px 11px; color: var(--muted-foreground); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
-.lang-switch button.active { background: var(--dikoin-blue); color: #fff; }
-.lang-switch button:disabled { cursor: wait; opacity: .7; }
-.top-properties { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-.top-properties div { display: grid; grid-template-columns: auto auto; gap: 4px; align-items: center; padding: 4px 7px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-background); font-size: 11px; line-height: 1; }
-.top-properties dt { color: var(--muted-foreground); font-weight: 600; }
-.top-properties dd { margin: 0; color: var(--foreground); font-weight: 600; }
-.saved { color: #065f46; font-weight: 600; font-size: 12px; }
-.editor-grid { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; padding: 14px; overflow: hidden; transition: grid-template-columns .18s ease; }
-.editor-grid.sections-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
-.sections-toggle { position: absolute; top: 50%; left: 256px; z-index: 1; width: 28px; height: 44px; transform: translateY(-50%); border: 1px solid var(--border); border-left: 0; border-radius: 0 var(--radius) var(--radius) 0; background: #fff; color: var(--dikoin-blue); display: grid; place-items: center; padding: 0; box-shadow: 0 8px 18px rgba(15, 23, 42, .12); transition: left .18s ease, background .12s ease; }
-.sections-toggle:hover { background: var(--dikoin-blue-lighter); }
-.editor-grid.sections-collapsed .sections-toggle { left: 14px; }
-.index-panel, .props-panel { padding: 14px; overflow: auto; }
-.index-panel { position: relative; z-index: 2; min-width: 0; transition: opacity .16s ease, visibility .16s ease; }
-.editor-grid.sections-collapsed .index-panel { opacity: 0; visibility: hidden; pointer-events: none; overflow: hidden; padding-left: 0; padding-right: 0; }
-.index-panel h2, .props-panel h2 { margin: 0 0 12px; font-size: 15px; }
-.index-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.index-panel ol { padding-left: 18px; }
-.index-panel li { margin: 9px 0; display: grid; gap: 5px; }
-.index-panel button { border: 0; background: transparent; color: var(--dikoin-blue); text-align: left; }
-.cards-panel { overflow: auto; padding: 0 34px 40px; }
-.section-editor-row { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 14px; }
-.editor-grid.both-languages .section-editor-row { grid-template-columns: repeat(2, 210mm); align-items: start; justify-content: start; }
-.language-editor-column { min-width: 0; }
-.language-column-label { position: sticky; top: 0; z-index: 60; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; margin-bottom: 6px; border-radius: var(--radius); background: var(--dikoin-blue-dark); color: #fff; font-size: 11px; font-weight: 600; }
-.section-editor-row.dragging { opacity: .55; }
-.section-editor-row.drop-target { border-top: 4px solid var(--dikoin-blue); box-shadow: 0 0 0 3px rgba(0,124,184,.12); }
-.add-section { width: 100%; border: 1px dashed var(--border); background: #fff; padding: 12px; color: var(--dikoin-blue); display: flex; justify-content: center; gap: 7px; }
-dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px; font-size: 13px; }
-dt { color: var(--muted-foreground); }
-@media (max-width: 1100px) { .editor-grid, .editor-grid.sections-collapsed { grid-template-columns: 1fr; overflow: auto; } .sections-toggle { display: none; } .index-panel, .props-panel, .cards-panel { overflow: visible; } .editor-grid.sections-collapsed .index-panel { display: none; } .editor-grid.both-languages .section-editor-row { grid-template-columns: 1fr; } }
+.editor-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-top {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 8px;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.editor-title {
+  flex: 1;
+  min-width: 180px;
+}
+
+.editor-title h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.editor-title span {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.lang-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #fff;
+}
+
+.lang-switch button {
+  border: 0;
+  background: #fff;
+  padding: 8px 11px;
+  color: var(--muted-foreground);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.lang-switch button.active {
+  background: var(--dikoin-blue);
+  color: #fff;
+}
+
+.lang-switch button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.top-properties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.top-properties div {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-background);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.top-properties dt {
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.top-properties dd {
+  margin: 0;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.saved {
+  color: #065f46;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.editor-toolbar-dock {
+  flex: 1 0 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-top: 7px;
+  border-top: 1px solid #edf3f8;
+}
+
+.toolbar-empty {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.editor-grid {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  overflow: hidden;
+  transition: grid-template-columns .18s ease;
+}
+
+.editor-grid.sections-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.sections-toggle {
+  position: absolute;
+  top: 50%;
+  left: 256px;
+  z-index: 1;
+  width: 28px;
+  height: 44px;
+  transform: translateY(-50%);
+  border: 1px solid var(--border);
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: #fff;
+  color: var(--dikoin-blue);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .12);
+  transition: left .18s ease, background .12s ease;
+}
+
+.sections-toggle:hover {
+  background: var(--dikoin-blue-lighter);
+}
+
+.editor-grid.sections-collapsed .sections-toggle {
+  left: 14px;
+}
+
+.index-panel,
+.props-panel {
+  padding: 14px;
+  overflow: auto;
+}
+
+.index-panel {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  transition: opacity .16s ease, visibility .16s ease;
+}
+
+.editor-grid.sections-collapsed .index-panel {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.index-panel h2,
+.props-panel h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.index-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.index-panel ol {
+  padding-left: 18px;
+}
+
+.index-panel li {
+  margin: 9px 0;
+  display: grid;
+  gap: 5px;
+}
+
+.index-panel button {
+  border: 0;
+  background: transparent;
+  color: var(--dikoin-blue);
+  text-align: left;
+}
+
+.cards-panel {
+  overflow: auto;
+  padding: 0 34px 40px;
+}
+
+.section-editor-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.editor-grid.both-languages .section-editor-row {
+  grid-template-columns: repeat(2, 210mm);
+  align-items: start;
+  justify-content: start;
+}
+
+.language-editor-column {
+  min-width: 0;
+}
+
+.language-column-label {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  margin-bottom: 6px;
+  border-radius: var(--radius);
+  background: var(--dikoin-blue-dark);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.section-editor-row.dragging {
+  opacity: .55;
+}
+
+.section-editor-row.drop-target {
+  border-top: 4px solid var(--dikoin-blue);
+  box-shadow: 0 0 0 3px rgba(0, 124, 184, .12);
+}
+
+.add-section {
+  width: 100%;
+  border: 1px dashed var(--border);
+  background: #fff;
+  padding: 12px;
+  color: var(--dikoin-blue);
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  font-size: 13px;
+}
+
+dt {
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 1100px) {
+
+  .editor-grid,
+  .editor-grid.sections-collapsed {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .sections-toggle {
+    display: none;
+  }
+
+  .index-panel,
+  .props-panel,
+  .cards-panel {
+    overflow: visible;
+  }
+
+  .editor-grid.sections-collapsed .index-panel {
+    display: none;
+  }
+
+  .editor-grid.both-languages .section-editor-row {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
