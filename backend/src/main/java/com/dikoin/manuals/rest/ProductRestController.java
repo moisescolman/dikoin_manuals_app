@@ -2,6 +2,8 @@ package com.dikoin.manuals.rest;
 
 import com.dikoin.manuals.dtos.product.ProductRequest;
 import com.dikoin.manuals.dtos.product.ProductResponse;
+import com.dikoin.manuals.dtos.product.ProductCategoryResponse;
+import com.dikoin.manuals.dtos.product.ProductFamilyResponse;
 import com.dikoin.manuals.servicios.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,16 @@ public class ProductRestController {
     @GetMapping("/{id}")
     public ProductResponse findById(@PathVariable Long id) {
         return productService.findById(id);
+    }
+
+    @GetMapping("/families")
+    public List<ProductFamilyResponse> findFamilies() {
+        return productService.findFamilies();
+    }
+
+    @GetMapping("/categories")
+    public List<ProductCategoryResponse> findCategories() {
+        return productService.findCategories();
     }
 
     @PostMapping

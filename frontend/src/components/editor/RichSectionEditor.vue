@@ -2040,7 +2040,7 @@ function imageAssetId(node: JSONContent) {
 .bar-icon { border: 0; background: transparent; color: #fff; padding: 4px; display: inline-flex; align-items: center; }
 .bar-icon .collapsed { transform: rotate(180deg); }
 .section-content { min-height: 332px; position: relative; overflow: visible; }
-.toolbar { position: relative; z-index: 70; display: flex; flex-wrap: wrap; align-items: stretch; width: max-content; min-width: 100%; min-height: 56px; padding: 5px 8px 4px; border: 1px solid #dce7f0; border-radius: var(--radius); background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
+.toolbar { position: relative; z-index: 210; display: flex; flex-wrap: wrap; align-items: stretch; width: max-content; min-width: 100%; min-height: 56px; padding: 5px 8px 4px; border: 1px solid #dce7f0; border-radius: var(--radius); background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
 .ribbon-group { position: relative; display: grid; grid-template-rows: 1fr auto; align-items: stretch; gap: 3px; padding: 0 8px; border-right: 1px solid #d7e3ed; }
 .ribbon-group:first-child { padding-left: 2px; }
 .ribbon-group:last-child { border-right: 0; }
@@ -2062,11 +2062,11 @@ function imageAssetId(node: JSONContent) {
 .tool-btn.danger { color: var(--dikoin-red); }
 .paragraph-icon { font-size: 16px; line-height: 1; font-weight: 600; }
 .toolbar .flip { transform: rotate(180deg); }
-.toolbar-menu, .table-picker-menu { position: relative; z-index: 45; }
+.toolbar-menu, .table-picker-menu { position: relative; z-index: 220; }
 .toolbar-menu > button { height: 100%; }
-.submenu { display: grid; position: absolute; z-index: 60; left: 0; top: calc(100% + 4px); min-width: 150px; background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 20px rgba(0,0,0,.12); }
+.submenu { display: grid; position: absolute; z-index: 230; left: 0; top: calc(100% + 4px); min-width: 150px; background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 20px rgba(0,0,0,.12); }
 .submenu button { width: 100%; display: block; min-width: 0; text-align: left; justify-items: start; border: 0; background: #fff; padding: 9px 10px; font-size: 12px; }
-.table-picker-popover { position: absolute; z-index: 60; left: 0; top: calc(100% + 4px); width: 202px; padding: 7px; background: #fbfbfb; border: 1px solid #b7b7b7; box-shadow: 2px 4px 10px rgba(0,0,0,.16); display: grid; gap: 7px; }
+.table-picker-popover { position: absolute; z-index: 230; left: 0; top: calc(100% + 4px); width: 202px; padding: 7px; background: #fbfbfb; border: 1px solid #b7b7b7; box-shadow: 2px 4px 10px rgba(0,0,0,.16); display: grid; gap: 7px; }
 .table-picker-popover strong { display: block; padding: 2px 3px; color: #374151; font-size: 12px; font-weight: 600; }
 .table-picker-grid { display: grid; grid-template-columns: repeat(7, 24px); gap: 3px; }
 .table-picker-cell { width: 24px; height: 24px; min-width: 0; min-height: 0; border: 1px solid #7f7f7f; background: #fff; padding: 0; }

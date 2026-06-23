@@ -38,7 +38,7 @@ public class SearchRestController {
                 "/manuales/" + manual.getId()
         )));
 
-        productRepository.findByCodeContainingIgnoreCaseOrNameContainingIgnoreCase(q, q).stream().limit(5).forEach(product -> results.add(new SearchSuggestionResponse(
+        productRepository.search(q).stream().limit(5).forEach(product -> results.add(new SearchSuggestionResponse(
                 "PRODUCT",
                 product.getId(),
                 product.getCode(),

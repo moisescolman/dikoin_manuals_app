@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getApiError } from '@/api/http'
-import { createProduct, getProducts, updateProduct } from '@/api/products.api'
-import type { ProductRequest, ProductResponse } from '@/types/api'
+import { createProduct, getProductCategories, getProductFamilies, getProducts, updateProduct } from '@/api/products.api'
+import type { ProductCategoryResponse, ProductFamilyResponse, ProductRequest, ProductResponse } from '@/types/api'
 
 export const useProductsStore = defineStore('products', () => {
   const products = ref<ProductResponse[]>([])
+  const families = ref<ProductFamilyResponse[]>([])
+  const categories = ref<ProductCategoryResponse[]>([])
   const loading = ref(false)
   const error = ref('')
 
@@ -27,5 +29,19 @@ export const useProductsStore = defineStore('products', () => {
     return saved
   }
 
-  return { products, loading, error, fetchProducts, saveProduct }
+  async function fetchTaxonomy() {
+    error.value = ''
+    try {
+      const [loadedFamilies, loadedCategories] = await Promise.all([
+        getProductFamilies(),
+        getProductCategories(),
+      ])
+      families.value = loadedFamilies
+      categories.value = loadedCategories
+    } catch (err) {
+      error.value = getApiError(err)
+    }
+  }
+
+  return { products, families, categories, loading, error, fetchProducts, fetchTaxonomy, saveProduct }
 })

@@ -50,20 +50,52 @@ export interface ProductResponse {
   id: number
   code: string
   name: string
+  nameEs?: string
+  nameEn?: string
+  familyId?: number
+  familyCode?: string
   family?: string
+  familyInfo?: ProductFamilyResponse
+  categoryIds?: number[]
+  categoryCodes?: string
   category?: string
+  categories?: ProductCategoryResponse[]
   description?: string
+  descriptionEs?: string
+  descriptionEn?: string
   active: boolean
   createdAt?: string
   updatedAt?: string
 }
 
+export interface ProductFamilyResponse {
+  id: number
+  code: string
+  nameEs: string
+  nameEn?: string
+}
+
+export interface ProductCategoryResponse {
+  id: number
+  code: string
+  nameEs: string
+  nameEn?: string
+}
+
 export interface ProductRequest {
   code: string
   name: string
+  nameEs?: string
+  nameEn?: string
+  familyId?: number
   family?: string
+  familyCode?: string
+  categoryIds?: number[]
   category?: string
+  categoryCodes?: string
   description?: string
+  descriptionEs?: string
+  descriptionEn?: string
   active?: boolean
 }
 

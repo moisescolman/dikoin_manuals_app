@@ -389,6 +389,8 @@ function sectionTitle(section: EditorSection) {
 }
 
 .editor-top {
+  position: relative;
+  z-index: 200;
   min-height: 58px;
   display: flex;
   align-items: center;
@@ -397,6 +399,7 @@ function sectionTitle(section: EditorSection) {
   background: #fff;
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  overflow: visible;
 }
 
 .editor-title {
@@ -482,12 +485,13 @@ function sectionTitle(section: EditorSection) {
 }
 
 .editor-toolbar-dock {
+  position: relative;
+  z-index: 205;
   flex: 1 0 100%;
   min-height: 58px;
   display: flex;
   align-items: stretch;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: visible;
   padding-top: 7px;
   border-top: 1px solid #edf3f8;
 }
@@ -502,6 +506,7 @@ function sectionTitle(section: EditorSection) {
 
 .editor-grid {
   position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   display: grid;
