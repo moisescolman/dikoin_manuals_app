@@ -260,6 +260,14 @@ function imageWidth(blockJson: string) {
   return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
 }
 
+function imageHeight(blockJson: string) {
+  const parsed = content(blockJson)
+  const height = parsed.height || parsed.json?.attrs?.height
+  if (!height) return undefined
+  const text = String(height)
+  return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
+}
+
 function sectionTitle(section: ManualSectionResponse, index: number) {
   const title = activeLanguage() === 'EN' ? section.titleEn || '' : section.titleEs
   return `${section.sectionNumber || index + 1}. ${title}`
@@ -602,7 +610,7 @@ function contentPageForBlock(blockId: number) {
             </div>
             <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula">{{ content(unit.block.contentJson).latex }}</div>
             <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image">
-              <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson) }" alt="" />
+              <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson), height: imageHeight(unit.block.contentJson) }" alt="" />
               <figcaption v-if="content(unit.block.contentJson).caption">{{ content(unit.block.contentJson).caption }}</figcaption>
             </figure>
             <div v-else class="text-muted">{{ unit.block.contentJson }}</div>
@@ -673,7 +681,7 @@ function contentPageForBlock(blockId: number) {
                   <div v-else-if="unit.block.blockType === 'NOTE'" class="note">NOTA: {{ content(unit.block.contentJson).text }}</div>
                   <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula">{{ content(unit.block.contentJson).latex }}</div>
                   <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image">
-                    <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson) }" alt="" />
+                    <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson), height: imageHeight(unit.block.contentJson) }" alt="" />
                     <figcaption v-if="content(unit.block.contentJson).caption">{{ content(unit.block.contentJson).caption }}</figcaption>
                   </figure>
                   <div v-else class="text-muted">{{ unit.block.contentJson }}</div>
@@ -728,7 +736,7 @@ function contentPageForBlock(blockId: number) {
   background: var(--dikoin-blue);
   color: #fff;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   overflow: hidden;
 }
 
@@ -829,7 +837,7 @@ function contentPageForBlock(blockId: number) {
 .cover-title-block p {
   color: var(--dikoin-blue);
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 600;
   border-top: 1px solid var(--dikoin-blue);
   width: min(100%, 650px);
   padding-top: 6px;
@@ -874,7 +882,7 @@ function contentPageForBlock(blockId: number) {
 }
 
 .toc-list .toc-level-0 {
-  font-weight: 800;
+  font-weight: 600;
   color: var(--dikoin-blue-dark);
 }
 
@@ -927,25 +935,25 @@ function contentPageForBlock(blockId: number) {
 
 .doc-heading-level-1 {
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .doc-heading-level-2 {
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
   color: var(--dikoin-blue-dark);
 }
 
 .doc-heading-level-3 {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--foreground);
 }
 
 .heading-number {
   margin-right: 6px;
   color: var(--dikoin-blue-dark);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .doc-table {

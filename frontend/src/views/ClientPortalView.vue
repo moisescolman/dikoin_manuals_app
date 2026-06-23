@@ -58,7 +58,7 @@ onMounted(() => store.fetchManuals())
 .manual-card { padding: 16px; display: grid; gap: 10px; }
 .manual-card h2 { margin: 0; font-size: 17px; color: var(--dikoin-blue-dark); }
 .manual-card p { margin: 0; color: var(--muted-foreground); }
-.code { color: var(--dikoin-blue); font-weight: 800; }
+.code { color: var(--dikoin-blue); font-weight: 600; }
 .meta { display: flex; gap: 6px; flex-wrap: wrap; }
 .empty { padding: 18px; color: var(--muted-foreground); }
 </style>

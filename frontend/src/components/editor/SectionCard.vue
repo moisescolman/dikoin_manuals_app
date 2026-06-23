@@ -170,8 +170,8 @@ function insertReusableBlock(event: Event) {
 .section-head { display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-bottom: 1px solid var(--border); background: #f8fbfe; }
 .collapse, .icon-btn { border: 0; background: transparent; color: var(--muted-foreground); padding: 4px; }
 .danger:hover { color: var(--dikoin-red); }
-.section-num { min-width: 34px; padding: 3px 6px; background: var(--dikoin-blue); color: #fff; text-align: center; font-weight: 800; border-radius: var(--radius); }
-.section-title { flex: 1; border: 0; background: transparent; outline: 0; font-weight: 800; color: var(--dikoin-blue-dark); }
+.section-num { min-width: 34px; padding: 3px 6px; background: var(--dikoin-blue); color: #fff; text-align: center; font-weight: 600; border-radius: var(--radius); }
+.section-title { flex: 1; border: 0; background: transparent; outline: 0; font-weight: 600; color: var(--dikoin-blue-dark); }
 .section-status { font-size: 11px; color: var(--muted-foreground); padding: 3px 7px; background: #edf2f7; border-radius: 999px; }
 .drag-hint { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-foreground); font-size: 11px; border: 1px dashed var(--border); padding: 3px 7px; border-radius: var(--radius); }
 .section-body { padding: 10px 14px 14px 42px; }

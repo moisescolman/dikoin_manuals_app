@@ -96,7 +96,7 @@ async function save() {
 .grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; }
 .product-form { padding: 16px; display: grid; gap: 12px; }
 .product-form h2 { margin: 0; font-size: 16px; }
-label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 700; }
+label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
 .check { display: flex; align-items: center; color: var(--foreground); font-size: 13px; }
 .list-card { overflow: auto; }
 .toolbar { padding: 12px; border-bottom: 1px solid var(--border); }

@@ -227,7 +227,7 @@ async function save() {
 .workspace { display: grid; gap: 16px; min-width: 0; }
 .meta, .usages { padding: 16px; display: grid; gap: 12px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted-foreground); }
+label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted-foreground); }
 .check { display: flex; align-items: center; gap: 8px; }
 .editor-shell { padding-left: 30px; }
 .success-msg { background: var(--dikoin-green-light); color: #065f46; border: 1px solid #86efac; padding: 10px; border-radius: var(--radius); }

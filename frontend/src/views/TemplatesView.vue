@@ -364,11 +364,11 @@ function textFromEvent(event: Event) {
 .template-list button.active, .template-list button:hover { border-color: var(--dikoin-blue); background: var(--dikoin-blue-lighter); }
 .template-list strong, .template-list small { display: block; }
 .template-list small { color: var(--muted-foreground); margin-top: 3px; }
-.template-list em { color: #065f46; font-style: normal; font-weight: 800; font-size: 11px; }
+.template-list em { color: #065f46; font-style: normal; font-weight: 600; font-size: 11px; }
 .template-form { padding: 16px; display: grid; gap: 12px; }
 .template-form h2 { margin: 0; font-size: 16px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 700; }
+label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
 .logo-panel { display: grid; gap: 8px; }
 .logo-upload { border: 1px dashed var(--border); background: var(--input-background); padding: 9px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--dikoin-blue); cursor: pointer; }
 .logo-upload.disabled { opacity: .55; cursor: not-allowed; }
@@ -385,7 +385,7 @@ label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px
 .paper { width: min(210mm, 100%); min-height: 297mm; margin: 0 auto; padding: 14mm; background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,.08); }
 header { display: flex; align-items: flex-end; gap: 8px; }
 header span { margin-left: auto; font-size: 11px; color: var(--muted-foreground); }
-.logo-box { width: 34mm; height: 10mm; display: grid; place-items: center; background: transparent; color: var(--dikoin-blue); font-weight: 800; overflow: hidden; }
+.logo-box { width: 34mm; height: 10mm; display: grid; place-items: center; background: transparent; color: var(--dikoin-blue); font-weight: 600; overflow: hidden; }
 .logo-box:not(:has(img)) { width: 86px; height: 46px; background: var(--dikoin-blue); color: #fff; }
 .logo-box img { width: 100%; height: 100%; object-fit: contain; object-position: left center; background: transparent; }
 .line { height: 2px; background: var(--dikoin-blue); margin: 6px 0 22px; }

@@ -237,7 +237,7 @@ async function changeStatus() {
   background: #fff;
   padding: 8px 11px;
   color: var(--muted-foreground);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .lang-switch button.active {

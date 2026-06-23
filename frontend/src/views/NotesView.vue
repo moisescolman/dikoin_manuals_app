@@ -21,7 +21,7 @@ const form = reactive({
   titleEs: '',
   titleEn: '',
   visibleTitleEs: 'Nota',
-  visibleTitleEn: '',
+  visibleTitleEn: 'Note',
   productCategory: '',
   productCodes: '',
   contentEs: '',
@@ -59,7 +59,7 @@ function select(note: NoticeTemplateResponse) {
   form.titleEs = note.titleEs || ''
   form.titleEn = note.titleEn || ''
   form.visibleTitleEs = note.visibleTitleEs || 'Nota'
-  form.visibleTitleEn = note.visibleTitleEn || ''
+  form.visibleTitleEn = note.visibleTitleEn || 'Note'
   form.productCategory = note.productCategory || ''
   form.productCodes = note.productCodes || ''
   form.contentEs = note.contentEs || ''
@@ -78,7 +78,7 @@ function createNew() {
   form.titleEs = ''
   form.titleEn = ''
   form.visibleTitleEs = 'Nota'
-  form.visibleTitleEn = ''
+  form.visibleTitleEn = 'Note'
   form.productCategory = ''
   form.productCodes = ''
   form.contentEs = ''
@@ -103,13 +103,13 @@ function payload(): NoticeTemplateRequest {
   const request: NoticeTemplateRequest = {
     type: 'NOTE',
     titleEs: form.titleEs,
-    titleEn: form.titleEn || undefined,
+    titleEn: form.titleEn,
     visibleTitleEs: form.visibleTitleEs || 'Nota',
-    visibleTitleEn: form.visibleTitleEn || undefined,
+    visibleTitleEn: form.visibleTitleEn || 'Note',
     productCategory: form.productCategory || undefined,
     productCodes: form.productCodes || undefined,
     contentEs: form.contentEs,
-    contentEn: form.contentEn || undefined,
+    contentEn: form.contentEn,
     active: form.active,
   }
   if (selectedId.value && form.code) {
@@ -205,15 +205,50 @@ async function confirmDelete() {
     <div v-if="saved" class="success-msg">{{ saved }}</div>
 
     <div class="notes-grid">
+      <aside class="card list">
+        <div class="list-head">
+          <div>
+            <h2>Biblioteca de notas</h2>
+            <span>{{ notes.length }} notas</span>
+          </div>
+        </div>
+        <button v-for="note in notes" :key="note.id" :class="{ active: note.id === selectedId }" @click="select(note)">
+          <div class="note-row-main">
+            <span class="mono">{{ note.code }}</span>
+            <strong>{{ note.titleEs || note.titleEn }}</strong>
+            <small>{{ note.active ? 'Activa' : 'Inactiva' }}</small>
+          </div>
+          <div class="note-language-snippets">
+            <div class="note-row-content">
+              <span>ES · {{ note.visibleTitleEs || 'Nota' }}</span>
+              <p>{{ note.contentEs }}</p>
+            </div>
+            <div class="note-row-content">
+              <span>EN · {{ note.visibleTitleEn || 'Note' }}</span>
+              <p>{{ note.contentEn || 'Sin version en ingles' }}</p>
+            </div>
+          </div>
+        </button>
+        <p v-if="!notes.length && !loading" class="text-muted empty-list">No hay notas creadas.</p>
+      </aside>
+
       <form class="card editor" @submit.prevent="save">
         <section class="preview-panel" aria-label="Vista previa de la nota">
           <div class="panel-title">
-            <span>Vista previa de la nota</span>
+            <span>Vista previa</span>
             <small>{{ form.active ? 'Activa' : 'Inactiva' }}</small>
           </div>
-          <div class="note-preview">
-            <strong>{{ form.visibleTitleEs || 'Nota' }}</strong>
-            <p>{{ form.contentEs || 'Texto de la nota' }}</p>
+          <div class="preview-grid">
+            <article class="note-preview">
+              <span>ES</span>
+              <strong>{{ form.visibleTitleEs || 'Nota' }}</strong>
+              <p>{{ form.contentEs || 'Texto de la nota' }}</p>
+            </article>
+            <article class="note-preview">
+              <span>EN</span>
+              <strong>{{ form.visibleTitleEn || 'Note' }}</strong>
+              <p>{{ form.contentEn || 'Note text' }}</p>
+            </article>
           </div>
         </section>
 
@@ -228,12 +263,33 @@ async function confirmDelete() {
           </div>
         </div>
 
-        <label>Titulo de la nota <input v-model="form.titleEs" class="field" required /></label>
-        <label>Titulo visible <input v-model="form.visibleTitleEs" class="field" placeholder="Nota" /></label>
-        <label>Categoria producto <input v-model="form.productCategory" class="field" /></label>
-        <label>Codigos producto <input v-model="form.productCodes" class="field mono" placeholder="FLB10.1, HY100" /></label>
-        <label>Texto <textarea v-model="form.contentEs" class="field note-text" rows="8" required /></label>
-        <label class="check"><input v-model="form.active" type="checkbox" /> Activa</label>
+        <div class="metadata-grid">
+          <label>Categoria producto <input v-model="form.productCategory" class="field" /></label>
+          <label>Codigos producto <input v-model="form.productCodes" class="field mono" placeholder="FLB10.1, HY100" /></label>
+          <label class="check"><input v-model="form.active" type="checkbox" /> Activa</label>
+        </div>
+
+        <section class="language-editors" aria-label="Contenido bilingue de la nota">
+          <div class="language-panel">
+            <div class="language-panel-title">
+              <span>Español</span>
+              <small>Version principal</small>
+            </div>
+            <label>Titulo de la nota <input v-model="form.titleEs" class="field" required /></label>
+            <label>Titulo visible <input v-model="form.visibleTitleEs" class="field" placeholder="Nota" /></label>
+            <label>Texto <textarea v-model="form.contentEs" class="field note-text" rows="10" required /></label>
+          </div>
+
+          <div class="language-panel">
+            <div class="language-panel-title">
+              <span>English</span>
+              <small>Stored with the note</small>
+            </div>
+            <label>Note title <input v-model="form.titleEn" class="field" required /></label>
+            <label>Visible title <input v-model="form.visibleTitleEn" class="field" placeholder="Note" /></label>
+            <label>Text <textarea v-model="form.contentEn" class="field note-text" rows="10" required /></label>
+          </div>
+        </section>
 
         <div class="form-actions">
           <button type="submit" class="btn btn-primary" :disabled="loading"><Save :size="15" /> Guardar nota</button>
@@ -267,26 +323,6 @@ async function confirmDelete() {
         </div>
       </form>
 
-      <aside class="card list">
-        <div class="list-head">
-          <div>
-            <h2>Biblioteca de notas</h2>
-            <span>{{ notes.length }} notas</span>
-          </div>
-        </div>
-        <button v-for="note in notes" :key="note.id" :class="{ active: note.id === selectedId }" @click="select(note)">
-          <div class="note-row-main">
-            <span class="mono">{{ note.code }}</span>
-            <strong>{{ note.titleEs }}</strong>
-            <small>{{ note.active ? 'Activa' : 'Inactiva' }}</small>
-          </div>
-          <div class="note-row-content">
-            <span>{{ note.visibleTitleEs || 'Nota' }}</span>
-            <p>{{ note.contentEs }}</p>
-          </div>
-        </button>
-        <p v-if="!notes.length && !loading" class="text-muted empty-list">No hay notas creadas.</p>
-      </aside>
     </div>
   </section>
 </template>
@@ -311,7 +347,7 @@ async function confirmDelete() {
 .notes-grid {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(360px, 460px) minmax(520px, 1fr);
+  grid-template-columns: minmax(290px, 340px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
   overflow: hidden;
@@ -352,8 +388,7 @@ async function confirmDelete() {
   padding: 12px 16px;
   text-align: left;
   display: grid;
-  grid-template-columns: minmax(170px, 240px) minmax(0, 1fr);
-  gap: 18px;
+  gap: 10px;
   border-radius: 0;
 }
 
@@ -386,10 +421,15 @@ async function confirmDelete() {
   gap: 4px;
 }
 
+.note-language-snippets {
+  display: grid;
+  gap: 8px;
+}
+
 .note-row-content span {
   color: #92400e;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .note-row-content p {
@@ -409,7 +449,7 @@ async function confirmDelete() {
   max-height: 100%;
   padding: 16px;
   display: grid;
-  gap: 12px;
+  gap: 14px;
   overflow: auto;
 }
 
@@ -430,7 +470,7 @@ async function confirmDelete() {
 .eyebrow {
   color: var(--muted-foreground);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .04em;
 }
@@ -448,14 +488,14 @@ async function confirmDelete() {
 .readonly-code span {
   color: var(--muted-foreground);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 label {
   display: grid;
   gap: 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--muted-foreground);
 }
 
@@ -463,11 +503,19 @@ label {
   display: flex;
   align-items: center;
   gap: 8px;
+  align-self: end;
+  min-height: 38px;
 }
 
 .preview-panel {
   display: grid;
   gap: 10px;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .panel-title {
@@ -477,13 +525,13 @@ label {
   gap: 12px;
   color: var(--foreground);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .panel-title small {
   color: var(--muted-foreground);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .note-preview {
@@ -496,8 +544,68 @@ label {
   box-shadow: 0 8px 18px rgba(146, 64, 14, .08);
 }
 
+.note-preview span {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.note-preview strong {
+  display: block;
+}
+
 .note-preview p {
   margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.language-editors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.language-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 14px;
+}
+
+.language-panel-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-panel-title span {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.language-panel-title small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.note-text {
+  min-height: 220px;
+  resize: vertical;
 }
 
 .success-msg {
@@ -567,6 +675,12 @@ label {
     overflow: visible;
   }
 
+  .preview-grid,
+  .language-editors,
+  .metadata-grid {
+    grid-template-columns: 1fr;
+  }
+
   .list,
   .editor {
     max-height: none;
@@ -574,7 +688,6 @@ label {
   }
 
   .list button {
-    grid-template-columns: 1fr;
     gap: 8px;
   }
 }

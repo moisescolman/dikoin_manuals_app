@@ -138,7 +138,7 @@ label {
   gap: 6px;
   color: var(--muted-foreground);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .file-input {

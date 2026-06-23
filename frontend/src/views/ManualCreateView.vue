@@ -215,7 +215,7 @@ label {
   gap: 6px;
   color: var(--muted-foreground);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .image-upload {
@@ -246,7 +246,7 @@ label {
 .preview-logo {
   color: var(--dikoin-blue);
   font-size: 44px;
-  font-weight: 900;
+  font-weight: 600;
   letter-spacing: 2px;
 }
 
@@ -280,7 +280,7 @@ label {
 .preview-title p {
   margin: 0;
   color: var(--dikoin-blue);
-  font-weight: 800;
+  font-weight: 600;
   border-top: 1px solid var(--dikoin-blue);
   width: 100%;
   padding-top: 6px;

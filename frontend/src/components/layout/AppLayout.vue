@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
+
+const sidebarCollapsed = ref(false)
 </script>
 
 <template>
   <div class="app-shell">
-    <Sidebar />
+    <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
     <div class="main-shell">
       <Topbar />
       <main class="main-content">

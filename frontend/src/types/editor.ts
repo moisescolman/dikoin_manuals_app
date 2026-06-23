@@ -126,6 +126,7 @@ export function blockContentToJson(block: EditorBlock): string {
       caption: block.data?.caption || '',
       assetId: block.data?.assetId,
       width: block.data?.width,
+      height: block.data?.height,
       json: block.data?.json,
     })
   }

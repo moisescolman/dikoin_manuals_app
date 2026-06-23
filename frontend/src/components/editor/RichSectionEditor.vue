@@ -15,7 +15,9 @@ import {
   ChevronUp,
   ClipboardPaste,
   Copy,
+  ChartColumn,
   FileImage,
+  FileText,
   GripVertical,
   Heading,
   List,
@@ -26,6 +28,7 @@ import {
   Redo2,
   Save,
   Scissors,
+  Sigma,
   Table as TableIcon,
   Trash2,
   Undo2,
@@ -41,7 +44,7 @@ type NoteMode = 'new' | 'library'
 type EditorRegistryRecord = { editor: Editor; root: () => HTMLElement | null; markDirty: () => void }
 type MovableBlockKind = 'note' | 'table' | 'image'
 type MovableBlockRange = { from: number; to: number; kind: MovableBlockKind }
-type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'e' | 'w'
+type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w'
 
 let sharedNoteClipboard: JSONContent | null = null
 let sharedNoteDrag: { editor: Editor; from: number; to: number; json: JSONContent; markSourceDirty: () => void } | null = null
@@ -210,9 +213,17 @@ const ResizableImage = Image.extend({
         default: null,
         parseHTML: (element) => element.getAttribute('width') || element.style.width || null,
         renderHTML: (attributes) => {
-          if (!attributes.width) return {}
-          return { style: `width: ${cssSize(attributes.width)}; max-width: 100%; height: auto;` }
+          const style = [
+            attributes.width ? `width: ${cssSize(attributes.width)}` : '',
+            attributes.height ? `height: ${cssSize(attributes.height)}` : '',
+            'max-width: 100%',
+          ].filter(Boolean).join('; ')
+          return style ? { style } : {}
         },
+      },
+      height: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('height') || element.style.height || null,
       },
     }
   },
@@ -766,6 +777,31 @@ function handleSectionClick(event: MouseEvent) {
 
 function handleSectionMouseDown(event: MouseEvent) {
   const target = event.target instanceof Element ? event.target : null
+  const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('img') as HTMLElement | null
+  if (image && image.closest('.rich-editor-surface')) {
+    const info = blockInfoFromElement(image, 'image')
+    const imageJson = activeBlockJson(info)
+    if (!info || !imageJson || !editor.value) return
+
+    event.preventDefault()
+    activateBlockElement(image)
+    showBlockActionsForElement(image, 'image', info)
+    editor.value.commands.setNodeSelection(info.from)
+    sharedBlockDrag = {
+      editor: editor.value,
+      from: info.from,
+      to: info.to,
+      json: structuredClone(imageJson),
+      kind: 'image',
+      markSourceDirty: markEditorDirty,
+    }
+    startBlockDragFeedback(event, imageJson, 'image')
+    document.body.classList.add('note-dragging')
+    document.addEventListener('mousemove', updateBlockDragFeedback)
+    document.addEventListener('mouseup', finishBlockMouseDrag, { once: true })
+    return
+  }
+
   const handle = target?.closest('[data-note-drag-handle]')
   const note = target?.closest('[data-note-box]') as HTMLElement | null
   if (!handle || !note) return
@@ -1147,25 +1183,43 @@ function startBlockResize(event: MouseEvent, handle: ResizeHandle) {
   event.stopPropagation()
   const blockElement = activeBlockElement
   const startX = event.clientX
+  const startY = event.clientY
   const startWidth = blockResizeOverlay.value.width
+  const startHeight = blockResizeOverlay.value.height
+  let latestWidth = startWidth
+  let latestHeight = startHeight
   const onMove = (moveEvent: MouseEvent) => {
-    const delta = moveEvent.clientX - startX
-    const signedDelta = handle.includes('w') ? -delta : delta
-    const maxWidth = Math.max(180, current.view.dom.getBoundingClientRect().width - 36)
-    const nextWidth = Math.min(maxWidth, Math.max(80, startWidth + signedDelta))
+    const deltaX = moveEvent.clientX - startX
+    const deltaY = moveEvent.clientY - startY
+    const signedDeltaX = handle.includes('w') ? -deltaX : deltaX
+    const signedDeltaY = handle.includes('n') ? -deltaY : deltaY
+    const maxWidth = Math.max(180, current.view.dom.getBoundingClientRect().width)
+    const nextWidth = handle.includes('e') || handle.includes('w')
+      ? Math.min(maxWidth, Math.max(range.kind === 'table' ? 180 : 40, startWidth + signedDeltaX))
+      : startWidth
+    const nextHeight = range.kind === 'image' && (handle.includes('n') || handle.includes('s'))
+      ? Math.max(32, startHeight + signedDeltaY)
+      : startHeight
+    latestWidth = nextWidth
+    latestHeight = nextHeight
     if (blockElement) {
-      blockElement.style.width = `${Math.round(nextWidth)}px`
+      blockElement.style.setProperty('width', `${Math.round(nextWidth)}px`, 'important')
+      blockElement.setAttribute('data-width', String(Math.round(nextWidth)))
       if (range.kind === 'image') {
         blockElement.style.maxWidth = '100%'
-        blockElement.style.height = 'auto'
+        blockElement.style.setProperty('height', `${Math.round(nextHeight)}px`, 'important')
+        ;(blockElement as HTMLImageElement).style.objectFit = 'contain'
+      } else {
+        blockElement.style.tableLayout = 'fixed'
       }
     }
-    updateBlockWidth(range, nextWidth)
     blockResizeOverlay.value.width = nextWidth
+    blockResizeOverlay.value.height = nextHeight
   }
   const onUp = () => {
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
+    updateBlockSize(range, latestWidth, latestHeight)
     markEditorDirty()
     requestAnimationFrame(updateBlockActionsPosition)
   }
@@ -1173,12 +1227,16 @@ function startBlockResize(event: MouseEvent, handle: ResizeHandle) {
   document.addEventListener('mouseup', onUp, { once: true })
 }
 
-function updateBlockWidth(range: MovableBlockRange, width: number) {
+function updateBlockSize(range: MovableBlockRange, width: number, height: number) {
   const current = editor.value
   if (!current) return
   const node = current.state.doc.nodeAt(range.from)
   if (!node || !['table', 'image'].includes(node.type.name)) return
-  const nextAttrs = { ...node.attrs, width: Math.round(width) }
+  const nextAttrs = {
+    ...node.attrs,
+    width: Math.round(width),
+    ...(range.kind === 'image' ? { height: Math.round(height) } : {}),
+  }
   current.view.dispatch(current.state.tr.setNodeMarkup(range.from, undefined, nextAttrs).scrollIntoView())
   markEditorDirty()
 }
@@ -1393,6 +1451,18 @@ function insertGenericNote() {
   }).run()
 }
 
+function insertEquation() {
+  editor.value?.chain().focus().insertContent(textToParagraphs('Ecuación: y = f(x)')).run()
+}
+
+function insertChart() {
+  editor.value?.chain().focus().insertContent(textToParagraphs('Gráfico: título y datos pendientes')).run()
+}
+
+function insertContentBlock() {
+  editor.value?.chain().focus().insertContent(textToParagraphs('Contenido reutilizable pendiente')).run()
+}
+
 function insertNotice(notice: NoticeTemplateResponse) {
   editor.value?.chain().focus().insertContent({
     type: 'noteBox',
@@ -1513,7 +1583,8 @@ function nodeFromBlock(block: EditorBlock): JSONContent[] {
     return [tableNode(rows, data.width)]
   }
   if (block.type === 'imagen') {
-    return [{ type: 'image', attrs: { src: block.content, alt: String(data.assetId || ''), width: data.width || (savedJson?.attrs as Record<string, unknown> | undefined)?.width || null } }]
+    const attrs = savedJson?.attrs as Record<string, unknown> | undefined
+    return [{ type: 'image', attrs: { src: block.content, alt: String(data.assetId || ''), width: data.width || attrs?.width || null, height: data.height || attrs?.height || null } }]
   }
   if (block.type === 'nota') {
     return [{
@@ -1564,7 +1635,7 @@ function blockFromNode(node: JSONContent): EditorBlock[] {
     return [editorBlock('tabla', rows.map((row) => row.join('|')).join('\n'), { type: 'table', json: node, rows: rows.slice(1), columns: rows[0] || [], width: node.attrs?.width || null })]
   }
   if (node.type === 'image') {
-    return [editorBlock('imagen', String(node.attrs?.src || ''), { type: 'image', json: node, assetId: imageAssetId(node), caption: '', width: node.attrs?.width || null })]
+    return [editorBlock('imagen', String(node.attrs?.src || ''), { type: 'image', json: node, assetId: imageAssetId(node), caption: '', width: node.attrs?.width || null, height: node.attrs?.height || null })]
   }
   if (node.type === 'noteBox') {
     const refId = Number(node.attrs?.refId || 0)
@@ -1663,9 +1734,11 @@ function imageAssetId(node: JSONContent) {
 
         <div class="ribbon-group">
           <div class="ribbon-row">
-            <button class="tool-btn" :class="{ active: currentHeadingLevel > 0 }" title="Título" @click="toggleDefaultHeading"><Heading :size="24" /><span>Título</span></button>
-            <button class="tool-btn" title="Bajar nivel de título" :disabled="!currentHeadingLevel || currentHeadingLevel >= 3" @click="increaseHeadingLevel"><PanelTopClose :size="20" /><span>Nivel +</span></button>
-            <button class="tool-btn" title="Subir nivel de título" :disabled="!currentHeadingLevel" @click="decreaseHeadingLevel"><PanelTopClose class="flip" :size="20" /><span>Nivel -</span></button>
+            <button class="tool-btn" :class="{ active: currentHeadingLevel > 0 }" title="Título" @click="toggleDefaultHeading"><Heading :size="17" /><span>Título</span></button>
+            <div class="level-controls" aria-label="Nivel de titulo">
+              <button class="step-btn" title="Bajar nivel de titulo" :disabled="!currentHeadingLevel || currentHeadingLevel >= 3" @click="increaseHeadingLevel"><PanelTopClose :size="12" /></button>
+              <button class="step-btn" title="Subir nivel de titulo" :disabled="!currentHeadingLevel" @click="decreaseHeadingLevel"><PanelTopClose class="flip" :size="12" /></button>
+            </div>
             <button class="tool-btn" :class="{ active: currentHeadingLevel === 0 }" title="Párrafo" @click="setParagraph"><span class="paragraph-icon">¶</span><span>Párrafo</span></button>
           </div>
           <span class="group-label">{{ headingGroupLabel }}</span>
@@ -1673,10 +1746,12 @@ function imageAssetId(node: JSONContent) {
 
         <div class="ribbon-group">
           <div class="ribbon-row">
-            <button class="tool-btn" :class="{ active: editor?.isActive('bulletList') }" title="Lista" @click="editor?.chain().focus().toggleBulletList().run()"><List :size="22" /><span>Lista</span></button>
-            <button class="tool-btn" :class="{ active: editor?.isActive('orderedList') }" title="Lista ordenada" @click="editor?.chain().focus().toggleOrderedList().run()"><ListOrdered :size="22" /><span>Lista ord.</span></button>
-            <button class="tool-btn" title="Sangrar lista" @click="editor?.chain().focus().sinkListItem('listItem').run()"><PanelTopClose :size="20" /><span>Nivel +</span></button>
-            <button class="tool-btn" title="Reducir sangría" @click="editor?.chain().focus().liftListItem('listItem').run()"><PanelTopClose class="flip" :size="20" /><span>Nivel -</span></button>
+            <button class="tool-btn" :class="{ active: editor?.isActive('bulletList') }" title="Lista" @click="editor?.chain().focus().toggleBulletList().run()"><List :size="16" /><span>Lista</span></button>
+            <button class="tool-btn" :class="{ active: editor?.isActive('orderedList') }" title="Lista ordenada" @click="editor?.chain().focus().toggleOrderedList().run()"><ListOrdered :size="16" /><span>Lista ord.</span></button>
+            <div class="level-controls" aria-label="Sangria de lista">
+              <button class="step-btn" title="Sangrar lista" @click="editor?.chain().focus().sinkListItem('listItem').run()"><PanelTopClose :size="12" /></button>
+              <button class="step-btn" title="Reducir sangria" @click="editor?.chain().focus().liftListItem('listItem').run()"><PanelTopClose class="flip" :size="12" /></button>
+            </div>
           </div>
           <span class="group-label">Listas</span>
         </div>
@@ -1684,7 +1759,7 @@ function imageAssetId(node: JSONContent) {
         <div class="ribbon-group">
           <div class="ribbon-row">
             <div class="table-picker-menu">
-              <button class="tool-btn" title="Tabla" @click="toggleTablePicker"><TableIcon :size="22" /><span>Tabla</span></button>
+              <button class="tool-btn" title="Tabla" @click="toggleTablePicker"><TableIcon :size="16" /><span>Tabla</span></button>
               <div v-if="showTablePicker" class="table-picker-popover" @mouseleave="hoverTableSize(0, 0)">
                 <strong>{{ tablePickerLabel() }}</strong>
                 <div class="table-picker-grid">
@@ -1702,23 +1777,27 @@ function imageAssetId(node: JSONContent) {
                 <button class="custom-table" @click="openCustomTableModal"><TableIcon :size="13" /> Insertar tabla...</button>
               </div>
             </div>
-            <button class="tool-btn" title="Imagen" @click="openImageModal"><FileImage :size="22" /><span>Imagen</span></button>
+            <button class="tool-btn" title="Imagen" @click="openImageModal"><FileImage :size="16" /><span>Imagen</span></button>
             <div class="toolbar-menu">
-              <button class="tool-btn" title="Nota" @click="toggleNoteMenu"><NotebookPen :size="22" /><span>Nota</span></button>
+              <button class="tool-btn" title="Nota" @click="toggleNoteMenu"><NotebookPen :size="16" /><span>Nota</span></button>
               <div v-if="showNoteMenu" class="submenu">
                 <button @click="openNoticeMenu('new')">Nota nueva</button>
                 <button @click="openNoticeMenu('library')">Elegir nota</button>
               </div>
             </div>
+            <button class="tool-btn" title="Ecuación" @click="insertEquation"><Sigma :size="16" /><span>Ecuación</span></button>
+            <button class="tool-btn" title="Gráfico" @click="insertChart"><ChartColumn :size="16" /><span>Gráfico</span></button>
+            <button class="tool-btn" title="Contenido" @click="insertContentBlock"><FileText :size="16" /><span>Contenido</span></button>
+            <button class="tool-btn save-content" title="Guardar como contenido" @click="emit('saveReusable')"><Save :size="16" /><span>Guardar contenido</span></button>
           </div>
           <span class="group-label">Insertar</span>
         </div>
 
         <div class="ribbon-group section-actions">
           <div class="ribbon-row">
-            <button class="tool-btn" title="Duplicar sección" @click="emit('duplicate')"><Copy :size="21" /><span>Duplicar</span></button>
-            <button class="tool-btn" title="Guardar como reutilizable" @click="emit('saveReusable')"><Save :size="21" /><span>Reutilizable</span></button>
-            <button class="tool-btn danger" title="Eliminar sección" @click="emit('delete')"><Trash2 :size="21" /><span>Eliminar</span></button>
+            <button class="tool-btn" title="Duplicar sección" @click="emit('duplicate')"><Copy :size="16" /><span>Duplicar</span></button>
+            <button class="tool-btn" title="Guardar como reutilizable" @click="emit('saveReusable')"><Save :size="16" /><span>Reutilizable</span></button>
+            <button class="tool-btn danger" title="Eliminar sección" @click="emit('delete')"><Trash2 :size="16" /><span>Eliminar</span></button>
           </div>
           <span class="group-label">Sección</span>
         </div>
@@ -1784,10 +1863,12 @@ function imageAssetId(node: JSONContent) {
           height: `${blockResizeOverlay.height}px`,
         }"
       >
-        <button class="resize-handle nw" title="Redimensionar" @mousedown="startBlockResize($event, 'nw')" />
-        <button class="resize-handle ne" title="Redimensionar" @mousedown="startBlockResize($event, 'ne')" />
-        <button class="resize-handle sw" title="Redimensionar" @mousedown="startBlockResize($event, 'sw')" />
-        <button class="resize-handle se" title="Redimensionar" @mousedown="startBlockResize($event, 'se')" />
+        <button v-if="blockResizeOverlay.kind === 'image'" class="resize-handle nw" title="Redimensionar" @mousedown="startBlockResize($event, 'nw')" />
+        <button v-if="blockResizeOverlay.kind === 'image'" class="resize-handle ne" title="Redimensionar" @mousedown="startBlockResize($event, 'ne')" />
+        <button v-if="blockResizeOverlay.kind === 'image'" class="resize-handle sw" title="Redimensionar" @mousedown="startBlockResize($event, 'sw')" />
+        <button v-if="blockResizeOverlay.kind === 'image'" class="resize-handle se" title="Redimensionar" @mousedown="startBlockResize($event, 'se')" />
+        <button v-if="blockResizeOverlay.kind === 'image'" class="resize-handle n" title="Redimensionar alto" @mousedown="startBlockResize($event, 'n')" />
+        <button v-if="blockResizeOverlay.kind === 'image'" class="resize-handle s" title="Redimensionar alto" @mousedown="startBlockResize($event, 's')" />
         <button class="resize-handle e" title="Redimensionar" @mousedown="startBlockResize($event, 'e')" />
         <button class="resize-handle w" title="Redimensionar" @mousedown="startBlockResize($event, 'w')" />
       </div>
@@ -1870,7 +1951,7 @@ function imageAssetId(node: JSONContent) {
           <button @click="showImageModal = false">×</button>
         </header>
         <label class="upload-box">
-          <FileImage :size="22" />
+          <FileImage :size="16" />
           <span>{{ uploadingImage ? 'Subiendo...' : 'Subir imagen nueva' }}</span>
           <input type="file" accept="image/*" :disabled="uploadingImage" @change="uploadImage" />
         </label>
@@ -1930,64 +2011,72 @@ function imageAssetId(node: JSONContent) {
 </template>
 
 <style scoped>
-.rich-section { background: #fff; border: 1px solid var(--border); border-radius: 0; margin-bottom: 14px; overflow: visible; }
+.rich-section { width: 210mm; max-width: none; background: #fff; border: 1px solid var(--border); border-radius: 0; margin: 0 auto 14px; overflow: visible; box-shadow: 0 10px 30px rgba(0,0,0,.08); }
 .rich-section.selected { border-color: var(--dikoin-blue); box-shadow: 0 0 0 2px rgba(14, 127, 187, .1); }
 .section-bar { position: sticky; top: 0; z-index: 55; height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--dikoin-blue); color: #fff; }
 .drag-handle { border: 0; background: transparent; color: #fff; padding: 3px; display: inline-flex; align-items: center; cursor: grab; }
 .drag-handle:active { cursor: grabbing; }
 .drag-dots { opacity: .95; }
-.section-number { font-weight: 800; }
-.section-title-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #fff; font-weight: 800; }
+.section-number { font-weight: 600; }
+.section-title-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #fff; font-weight: 600; }
 .section-title-input::placeholder { color: rgba(255,255,255,.78); }
 .bar-icon { border: 0; background: transparent; color: #fff; padding: 4px; display: inline-flex; align-items: center; }
 .bar-icon .collapsed { transform: rotate(180deg); }
 .section-content { min-height: 332px; position: relative; overflow: visible; }
-.toolbar { position: sticky; top: 34px; z-index: 54; display: flex; align-items: stretch; min-height: 86px; padding: 8px 10px 6px; border-bottom: 1px solid #dce7f0; background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
-.ribbon-group { position: relative; display: grid; grid-template-rows: 1fr auto; align-items: stretch; gap: 4px; padding: 0 12px; border-right: 1px solid #d7e3ed; }
+.toolbar { position: sticky; top: 34px; z-index: 54; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 64px; padding: 6px 8px 5px; border-bottom: 1px solid #dce7f0; background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
+.ribbon-group { position: relative; display: grid; grid-template-rows: 1fr auto; align-items: stretch; gap: 3px; padding: 0 8px; border-right: 1px solid #d7e3ed; }
 .ribbon-group:first-child { padding-left: 2px; }
 .ribbon-group:last-child { border-right: 0; }
-.ribbon-row { display: flex; align-items: center; justify-content: center; gap: 2px; }
+.ribbon-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px; max-width: 260px; }
 .compact-group { min-width: 112px; }
 .compact-group .ribbon-row { justify-content: flex-start; }
 .group-label { align-self: end; text-align: center; color: #6b7280; font-size: 10px; line-height: 1; }
-.tool-btn { min-width: 58px; min-height: 50px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #1f2937; padding: 5px 7px; display: grid; justify-items: center; align-content: center; gap: 4px; font-size: 10px; line-height: 1.05; }
+.tool-btn { min-width: 48px; min-height: 38px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #1f2937; padding: 4px 5px; display: grid; justify-items: center; align-content: center; gap: 3px; font-size: 9px; line-height: 1.05; }
 .tool-btn.mini { min-width: 48px; min-height: 24px; grid-auto-flow: column; grid-auto-columns: max-content; align-content: center; align-items: center; gap: 4px; padding: 3px 5px; font-size: 10px; }
 .tool-btn.icon-only { min-width: 30px; min-height: 24px; padding: 3px; display: inline-grid; place-items: center; }
+.level-controls { display: inline-grid; gap: 1px; align-self: center; border: 1px solid #c9d8e4; border-radius: 2px; overflow: hidden; background: #fff; }
+.step-btn { width: 22px; height: 18px; min-width: 0; min-height: 0; border: 0; border-bottom: 1px solid #d7e3ed; background: #f8fbfe; color: #496579; padding: 0; display: grid; place-items: center; }
+.step-btn:last-child { border-bottom: 0; }
+.step-btn:hover:not(:disabled) { background: var(--dikoin-blue-lighter); color: var(--dikoin-blue); }
+.step-btn:disabled { color: #aeb8c2; cursor: default; background: #f3f6f9; }
+.save-content { min-width: 66px; }
 .tool-btn:hover, .tool-btn.active { border-color: #b7d7ea; color: var(--dikoin-blue); background: #eaf4fb; }
 .tool-btn:disabled { cursor: default; color: #9aa7b4; background: transparent; border-color: transparent; opacity: .58; }
 .tool-btn.danger { color: var(--dikoin-red); }
-.paragraph-icon { font-size: 22px; line-height: 1; font-weight: 800; }
+.paragraph-icon { font-size: 16px; line-height: 1; font-weight: 600; }
 .toolbar .flip { transform: rotate(180deg); }
 .toolbar-menu, .table-picker-menu { position: relative; z-index: 45; }
 .toolbar-menu > button { height: 100%; }
 .submenu { display: grid; position: absolute; z-index: 60; left: 0; top: calc(100% + 4px); min-width: 150px; background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 20px rgba(0,0,0,.12); }
 .submenu button { width: 100%; display: block; min-width: 0; text-align: left; justify-items: start; border: 0; background: #fff; padding: 9px 10px; font-size: 12px; }
 .table-picker-popover { position: absolute; z-index: 60; left: 0; top: calc(100% + 4px); width: 202px; padding: 7px; background: #fbfbfb; border: 1px solid #b7b7b7; box-shadow: 2px 4px 10px rgba(0,0,0,.16); display: grid; gap: 7px; }
-.table-picker-popover strong { display: block; padding: 2px 3px; color: #374151; font-size: 12px; font-weight: 700; }
+.table-picker-popover strong { display: block; padding: 2px 3px; color: #374151; font-size: 12px; font-weight: 600; }
 .table-picker-grid { display: grid; grid-template-columns: repeat(7, 24px); gap: 3px; }
 .table-picker-cell { width: 24px; height: 24px; min-width: 0; min-height: 0; border: 1px solid #7f7f7f; background: #fff; padding: 0; }
 .table-picker-cell.active { border-color: #2f80c0; background: #d8ecfb; }
 .custom-table { border: 0; border-top: 1px solid #d8d8d8; background: #fbfbfb; color: #1f2937; padding: 7px 4px 3px; display: flex; align-items: center; gap: 8px; text-align: left; font-size: 12px; }
 .custom-table:hover { color: var(--dikoin-blue); background: #edf6fd; }
-.editor-shell { min-height: 260px; padding: 22px 18px 40px; }
-.editor-shell :deep(.rich-editor-surface) { min-height: 250px; outline: 0; }
+.editor-shell { min-height: 240mm; padding: 14mm; background: #fff; }
+.editor-shell :deep(.rich-editor-surface) { min-height: 220mm; outline: 0; font-size: 12px; line-height: 1.42; }
 .editor-shell :deep(.is-editor-empty:first-child::before) { content: attr(data-placeholder); float: left; color: #9aa7b4; pointer-events: none; height: 0; }
 .editor-shell :deep(.ProseMirror-focused .is-editor-empty:first-child::before) { display: none; }
 .editor-shell :deep(.ProseMirror p:empty::after) { content: "\00a0"; }
-.editor-shell :deep(p) { margin: 0 0 10px; line-height: 1.55; }
-.editor-shell :deep(h1), .editor-shell :deep(h2), .editor-shell :deep(h3) { color: var(--dikoin-blue-dark); margin: 16px 0 8px; line-height: 1.25; }
-.editor-shell :deep(h1) { font-size: 20px; }
-.editor-shell :deep(h2) { font-size: 17px; }
-.editor-shell :deep(h3) { font-size: 15px; }
+.editor-shell :deep(p) { margin: 0 0 8px; line-height: 1.42; }
+.editor-shell :deep(h1), .editor-shell :deep(h2), .editor-shell :deep(h3) { color: var(--dikoin-blue-dark); margin: 0 0 8px; line-height: 1.25; }
+.editor-shell :deep(h1) { font-size: 14px; }
+.editor-shell :deep(h2) { font-size: 13px; }
+.editor-shell :deep(h3) { font-size: 12px; }
 .editor-shell :deep(h1::before),
 .editor-shell :deep(h2::before),
-.editor-shell :deep(h3::before) { content: attr(data-heading-number); display: inline-block; margin-right: 8px; color: var(--dikoin-blue); font-weight: 800; }
-.editor-shell :deep(ul), .editor-shell :deep(ol) { margin: 0 0 10px 22px; padding-left: 18px; }
-.editor-shell :deep(table) { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: 12px 0; }
+.editor-shell :deep(h3::before) { content: attr(data-heading-number); display: inline-block; margin-right: 8px; color: var(--dikoin-blue); font-weight: 600; }
+.editor-shell :deep(ul), .editor-shell :deep(ol) { margin: 0 0 8px 22px; padding-left: 18px; }
+.editor-shell :deep(table) { max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: 0 0 9px; font-size: 11px; }
+.editor-shell :deep(table:not([data-width])) { width: 100%; }
 .editor-shell :deep(table:hover), .editor-shell :deep(table.movable-block-active) { outline: 2px solid rgba(14, 127, 187, .24); outline-offset: 3px; }
 .editor-shell :deep(th) { background: var(--dikoin-blue); color: #fff; }
-.editor-shell :deep(td), .editor-shell :deep(th) { border: 1px solid #b8cce3; padding: 7px; min-width: 0; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
-.editor-shell :deep(img) { max-width: 100%; height: auto; display: block; margin: 12px 0; }
+.editor-shell :deep(td), .editor-shell :deep(th) { border: 1px solid #b8cce3; padding: 6px; min-width: 0; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+.editor-shell :deep(img) { max-width: 100%; display: block; margin: 10px 0; object-fit: contain; cursor: grab; }
+.editor-shell :deep(img:active) { cursor: grabbing; }
 .editor-shell :deep(img:hover), .editor-shell :deep(img.movable-block-active) { outline: 2px solid rgba(14, 127, 187, .28); outline-offset: 4px; }
 .editor-shell :deep(.movable-block-drag-source) { opacity: .38; }
 .editor-shell :deep(.note-box) { position: relative; border: 1px solid #fed7aa; border-left: 8px solid var(--dikoin-orange); border-radius: var(--radius); background: #fff7ed; color: #78350f; padding: 12px 14px 12px 16px; margin: 16px 0; box-shadow: 0 8px 18px rgba(146, 64, 14, .08); white-space: pre-wrap; transition: box-shadow .12s ease, border-color .12s ease; }
@@ -2009,7 +2098,7 @@ function imageAssetId(node: JSONContent) {
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 17H7A5 5 0 0 1 7 7h2'/%3E%3Cpath d='M15 7h2a5 5 0 1 1 0 10h-2'/%3E%3Cline x1='8' x2='16' y1='12' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 17H7A5 5 0 0 1 7 7h2'/%3E%3Cpath d='M15 7h2a5 5 0 1 1 0 10h-2'/%3E%3Cline x1='8' x2='16' y1='12' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
 }
-.editor-shell :deep(.note-box::before) { content: attr(title); display: block; font-weight: 800; margin-bottom: 4px; }
+.editor-shell :deep(.note-box::before) { content: attr(title); display: block; font-weight: 600; margin-bottom: 4px; }
 .table-delete-float { position: absolute; z-index: 8; width: 28px; height: 28px; border: 1px solid #fecaca; background: #fff; color: var(--dikoin-red); padding: 0; border-radius: var(--radius); display: inline-grid; place-items: center; box-shadow: 0 8px 20px rgba(0,0,0,.12); }
 .table-delete-float:hover { background: var(--dikoin-red-light); border-color: var(--dikoin-red); }
 .block-actions-float { position: absolute; z-index: 8; display: inline-flex; gap: 4px; }
@@ -2027,8 +2116,14 @@ function imageAssetId(node: JSONContent) {
 .block-resize-overlay .resize-handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
 .block-resize-overlay .resize-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
 .block-resize-overlay .resize-handle.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.block-resize-overlay .resize-handle.n { top: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+.block-resize-overlay .resize-handle.s { bottom: -5px; left: calc(50% - 5px); cursor: ns-resize; }
 .block-resize-overlay .resize-handle.e { top: calc(50% - 5px); right: -5px; cursor: ew-resize; }
 .block-resize-overlay .resize-handle.w { top: calc(50% - 5px); left: -5px; cursor: ew-resize; }
+.block-resize-overlay.table .resize-handle.e,
+.block-resize-overlay.table .resize-handle.w { width: 12px; height: 34px; top: calc(50% - 17px); border-radius: 999px; }
+.block-resize-overlay.table .resize-handle.e { right: -6px; }
+.block-resize-overlay.table .resize-handle.w { left: -6px; }
 .note-actions-float { position: absolute; z-index: 8; display: inline-flex; gap: 4px; }
 .note-actions-float button { width: 28px; height: 28px; border: 1px solid #fed7aa; background: #fff; color: #6b7280; padding: 0; border-radius: var(--radius); display: inline-grid; place-items: center; box-shadow: 0 8px 20px rgba(0,0,0,.12); }
 .note-actions-float .note-action-drag { color: #c2410c; border-color: #fdba74; cursor: grab; }
@@ -2061,12 +2156,12 @@ function imageAssetId(node: JSONContent) {
 .table-dialog .modal-close { border: 0; background: transparent; color: var(--muted-foreground); font-size: 24px; line-height: 1; }
 .table-dialog section { padding: 16px; display: grid; gap: 12px; }
 .table-dialog section strong { color: var(--foreground); font-size: 13px; }
-.table-dialog label { display: grid; grid-template-columns: 1fr 92px; align-items: center; gap: 12px; color: var(--muted-foreground); font-size: 12px; font-weight: 700; }
+.table-dialog label { display: grid; grid-template-columns: 1fr 92px; align-items: center; gap: 12px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
 .table-dialog input[type="number"] { width: 92px; padding: 7px 8px; }
 .table-dialog .remember-size { grid-template-columns: auto 1fr; justify-content: start; gap: 8px; margin-top: 4px; color: var(--foreground); font-weight: 500; }
 .table-dialog .remember-size input { width: 14px; height: 14px; }
 .table-dialog footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 16px 16px; }
-.upload-box { border: 1px dashed var(--border); background: var(--dikoin-blue-lighter); color: var(--dikoin-blue); padding: 14px; display: flex; justify-content: center; align-items: center; gap: 8px; cursor: pointer; font-weight: 800; }
+.upload-box { border: 1px dashed var(--border); background: var(--dikoin-blue-lighter); color: var(--dikoin-blue); padding: 14px; display: flex; justify-content: center; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
 .upload-box input { display: none; }
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 .asset-grid button { border: 1px solid var(--border); background: #fff; padding: 8px; display: grid; gap: 7px; text-align: left; }

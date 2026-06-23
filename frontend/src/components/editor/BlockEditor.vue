@@ -186,7 +186,7 @@ function linkParts() {
 .block-tools button { border: 0; background: transparent; color: inherit; padding: 0; }
 .type-select { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border: 1px solid #9ccce5; background: #eaf3fa; color: var(--dikoin-blue); border-radius: var(--radius); font-size: 11px; margin-bottom: 8px; }
 .type-select select { border: 0; background: transparent; color: inherit; outline: 0; font-size: 11px; }
-.editable-heading { display: flex; align-items: center; gap: 8px; color: var(--dikoin-blue); font-weight: 800; }
+.editable-heading { display: flex; align-items: center; gap: 8px; color: var(--dikoin-blue); font-weight: 600; }
 .editable-heading.titulo { font-size: 16px; }
 .editable-heading.subtitulo { font-size: 14px; color: var(--dikoin-blue-dark); }
 [contenteditable] { outline: 0; }
@@ -202,7 +202,7 @@ function linkParts() {
 .callout { padding: 10px; border-left: 4px solid; }
 .warning { background: var(--dikoin-orange-light); border-color: var(--dikoin-orange); color: #78350f; }
 .note { background: var(--dikoin-blue-light); border-color: var(--dikoin-blue); color: var(--dikoin-blue-dark); }
-.library-ref { border-left: 4px solid; padding: 10px; font-weight: 700; }
+.library-ref { border-left: 4px solid; padding: 10px; font-weight: 600; }
 .note-ref { background: #fff7ed; border-color: var(--dikoin-orange); color: #78350f; }
 .reusable-ref { background: var(--dikoin-blue-lighter); border-color: var(--dikoin-blue); color: var(--dikoin-blue-dark); }
 .formula { font-family: Georgia, serif; font-size: 22px; padding: 8px; }

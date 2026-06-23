@@ -109,7 +109,7 @@ function fillDemo(mail: string) {
   place-items: center;
   background: var(--dikoin-blue);
   border-radius: 5px;
-  font-weight: 800;
+  font-weight: 600;
   font-size: 20px;
 }
 .login-brand h1 { margin: 0; font-size: 22px; }
@@ -123,7 +123,7 @@ function fillDemo(mail: string) {
   box-shadow: 0 20px 60px rgba(0,0,0,.28);
 }
 .login-card h2 { margin: 0 0 6px; font-size: 17px; }
-label { display: grid; gap: 6px; font-size: 13px; font-weight: 700; }
+label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
 .password-field { position: relative; display: block; }
 .password-field input { padding-right: 38px; }
 .password-field button {

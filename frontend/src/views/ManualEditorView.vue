@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, Plus, Save, Send } from '@lucide/vue'
+import { ArrowLeft, Eye, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
 import { createReusableBlock } from '@/api/reusable-blocks.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import BackendError from '@/components/shared/BackendError.vue'
@@ -17,14 +17,18 @@ const store = useManualsStore()
 const sections = ref<EditorSection[]>([])
 const selectedSectionId = ref('')
 const selectedLanguage = ref<LanguageCode>(route.query.lang === 'EN' ? 'EN' : 'ES')
+const languageMode = ref<LanguageCode | 'BOTH'>(selectedLanguage.value)
 const saved = ref(false)
 const saving = ref(false)
 const draggingIndex = ref<number | null>(null)
 const dropTargetIndex = ref<number | null>(null)
+const sectionsPanelCollapsed = ref(false)
 const sectionEditorRefs = ref<Array<{ flushEditorSync: () => void }>>([])
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
+const editorLanguages = computed<LanguageCode[]>(() => languageMode.value === 'BOTH' ? ['ES', 'EN'] : [languageMode.value])
+const activeLanguageLabel = computed(() => languageMode.value === 'BOTH' ? 'ES + EN' : languageMode.value)
 
 onMounted(async () => {
   const loaded = await store.fetchManual(Number(props.id))
@@ -33,11 +37,14 @@ onMounted(async () => {
 
 watch(() => route.query.lang, (lang) => {
   selectedLanguage.value = lang === 'EN' ? 'EN' : 'ES'
+  if (languageMode.value !== 'BOTH') {
+    languageMode.value = selectedLanguage.value
+  }
 })
 
 function addSection() {
   const next = sections.value.length + 1
-  const isEnglish = selectedLanguage.value === 'EN'
+  const isEnglish = languageMode.value === 'EN' || languageMode.value === 'BOTH'
   sections.value.push({
     id: randomId('section'),
     sortOrder: next,
@@ -52,6 +59,22 @@ function addSection() {
 
 function updateSection(section: EditorSection) {
   sections.value = sections.value.map((item) => item.id === section.id ? section : item)
+}
+
+function updateSectionForLanguage(section: EditorSection, language: LanguageCode) {
+  sections.value = sections.value.map((item) => {
+    if (item.id !== section.id) return item
+    return {
+      ...item,
+      ...section,
+      titleEs: language === 'ES' ? section.titleEs : item.titleEs,
+      titleEn: language === 'EN' ? section.titleEn : item.titleEn,
+      blocks: [
+        ...item.blocks.filter((block) => block.languageCode !== language),
+        ...section.blocks.filter((block) => block.languageCode === language),
+      ],
+    }
+  })
 }
 
 function flushSectionEditors() {
@@ -189,15 +212,31 @@ async function saveDraftForPreview() {
 }
 
 async function changeLanguage(lang: LanguageCode) {
-  if (lang === selectedLanguage.value || saving.value) return
+  if ((lang === selectedLanguage.value && languageMode.value === lang) || saving.value) return
   saving.value = true
   try {
     const savedDraft = await saveDraft(`Borrador autoguardado al cambiar a ${lang}`)
     if (!savedDraft) return
     selectedSectionId.value = ''
     selectedLanguage.value = lang
+    languageMode.value = lang
     saved.value = true
     router.replace({ name: 'manual-editor', params: { id: props.id }, query: { lang } })
+    setTimeout(() => { saved.value = false }, 2000)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function showBothLanguages() {
+  if (languageMode.value === 'BOTH' || saving.value) return
+  saving.value = true
+  try {
+    const savedDraft = await saveDraft('Borrador autoguardado al mostrar ambos idiomas')
+    if (!savedDraft) return
+    selectedSectionId.value = ''
+    languageMode.value = 'BOTH'
+    saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
   } finally {
     saving.value = false
@@ -214,6 +253,9 @@ async function sendReview() {
 }
 
 function sectionTitle(section: EditorSection) {
+  if (languageMode.value === 'BOTH') {
+    return [section.titleEs, section.titleEn].filter(Boolean).join(' / ') || 'Sin titulo'
+  }
   const activeTitle = selectedLanguage.value === 'EN' ? section.titleEn : section.titleEs
   return activeTitle || section.titleEs || section.titleEn || 'Sin título'
 }
@@ -229,18 +271,37 @@ function sectionTitle(section: EditorSection) {
         <span>{{ manual?.title }}</span>
       </div>
       <div class="lang-switch">
-        <button :class="{ active: selectedLanguage === 'ES' }" :disabled="saving" @click="changeLanguage('ES')">ES</button>
-        <button :class="{ active: selectedLanguage === 'EN' }" :disabled="saving" @click="changeLanguage('EN')">EN</button>
+        <button :class="{ active: languageMode === 'ES' }" :disabled="saving" @click="changeLanguage('ES')">ES</button>
+        <button :class="{ active: languageMode === 'EN' }" :disabled="saving" @click="changeLanguage('EN')">EN</button>
+        <button :class="{ active: languageMode === 'BOTH' }" :disabled="saving" @click="showBothLanguages"><Languages :size="13" /> Ambos idiomas</button>
       </div>
+      <dl class="top-properties">
+        <div><dt>Versión</dt><dd>v{{ version?.versionNumber }}</dd></div>
+        <div><dt>Estado</dt><dd>{{ version?.status }}</dd></div>
+        <div><dt>Idioma</dt><dd>{{ activeLanguageLabel }}</dd></div>
+        <div><dt>Secciones</dt><dd>{{ sections.length }}</dd></div>
+      </dl>
       <span v-if="saved" class="saved">Guardado</span>
       <button class="btn btn-outline" :disabled="saving" @click="saveDraftForPreview"><Eye :size="14" /> Vista previa</button>
       <button class="btn btn-primary" :disabled="saving" @click="save"><Save :size="14" /> {{ saving ? 'Guardando...' : 'Guardar' }}</button>
       <button class="btn btn-outline" :disabled="saving" @click="sendReview"><Send :size="14" /> Enviar a revisión</button>
     </div>
 
-    <div class="editor-grid">
-      <aside class="index-panel card">
-        <h2>Secciones</h2>
+    <div class="editor-grid" :class="{ 'sections-collapsed': sectionsPanelCollapsed, 'both-languages': languageMode === 'BOTH' }">
+      <button
+        type="button"
+        class="sections-toggle"
+        :aria-label="sectionsPanelCollapsed ? 'Mostrar secciones' : 'Ocultar secciones'"
+        :title="sectionsPanelCollapsed ? 'Mostrar secciones' : 'Ocultar secciones'"
+        @click="sectionsPanelCollapsed = !sectionsPanelCollapsed"
+      >
+        <PanelLeftOpen v-if="sectionsPanelCollapsed" :size="16" />
+        <PanelLeftClose v-else :size="16" />
+      </button>
+      <aside class="index-panel card" :aria-hidden="sectionsPanelCollapsed">
+        <div class="index-head">
+          <h2>Secciones</h2>
+        </div>
         <button class="btn btn-primary" @click="addSection"><Plus :size="14" /> Añadir sección</button>
         <ol>
           <li v-for="(section, index) in sections" :key="section.id">
@@ -255,29 +316,36 @@ function sectionTitle(section: EditorSection) {
 
       <main class="cards-panel">
         <div v-if="store.loading">Cargando contenido...</div>
-        <RichSectionEditor
+        <div
           v-for="(section, index) in sections"
-          ref="sectionEditorRefs"
           :key="section.id"
-          :section="section"
-          :selected="selectedSectionId === section.id"
-          :language="selectedLanguage"
-          :manual-id="manual?.id"
+          class="section-editor-row"
           :class="{ dragging: draggingIndex === index, 'drop-target': dropTargetIndex === index && draggingIndex !== index }"
           @dragstart="draggingIndex = index"
           @dragend="draggingIndex = null; dropTargetIndex = null"
           @dragover.prevent="dropTargetIndex = index"
           @drop="dropSection(index)"
-          @update="updateSection"
-          @delete="deleteSection(section.id)"
-          @duplicate="duplicateSection(index)"
-          @save-reusable="saveReusable(section)"
-          @select="selectedSectionId = $event"
-        />
+        >
+          <div v-for="lang in editorLanguages" :key="`${section.id}-${lang}`" class="language-editor-column">
+            <span v-if="languageMode === 'BOTH'" class="language-column-label">{{ lang }}</span>
+            <RichSectionEditor
+              ref="sectionEditorRefs"
+              :section="section"
+              :selected="selectedSectionId === section.id"
+              :language="lang"
+              :manual-id="manual?.id"
+              @update="updateSectionForLanguage($event, lang)"
+              @delete="deleteSection(section.id)"
+              @duplicate="duplicateSection(index)"
+              @save-reusable="saveReusable(section)"
+              @select="selectedSectionId = $event"
+            />
+          </div>
+        </div>
         <button class="add-section" @click="addSection"><Plus :size="15" /> Añadir sección al final</button>
       </main>
 
-      <aside class="props-panel card">
+      <aside v-if="false" class="props-panel card">
         <h2>Propiedades</h2>
         <p class="text-muted">Selecciona un bloque o sección para editar su tipo y contenido. Puedes arrastrar las secciones para reordenarlas. Los cambios se guardan automáticamente al cambiar de sección o idioma.</p>
         <dl>
@@ -298,21 +366,36 @@ function sectionTitle(section: EditorSection) {
 .editor-title h1 { margin: 0; font-size: 16px; }
 .editor-title span { display: block; color: var(--muted-foreground); font-size: 12px; }
 .lang-switch { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #fff; }
-.lang-switch button { border: 0; background: #fff; padding: 8px 11px; color: var(--muted-foreground); font-weight: 800; }
+.lang-switch button { border: 0; background: #fff; padding: 8px 11px; color: var(--muted-foreground); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
 .lang-switch button.active { background: var(--dikoin-blue); color: #fff; }
 .lang-switch button:disabled { cursor: wait; opacity: .7; }
-.saved { color: #065f46; font-weight: 700; font-size: 12px; }
-.editor-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr) 260px; gap: 14px; padding: 14px; overflow: hidden; }
+.top-properties { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.top-properties div { display: grid; grid-template-columns: auto auto; gap: 4px; align-items: center; padding: 4px 7px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-background); font-size: 11px; line-height: 1; }
+.top-properties dt { color: var(--muted-foreground); font-weight: 600; }
+.top-properties dd { margin: 0; color: var(--foreground); font-weight: 600; }
+.saved { color: #065f46; font-weight: 600; font-size: 12px; }
+.editor-grid { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; padding: 14px; overflow: hidden; transition: grid-template-columns .18s ease; }
+.editor-grid.sections-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+.sections-toggle { position: absolute; top: 50%; left: 256px; z-index: 1; width: 28px; height: 44px; transform: translateY(-50%); border: 1px solid var(--border); border-left: 0; border-radius: 0 var(--radius) var(--radius) 0; background: #fff; color: var(--dikoin-blue); display: grid; place-items: center; padding: 0; box-shadow: 0 8px 18px rgba(15, 23, 42, .12); transition: left .18s ease, background .12s ease; }
+.sections-toggle:hover { background: var(--dikoin-blue-lighter); }
+.editor-grid.sections-collapsed .sections-toggle { left: 14px; }
 .index-panel, .props-panel { padding: 14px; overflow: auto; }
+.index-panel { position: relative; z-index: 2; min-width: 0; transition: opacity .16s ease, visibility .16s ease; }
+.editor-grid.sections-collapsed .index-panel { opacity: 0; visibility: hidden; pointer-events: none; overflow: hidden; padding-left: 0; padding-right: 0; }
 .index-panel h2, .props-panel h2 { margin: 0 0 12px; font-size: 15px; }
+.index-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .index-panel ol { padding-left: 18px; }
 .index-panel li { margin: 9px 0; display: grid; gap: 5px; }
 .index-panel button { border: 0; background: transparent; color: var(--dikoin-blue); text-align: left; }
 .cards-panel { overflow: auto; padding: 0 34px 40px; }
-.cards-panel :deep(.rich-section.dragging) { opacity: .55; border-color: var(--dikoin-blue); transform: scale(.995); box-shadow: 0 12px 28px rgba(0, 124, 184, .18); }
-.cards-panel :deep(.rich-section.drop-target) { border-top: 4px solid var(--dikoin-blue); box-shadow: 0 0 0 3px rgba(0,124,184,.12); }
+.section-editor-row { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 14px; }
+.editor-grid.both-languages .section-editor-row { grid-template-columns: repeat(2, 210mm); align-items: start; justify-content: start; }
+.language-editor-column { min-width: 0; }
+.language-column-label { position: sticky; top: 0; z-index: 60; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; margin-bottom: 6px; border-radius: var(--radius); background: var(--dikoin-blue-dark); color: #fff; font-size: 11px; font-weight: 600; }
+.section-editor-row.dragging { opacity: .55; }
+.section-editor-row.drop-target { border-top: 4px solid var(--dikoin-blue); box-shadow: 0 0 0 3px rgba(0,124,184,.12); }
 .add-section { width: 100%; border: 1px dashed var(--border); background: #fff; padding: 12px; color: var(--dikoin-blue); display: flex; justify-content: center; gap: 7px; }
 dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px; font-size: 13px; }
 dt { color: var(--muted-foreground); }
-@media (max-width: 1100px) { .editor-grid { grid-template-columns: 1fr; overflow: auto; } .index-panel, .props-panel, .cards-panel { overflow: visible; } }
+@media (max-width: 1100px) { .editor-grid, .editor-grid.sections-collapsed { grid-template-columns: 1fr; overflow: auto; } .sections-toggle { display: none; } .index-panel, .props-panel, .cards-panel { overflow: visible; } .editor-grid.sections-collapsed .index-panel { display: none; } .editor-grid.both-languages .section-editor-row { grid-template-columns: 1fr; } }
 </style>

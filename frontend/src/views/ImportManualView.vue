@@ -248,7 +248,7 @@ label {
   display: grid;
   gap: 6px;
   color: var(--muted-foreground);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 12px;
 }
 
@@ -272,7 +272,7 @@ label {
   border-color: var(--dikoin-blue);
   background: var(--dikoin-blue-lighter);
   color: var(--dikoin-blue-dark);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .drop-zone {

@@ -356,7 +356,7 @@ function syncFiltersToRoute() {
 
 .manual-title {
   color: var(--dikoin-blue);
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 

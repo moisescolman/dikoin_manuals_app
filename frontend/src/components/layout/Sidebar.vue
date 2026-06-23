@@ -3,6 +3,8 @@ import {
   Archive,
   BookOpen,
   Boxes,
+  ChevronLeft,
+  ChevronRight,
   FileClock,
   FileText,
   Home,
@@ -17,6 +19,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { roleLabel } from '@/utils/formatters'
 import brandLogo from '@/assets/logos/dk_manuals_logo.svg'
+
+defineProps<{
+  collapsed: boolean
+}>()
+
+const emit = defineEmits<{
+  toggle: []
+}>()
 
 const route = useRoute()
 const router = useRouter()
@@ -43,7 +53,8 @@ function logout() {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <div class="sidebar-shell" :class="{ collapsed }">
+  <aside class="sidebar" :aria-hidden="collapsed">
     <div class="brand">
       <img :src="brandLogo" alt="DK Manuals" class="brand-logo" />
     </div>
@@ -54,6 +65,7 @@ function logout() {
         :key="item.name"
         class="nav-item"
         :class="{ active: route.name === item.name }"
+        :tabindex="collapsed ? -1 : 0"
         @click="router.push({ name: item.name })"
       >
         <component :is="item.icon" :size="16" />
@@ -72,17 +84,82 @@ function logout() {
       <button class="logout" @click="logout"><LogOut :size="14" /> Cerrar sesión</button>
     </div>
   </aside>
+
+  <button
+    type="button"
+    class="sidebar-toggle"
+    :aria-label="collapsed ? 'Mostrar sidebar' : 'Ocultar sidebar'"
+    :title="collapsed ? 'Mostrar sidebar' : 'Ocultar sidebar'"
+    @click="emit('toggle')"
+  >
+    <ChevronRight v-if="collapsed" :size="16" />
+    <ChevronLeft v-else :size="16" />
+  </button>
+  </div>
 </template>
 
 <style scoped>
+.sidebar-shell {
+  position: relative;
+  flex: 0 0 200px;
+  width: 200px;
+  min-height: 100%;
+  transition: width .18s ease, flex-basis .18s ease;
+}
+
+.sidebar-shell.collapsed {
+  flex-basis: 0;
+  width: 0;
+}
+
 .sidebar {
+  position: relative;
+  z-index: 2;
   width: 200px;
   background: var(--dikoin-blue-dark);
   color: #e8f4fb;
   display: flex;
   flex-direction: column;
   min-height: 100%;
+  height: 100%;
+  overflow: hidden;
+  transition: transform .18s ease, opacity .18s ease, visibility .18s ease;
 }
+
+.sidebar-shell.collapsed .sidebar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-100%);
+  visibility: hidden;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  right: -20px;
+  z-index: 1;
+  width: 28px;
+  height: 44px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(255,255,255,.2);
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--dikoin-blue-dark);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .18);
+}
+
+.sidebar-toggle:hover {
+  background: var(--dikoin-blue);
+}
+
+.sidebar-shell.collapsed .sidebar-toggle {
+  right: -28px;
+}
+
 .brand {
   display: flex;
   justify-content: center;
@@ -136,7 +213,7 @@ function logout() {
   color: var(--dikoin-blue-dark);
   display: grid;
   place-items: center;
-  font-weight: 800;
+  font-weight: 600;
   font-size: 12px;
 }
 .user-card strong, .user-card span { display: block; }
