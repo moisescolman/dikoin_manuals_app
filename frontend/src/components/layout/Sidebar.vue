@@ -3,7 +3,6 @@ import {
   Archive,
   BookOpen,
   Boxes,
-  Database,
   FileClock,
   FileText,
   Home,
@@ -17,6 +16,7 @@ import {
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { roleLabel } from '@/utils/formatters'
+import brandLogo from '@/assets/logos/dk_manuals_logo.svg'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,11 +45,7 @@ function logout() {
 <template>
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">DK</div>
-      <div>
-        <strong>DIKOIN</strong>
-        <span>Manuales digitales</span>
-      </div>
+      <img :src="brandLogo" alt="DK Manuals" class="brand-logo" />
     </div>
 
     <nav class="nav">
@@ -80,7 +76,7 @@ function logout() {
 
 <style scoped>
 .sidebar {
-  width: 250px;
+  width: 200px;
   background: var(--dikoin-blue-dark);
   color: #e8f4fb;
   display: flex;
@@ -89,23 +85,16 @@ function logout() {
 }
 .brand {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  justify-content: center;
   padding: 18px;
   border-bottom: 1px solid rgba(255,255,255,.12);
 }
-.brand-mark {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  background: var(--dikoin-blue);
-  color: #fff;
-  border-radius: 4px;
-  font-weight: 800;
+.brand-logo {
+  display: block;
+  width: 100%;
+  max-width: 150px;
+  height: auto;
 }
-.brand strong, .brand span { display: block; }
-.brand span { font-size: 12px; color: #c7e4f6; }
 .nav { padding: 12px; display: grid; gap: 4px; }
 .nav-item {
   width: 100%;

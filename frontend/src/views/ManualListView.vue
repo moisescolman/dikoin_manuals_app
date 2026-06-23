@@ -280,27 +280,157 @@ function syncFiltersToRoute() {
 </template>
 
 <style scoped>
-.manuals-page { padding: 24px; display: grid; gap: 16px; }
-.head, .head-actions, .filters, .bulk, .langs, .row-actions { display: flex; align-items: center; gap: 10px; }
-.head { justify-content: space-between; }
-.filters { padding: 12px; }
-.search-box { position: relative; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--input-background); padding: 8px 10px; min-width: 300px; }
-.search-box input { border: 0; outline: 0; background: transparent; width: 100%; }
-.filters .field { width: 190px; }
-.bulk { padding: 10px 12px; background: #eaf3fa; border: 1px solid #b8cce3; }
-.bulk-status { width: 150px; background: #fff; }
-.notice-panel { padding: 14px; display: grid; gap: 10px; max-width: 760px; }
-.notice-panel h2 { margin: 0; font-size: 15px; }
-.list-card { overflow: auto; }
-.manual-title { color: var(--dikoin-blue); font-weight: 700; cursor: pointer; }
-.row-actions button { border: 0; background: transparent; padding: 4px; color: var(--muted-foreground); }
-.status-select { width: 112px; border: 1px solid var(--border); background: #fff; padding: 4px 5px; font-size: 11px; color: var(--foreground); }
-.row-actions button:hover { color: var(--dikoin-blue); background: var(--dikoin-blue-lighter); }
-.lang-action { font-size: 10px; font-weight: 800; border: 1px solid var(--border) !important; border-radius: 3px; background: #fff !important; }
-.success-msg { background: var(--dikoin-green-light); color: #065f46; border: 1px solid #86efac; padding: 10px; border-radius: var(--radius); }
-.warning-msg { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; padding: 10px; border-radius: var(--radius); }
-.suggestions { position: absolute; top: calc(100% + 5px); left: 0; width: min(560px, 90vw); background: #fff; border: 1px solid var(--border); box-shadow: 0 10px 24px rgba(0,0,0,.12); z-index: 20; }
-.suggestions button { width: 100%; border: 0; background: #fff; padding: 9px 10px; display: grid; gap: 2px; text-align: left; }
-.suggestions button:hover { background: var(--dikoin-blue-lighter); }
-.suggestions small { color: var(--muted-foreground); }
+.manuals-page {
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.head,
+.head-actions,
+.filters,
+.bulk,
+.langs,
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.head {
+  justify-content: space-between;
+}
+
+.filters {
+  padding: 12px;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--input-background);
+  padding: 8px 10px;
+  min-width: 300px;
+}
+
+.search-box input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  width: 100%;
+}
+
+.filters .field {
+  width: 190px;
+}
+
+.bulk {
+  padding: 10px 12px;
+  background: #eaf3fa;
+  border: 1px solid #b8cce3;
+}
+
+.bulk-status {
+  width: 150px;
+  background: #fff;
+}
+
+.notice-panel {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  max-width: 760px;
+}
+
+.notice-panel h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.list-card {
+  overflow: auto;
+}
+
+.manual-title {
+  color: var(--dikoin-blue);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.row-actions button {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  color: var(--muted-foreground);
+}
+
+.status-select {
+  width: 112px;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 4px 5px;
+  font-size: 11px;
+  color: var(--foreground);
+}
+
+.row-actions button:hover {
+  color: var(--dikoin-blue);
+  background: var(--dikoin-blue-lighter);
+}
+
+.lang-action {
+  font-size: 10px;
+  font-weight: 500;
+  border: 1px solid var(--border) !important;
+  border-radius: 3px;
+  background: #fff !important;
+}
+
+.success-msg {
+  background: var(--dikoin-green-light);
+  color: #065f46;
+  border: 1px solid #86efac;
+  padding: 10px;
+  border-radius: var(--radius);
+}
+
+.warning-msg {
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+  padding: 10px;
+  border-radius: var(--radius);
+}
+
+.suggestions {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  width: min(560px, 90vw);
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .12);
+  z-index: 20;
+}
+
+.suggestions button {
+  width: 100%;
+  border: 0;
+  background: #fff;
+  padding: 9px 10px;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.suggestions button:hover {
+  background: var(--dikoin-blue-lighter);
+}
+
+.suggestions small {
+  color: var(--muted-foreground);
+}
 </style>
