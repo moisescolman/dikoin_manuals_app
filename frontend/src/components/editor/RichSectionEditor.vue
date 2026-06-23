@@ -255,7 +255,12 @@ const editor = useEditor({
     }),
     Placeholder.configure({ placeholder: 'Escriba el texto...' }),
     ResizableImage.configure({ inline: false, allowBase64: true }),
-    ResizableTable.configure({ resizable: true }),
+    ResizableTable.configure({
+      resizable: true,
+      handleWidth: 8,
+      cellMinWidth: 42,
+      lastColumnResizable: true,
+    }),
     TableRow,
     TableHeader,
     TableCell,
@@ -2070,11 +2075,36 @@ function imageAssetId(node: JSONContent) {
 .editor-shell :deep(h2::before),
 .editor-shell :deep(h3::before) { content: attr(data-heading-number); display: inline-block; margin-right: 8px; color: var(--dikoin-blue); font-weight: 600; }
 .editor-shell :deep(ul), .editor-shell :deep(ol) { margin: 0 0 8px 22px; padding-left: 18px; }
+.editor-shell :deep(.tableWrapper) { max-width: 100%; overflow-x: auto; padding: 2px 0 8px; }
 .editor-shell :deep(table) { max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: 0 0 9px; font-size: 11px; }
 .editor-shell :deep(table:not([data-width])) { width: 100%; }
 .editor-shell :deep(table:hover), .editor-shell :deep(table.movable-block-active) { outline: 2px solid rgba(14, 127, 187, .24); outline-offset: 3px; }
 .editor-shell :deep(th) { background: var(--dikoin-blue); color: #fff; }
-.editor-shell :deep(td), .editor-shell :deep(th) { border: 1px solid #b8cce3; padding: 6px; min-width: 0; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+.editor-shell :deep(td), .editor-shell :deep(th) { position: relative; border: 1px solid #b8cce3; padding: 6px; min-width: 0; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+.editor-shell :deep(.column-resize-handle) {
+  position: absolute;
+  top: -1px;
+  right: -4px;
+  bottom: -1px;
+  z-index: 22;
+  width: 8px;
+  background: rgba(14, 127, 187, .28);
+  border-left: 1px solid rgba(14, 127, 187, .42);
+  border-right: 1px solid rgba(14, 127, 187, .12);
+  cursor: col-resize;
+  pointer-events: auto;
+}
+.editor-shell :deep(.column-resize-handle:hover) { background: rgba(14, 127, 187, .46); }
+.editor-shell :deep(.resize-cursor), .editor-shell :deep(.resize-cursor *) { cursor: col-resize !important; }
+.editor-shell :deep(.column-resize-dragging) { background: rgba(14, 127, 187, .08); }
+.editor-shell :deep(.selectedCell::after) {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(14, 127, 187, .14);
+  pointer-events: none;
+}
 .editor-shell :deep(img) { max-width: 100%; display: block; margin: 10px 0; object-fit: contain; cursor: grab; }
 .editor-shell :deep(img:active) { cursor: grabbing; }
 .editor-shell :deep(img:hover), .editor-shell :deep(img.movable-block-active) { outline: 2px solid rgba(14, 127, 187, .28); outline-offset: 4px; }

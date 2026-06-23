@@ -241,9 +241,43 @@ function tableRows(blockJson: string) {
 function tableWidth(blockJson: string) {
   const parsed = content(blockJson)
   const width = parsed.width || parsed.json?.attrs?.width
-  if (!width) return undefined
-  const text = String(width)
+  const columnWidths = tableColumnWidths(blockJson)
+  const fallbackWidth = columnWidths.length && columnWidths.every(Boolean)
+    ? columnWidths.reduce<number>((total, columnWidth) => total + Number(columnWidth || 0), 0)
+    : undefined
+  const text = String(width || fallbackWidth || '')
+  if (!text) return undefined
   return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
+}
+
+function tableColumnWidths(blockJson: string): Array<number | undefined> {
+  const parsed = content(blockJson)
+  const tableJson = parsed.json
+  if (!tableJson || !Array.isArray(tableJson.content)) return []
+
+  const widths: Array<number | undefined> = []
+  tableJson.content.forEach((row: Record<string, any>) => {
+    if (!Array.isArray(row.content)) return
+    let columnIndex = 0
+    row.content.forEach((cell: Record<string, any>) => {
+      const colspan = Math.max(1, Number(cell.attrs?.colspan || 1))
+      const colwidth = Array.isArray(cell.attrs?.colwidth) ? cell.attrs.colwidth : []
+      for (let spanIndex = 0; spanIndex < colspan; spanIndex += 1) {
+        const width = Number(colwidth[spanIndex])
+        if (Number.isFinite(width) && width > 0 && !widths[columnIndex]) {
+          widths[columnIndex] = width
+        }
+        columnIndex += 1
+      }
+    })
+  })
+
+  while (widths.length && !widths[widths.length - 1]) widths.pop()
+  return widths
+}
+
+function tableColumnWidthStyle(width?: number) {
+  return width ? { width: `${width}px` } : undefined
 }
 
 function imageSource(blockJson: string) {
@@ -592,6 +626,13 @@ function contentPageForBlock(blockId: number) {
               <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
             </ol>
             <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ width: tableWidth(unit.block.contentJson) }">
+              <colgroup v-if="tableColumnWidths(unit.block.contentJson).length">
+                <col
+                  v-for="(columnWidth, columnIndex) in tableColumnWidths(unit.block.contentJson)"
+                  :key="`col-${columnIndex}`"
+                  :style="tableColumnWidthStyle(columnWidth)"
+                />
+              </colgroup>
               <tbody>
                 <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
                   <template v-if="rowIndex === 0">
@@ -666,6 +707,13 @@ function contentPageForBlock(blockId: number) {
                     <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
                   </ol>
                   <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ width: tableWidth(unit.block.contentJson) }">
+                    <colgroup v-if="tableColumnWidths(unit.block.contentJson).length">
+                      <col
+                        v-for="(columnWidth, columnIndex) in tableColumnWidths(unit.block.contentJson)"
+                        :key="`mcol-${columnIndex}`"
+                        :style="tableColumnWidthStyle(columnWidth)"
+                      />
+                    </colgroup>
                     <tbody>
                       <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
                         <template v-if="rowIndex === 0">
