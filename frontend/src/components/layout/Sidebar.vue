@@ -2,12 +2,13 @@
 import {
   Archive,
   BookOpen,
-  Boxes,
+  SquareDashedText,
   ChevronLeft,
   ChevronRight,
   FileClock,
   FileText,
   Home,
+  Group,
   LayoutTemplate,
   LogOut,
   Package,
@@ -38,7 +39,8 @@ const nav = [
   { name: 'import', label: 'Importar manual', icon: Upload },
   { name: 'products', label: 'Productos', icon: Package },
   { name: 'notes', label: 'Notas', icon: StickyNote },
-  { name: 'reusable-blocks', label: 'Bloques', icon: Boxes },
+  { name: 'reusable-blocks', label: 'Bloques', icon: SquareDashedText },
+  { name: 'reusable-fragments', label: 'Fragmentos', icon: Group },
   { name: 'templates', label: 'Plantillas', icon: LayoutTemplate },
   { name: 'assets', label: 'Assets', icon: Archive },
   { name: 'history', label: 'Historial', icon: FileClock },
@@ -114,7 +116,7 @@ function logout() {
 
 .sidebar {
   position: relative;
-  z-index: 2;
+  z-index: 10;
   width: 200px;
   background: var(--dikoin-blue-dark);
   color: #e8f4fb;
@@ -137,7 +139,7 @@ function logout() {
   position: absolute;
   top: 50%;
   right: -20px;
-  z-index: 1;
+  z-index: 9;
   width: 28px;
   height: 44px;
   transform: translateY(-50%);

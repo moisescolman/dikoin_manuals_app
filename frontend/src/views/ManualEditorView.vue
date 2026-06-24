@@ -620,8 +620,8 @@ function sectionTitle(section: EditorSection) {
 
 .sections-toggle {
   position: absolute;
-  top: 50%;
-  left: 256px;
+  top: 50px;
+  left: 264px;
   z-index: 80;
   width: 28px;
   height: 44px;
@@ -635,7 +635,7 @@ function sectionTitle(section: EditorSection) {
   place-items: center;
   padding: 0;
   pointer-events: auto;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, .12);
+  /* box-shadow: 0 8px 18px rgba(15, 23, 42, .12); */
   transition: left .18s ease, background .12s ease;
 }
 
@@ -644,7 +644,7 @@ function sectionTitle(section: EditorSection) {
 }
 
 .editor-grid.sections-collapsed .sections-toggle {
-  left: 14px;
+  left: 0px;
 }
 
 .index-panel,
