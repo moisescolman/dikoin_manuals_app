@@ -525,7 +525,7 @@ function sectionTitle(section: EditorSection) {
   position: absolute;
   top: 50%;
   left: 256px;
-  z-index: 1;
+  z-index: 80;
   width: 28px;
   height: 44px;
   transform: translateY(-50%);
@@ -537,6 +537,7 @@ function sectionTitle(section: EditorSection) {
   display: grid;
   place-items: center;
   padding: 0;
+  pointer-events: auto;
   box-shadow: 0 8px 18px rgba(15, 23, 42, .12);
   transition: left .18s ease, background .12s ease;
 }
@@ -613,10 +614,26 @@ function sectionTitle(section: EditorSection) {
   margin-bottom: 14px;
 }
 
+.editor-grid.both-languages .cards-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .editor-grid.both-languages .section-editor-row {
   grid-template-columns: repeat(2, 210mm);
   align-items: start;
-  justify-content: start;
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.editor-grid.both-languages .add-section {
+  width: min(100%, calc(420mm + 14px));
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .language-editor-column {

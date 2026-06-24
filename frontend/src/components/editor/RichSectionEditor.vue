@@ -1739,8 +1739,6 @@ function imageAssetId(node: JSONContent) {
           <div class="ribbon-row">
             <button class="tool-btn icon-only" title="Deshacer" aria-label="Deshacer" @click="undo"><Undo2 :size="16" /></button>
             <button class="tool-btn icon-only" title="Rehacer" aria-label="Rehacer" @click="redo"><Redo2 :size="16" /></button>
-          </div>
-          <div class="ribbon-row">
             <button class="tool-btn icon-only" title="Copiar" aria-label="Copiar" @click="copySelection"><Copy :size="16" /></button>
             <button class="tool-btn icon-only" title="Cortar" aria-label="Cortar" @click="cutSelection"><Scissors :size="16" /></button>
             <button class="tool-btn icon-only" title="Pegar" aria-label="Pegar" @click="pasteClipboard"><ClipboardPaste :size="16" /></button>
@@ -2040,27 +2038,30 @@ function imageAssetId(node: JSONContent) {
 .bar-icon { border: 0; background: transparent; color: #fff; padding: 4px; display: inline-flex; align-items: center; }
 .bar-icon .collapsed { transform: rotate(180deg); }
 .section-content { min-height: 332px; position: relative; overflow: visible; }
-.toolbar { position: relative; z-index: 210; display: flex; flex-wrap: wrap; align-items: stretch; width: max-content; min-width: 100%; min-height: 56px; padding: 5px 8px 4px; border: 1px solid #dce7f0; border-radius: var(--radius); background: linear-gradient(#ffffff, #f5f9fd); overflow: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
-.ribbon-group { position: relative; display: grid; grid-template-rows: 1fr auto; align-items: stretch; gap: 3px; padding: 0 8px; border-right: 1px solid #d7e3ed; }
+.toolbar { position: relative; z-index: 210; display: flex; flex-wrap: nowrap; align-items: stretch; width: 100%; min-width: 0; min-height: 74px; padding: 8px 10px 6px; border: 1px solid #dce7f0; border-radius: var(--radius); background: linear-gradient(#ffffff, #f5f9fd); overflow-x: auto; overflow-y: visible; box-shadow: 0 7px 12px rgba(15, 23, 42, .05); }
+.ribbon-group { position: relative; display: grid; grid-template-rows: 1fr auto; align-items: stretch; gap: 4px; padding: 0 10px; border-right: 1px solid #d7e3ed; flex: 0 0 auto; }
 .ribbon-group:first-child { padding-left: 2px; }
 .ribbon-group:last-child { border-right: 0; }
-.ribbon-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px; max-width: 260px; }
-.compact-group { min-width: 112px; }
+.ribbon-row { display: flex; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 4px; max-width: none; white-space: nowrap; }
+.compact-group { min-width: 228px; }
 .compact-group .ribbon-row { justify-content: flex-start; }
-.group-label { align-self: end; text-align: center; color: #6b7280; font-size: 10px; line-height: 1; }
-.tool-btn { min-width: 48px; min-height: 38px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #1f2937; padding: 4px 5px; display: grid; justify-items: center; align-content: center; gap: 3px; font-size: 9px; line-height: 1.05; }
-.tool-btn.mini { min-width: 48px; min-height: 24px; grid-auto-flow: column; grid-auto-columns: max-content; align-content: center; align-items: center; gap: 4px; padding: 3px 5px; font-size: 10px; }
-.tool-btn.icon-only { min-width: 30px; min-height: 24px; padding: 3px; display: inline-grid; place-items: center; }
+.group-label { align-self: end; text-align: center; color: #6b7280; font-size: 11px; font-weight: 600; line-height: 1; }
+.tool-btn { min-width: 58px; min-height: 48px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #1f2937; padding: 6px 7px; display: grid; justify-items: center; align-content: center; gap: 5px; font-size: 10px; line-height: 1.1; font-weight: 600; }
+.tool-btn.mini { min-width: 58px; min-height: 30px; grid-auto-flow: column; grid-auto-columns: max-content; align-content: center; align-items: center; gap: 5px; padding: 4px 6px; font-size: 11px; }
+.tool-btn.icon-only { min-width: 40px; min-height: 40px; padding: 4px; display: inline-grid; place-items: center; }
+.tool-btn svg { width: 20px; height: 20px; }
+.tool-btn.icon-only svg { width: 22px; height: 22px; }
 .level-controls { display: inline-grid; gap: 1px; align-self: center; border: 1px solid #c9d8e4; border-radius: 2px; overflow: hidden; background: #fff; }
-.step-btn { width: 22px; height: 18px; min-width: 0; min-height: 0; border: 0; border-bottom: 1px solid #d7e3ed; background: #f8fbfe; color: #496579; padding: 0; display: grid; place-items: center; }
+.step-btn { width: 28px; height: 24px; min-width: 0; min-height: 0; border: 0; border-bottom: 1px solid #d7e3ed; background: #f8fbfe; color: #496579; padding: 0; display: grid; place-items: center; }
+.step-btn svg { width: 16px; height: 16px; }
 .step-btn:last-child { border-bottom: 0; }
 .step-btn:hover:not(:disabled) { background: var(--dikoin-blue-lighter); color: var(--dikoin-blue); }
 .step-btn:disabled { color: #aeb8c2; cursor: default; background: #f3f6f9; }
-.save-content { min-width: 66px; }
+.save-content { min-width: 82px; }
 .tool-btn:hover, .tool-btn.active { border-color: #b7d7ea; color: var(--dikoin-blue); background: #eaf4fb; }
 .tool-btn:disabled { cursor: default; color: #9aa7b4; background: transparent; border-color: transparent; opacity: .58; }
 .tool-btn.danger { color: var(--dikoin-red); }
-.paragraph-icon { font-size: 16px; line-height: 1; font-weight: 600; }
+.paragraph-icon { font-size: 20px; line-height: 1; font-weight: 700; }
 .toolbar .flip { transform: rotate(180deg); }
 .toolbar-menu, .table-picker-menu { position: relative; z-index: 220; }
 .toolbar-menu > button { height: 100%; }
