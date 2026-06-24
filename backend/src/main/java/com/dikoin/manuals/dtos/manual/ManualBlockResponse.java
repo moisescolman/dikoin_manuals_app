@@ -8,6 +8,9 @@ public record ManualBlockResponse(
         Integer sortOrder,
         BlockType blockType,
         LanguageCode languageCode,
-        String contentJson
+        String contentJson,
+        String plainText,
+        Long assetId,
+        Long reusableBlockId
 ) {
 }

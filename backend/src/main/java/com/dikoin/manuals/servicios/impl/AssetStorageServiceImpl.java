@@ -33,6 +33,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -42,6 +43,11 @@ public class AssetStorageServiceImpl implements AssetStorageService {
     private static final int MAX_IMAGE_DIMENSION = 2400;
     private static final int THUMBNAIL_DIMENSION = 360;
     private static final float JPEG_QUALITY = 0.88f;
+    private static final Set<String> ALLOWED_IMAGE_MIME_TYPES = Set.of(
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+    );
 
     private final StorageProperties storageProperties;
     private final AssetRepository assetRepository;
@@ -53,6 +59,9 @@ public class AssetStorageServiceImpl implements AssetStorageService {
     public AssetResponse storeAsset(MultipartFile file, AssetType assetType, Long manualId) {
         if (file == null || file.isEmpty()) {
             throw new ApiException("Archivo vacio");
+        }
+        if (isImageAssetType(assetType)) {
+            validateImage(file);
         }
 
         Manual manual = manualId != null
@@ -182,6 +191,24 @@ public class AssetStorageServiceImpl implements AssetStorageService {
             return "image/svg+xml";
         }
         return file.getContentType();
+    }
+
+    private boolean isImageAssetType(AssetType assetType) {
+        return assetType == AssetType.IMAGE
+                || assetType == AssetType.PRODUCT_IMAGE
+                || assetType == AssetType.LOGO
+                || assetType == AssetType.EXTRACTED_IMAGE;
+    }
+
+    private void validateImage(MultipartFile file) {
+        String mimeType = normalizeMimeType(file);
+        if (mimeType == null || !ALLOWED_IMAGE_MIME_TYPES.contains(mimeType.toLowerCase())) {
+            throw new ApiException("Formato de imagen no permitido. Use PNG, JPEG o WebP");
+        }
+        String ext = extension(cleanFilename(file.getOriginalFilename()));
+        if (!Set.of(".png", ".jpg", ".jpeg", ".webp").contains(ext)) {
+            throw new ApiException("Extension de imagen no permitida");
+        }
     }
 
     private boolean shouldOptimizeImage(MultipartFile file) {

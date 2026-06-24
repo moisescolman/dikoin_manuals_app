@@ -16,6 +16,8 @@ public class ReusableBlockMapper {
                 block.getId(),
                 block.getCode(),
                 block.getTitle(),
+                block.getDescription(),
+                block.getReusableType(),
                 block.getProductCategory(),
                 block.getProductCodes(),
                 block.getContentJson(),

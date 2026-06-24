@@ -39,6 +39,18 @@ public class ManualBlock {
     @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String contentJson;
 
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String plainText;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "asset_id")
+    private Asset asset;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reusable_block_id")
+    private ReusableBlock reusableBlock;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

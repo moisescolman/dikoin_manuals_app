@@ -10,6 +10,8 @@ public record ManualSectionRequest(
         Long id,
         @NotNull Integer sortOrder,
         String sectionNumber,
+        Long parentSectionId,
+        Integer level,
         @NotBlank String titleEs,
         String titleEn,
         String completionStatus,

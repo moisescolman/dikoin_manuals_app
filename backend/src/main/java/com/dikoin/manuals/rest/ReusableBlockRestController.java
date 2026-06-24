@@ -1,8 +1,6 @@
 package com.dikoin.manuals.rest;
 
-import com.dikoin.manuals.dtos.reusableblock.ReusableBlockRequest;
-import com.dikoin.manuals.dtos.reusableblock.ReusableBlockResponse;
-import com.dikoin.manuals.dtos.reusableblock.ReusableBlockUsageResponse;
+import com.dikoin.manuals.dtos.reusableblock.*;
 import com.dikoin.manuals.servicios.ReusableBlockService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +28,19 @@ public class ReusableBlockRestController {
     @PostMapping
     public ReusableBlockResponse create(@Valid @RequestBody ReusableBlockRequest request) {
         return reusableBlockService.create(request);
+    }
+
+    @PostMapping("/fragments")
+    public ReusableBlockResponse createFragment(@Valid @RequestBody CreateReusableFragmentRequest request) {
+        return reusableBlockService.createFragment(request);
+    }
+
+    @PostMapping("/{id}/insert")
+    public ReusableFragmentInsertResponse insertFragment(
+            @PathVariable Long id,
+            @Valid @RequestBody InsertReusableFragmentRequest request
+    ) {
+        return reusableBlockService.insertFragment(id, request);
     }
 
     @PutMapping("/{id}")

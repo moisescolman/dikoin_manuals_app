@@ -11,5 +11,6 @@ public enum BlockType {
     FORMULA,
     NOTE,
     WARNING,
+    INFO_BOX,
     PAGE_BREAK
 }

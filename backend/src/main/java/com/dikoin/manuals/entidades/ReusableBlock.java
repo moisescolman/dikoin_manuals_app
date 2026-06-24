@@ -1,5 +1,6 @@
 package com.dikoin.manuals.entidades;
 
+import com.dikoin.manuals.enums.ReusableType;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -24,6 +25,14 @@ public class ReusableBlock {
     @Column(nullable = false, length = 220)
     private String title;
 
+    @Column(length = 600)
+    private String description;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    @Builder.Default
+    private ReusableType reusableType = ReusableType.SINGLE_BLOCK;
+
     @Column(length = 120)
     private String productCategory;
 
@@ -35,7 +44,8 @@ public class ReusableBlock {
     private String contentJson;
 
     @Column(nullable = false)
-    private boolean active;
+    @Builder.Default
+    private boolean active = true;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -44,7 +54,9 @@ public class ReusableBlock {
     void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = createdAt;
-        active = true;
+        if (reusableType == null) {
+            reusableType = ReusableType.SINGLE_BLOCK;
+        }
     }
 
     @PreUpdate

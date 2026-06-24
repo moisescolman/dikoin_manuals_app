@@ -30,6 +30,14 @@ public class ManualSection {
     @Column(length = 40)
     private String sectionNumber;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_section_id")
+    private ManualSection parentSection;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer level = 1;
+
     @Column(nullable = false, length = 220)
     private String titleEs;
 

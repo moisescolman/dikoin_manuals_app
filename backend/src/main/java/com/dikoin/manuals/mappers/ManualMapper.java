@@ -92,6 +92,8 @@ public class ManualMapper {
                 section.getId(),
                 section.getSortOrder(),
                 section.getSectionNumber(),
+                section.getParentSection() != null ? section.getParentSection().getId() : null,
+                section.getLevel(),
                 section.getTitleEs(),
                 section.getTitleEn(),
                 section.getCompletionStatus(),
@@ -108,7 +110,10 @@ public class ManualMapper {
                 block.getSortOrder(),
                 block.getBlockType(),
                 block.getLanguageCode(),
-                block.getContentJson()
+                block.getContentJson(),
+                block.getPlainText(),
+                block.getAsset() != null ? block.getAsset().getId() : null,
+                block.getReusableBlock() != null ? block.getReusableBlock().getId() : null
         );
     }
 }

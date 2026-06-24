@@ -15,7 +15,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +31,8 @@ public class ManualServiceImpl implements ManualService {
     private final ManualVersionRepository manualVersionRepository;
     private final ProductRepository productRepository;
     private final DocumentTypeRepository documentTypeRepository;
+    private final AssetRepository assetRepository;
+    private final ReusableBlockRepository reusableBlockRepository;
     private final ManualCodeService manualCodeService;
     private final ManualMapper manualMapper;
 
@@ -122,11 +130,8 @@ public class ManualServiceImpl implements ManualService {
         version.setEsReady(request.esReady());
         version.setEnReady(request.enReady());
         version.setChangeNotes(request.changeNotes());
-        version.getSections().clear();
-
-        if (request.sections() != null) {
-            request.sections().forEach(sectionRequest -> version.getSections().add(toSection(version, sectionRequest)));
-        }
+        mergeSections(version, request.sections() == null ? List.of() : request.sections());
+        recalculateSectionNumbers(version);
 
         if (request.active()) {
             deactivateOtherVersions(manualId, version.getId());
@@ -251,30 +256,142 @@ public class ManualServiceImpl implements ManualService {
         }
     }
 
-    private ManualSection toSection(ManualVersion version, ManualSectionRequest request) {
-        ManualSection section = ManualSection.builder()
-                .manualVersion(version)
-                .sortOrder(request.sortOrder())
-                .sectionNumber(request.sectionNumber())
-                .titleEs(request.titleEs())
-                .titleEn(request.titleEn())
-                .completionStatus(request.completionStatus())
-                .build();
+    private void mergeSections(ManualVersion version, List<ManualSectionRequest> requests) {
+        Map<Long, ManualSection> existingById = version.getSections().stream()
+                .filter(section -> section.getId() != null)
+                .collect(java.util.stream.Collectors.toMap(ManualSection::getId, section -> section));
+        Map<Long, ManualSection> requestedById = new HashMap<>();
+        Map<ManualSection, ManualSectionRequest> requestBySection = new HashMap<>();
+        List<ManualSection> merged = new ArrayList<>();
 
-        if (request.blocks() != null) {
-            request.blocks().forEach(blockRequest -> section.getBlocks().add(toBlock(section, blockRequest)));
+        for (ManualSectionRequest request : requests) {
+            ManualSection section = request.id() == null ? null : existingById.get(request.id());
+            if (request.id() != null && section == null) {
+                throw new ApiException("La seccion " + request.id() + " no pertenece a la version editable");
+            }
+            if (section == null) {
+                section = ManualSection.builder().manualVersion(version).build();
+            }
+            section.setManualVersion(version);
+            section.setSortOrder(request.sortOrder());
+            section.setSectionNumber(request.sectionNumber());
+            section.setLevel(request.level() == null ? 1 : Math.max(1, request.level()));
+            section.setTitleEs(request.titleEs());
+            section.setTitleEn(request.titleEn());
+            section.setCompletionStatus(request.completionStatus());
+            mergeBlocks(section, request.blocks() == null ? List.of() : request.blocks());
+            merged.add(section);
+            requestBySection.put(section, request);
+            if (request.id() != null) {
+                requestedById.put(request.id(), section);
+            }
         }
-        return section;
+
+        for (ManualSection section : merged) {
+            Long parentId = requestBySection.get(section).parentSectionId();
+            if (parentId == null) {
+                section.setParentSection(null);
+                continue;
+            }
+            ManualSection parent = requestedById.get(parentId);
+            if (parent == null || parent == section) {
+                throw new ApiException("La seccion padre " + parentId + " no es valida para esta version");
+            }
+            section.setParentSection(parent);
+        }
+
+        version.getSections().removeIf(section -> !merged.contains(section));
+        for (ManualSection section : merged) {
+            if (!version.getSections().contains(section)) {
+                version.getSections().add(section);
+            }
+        }
     }
 
-    private ManualBlock toBlock(ManualSection section, ManualBlockRequest request) {
-        return ManualBlock.builder()
-                .section(section)
-                .sortOrder(request.sortOrder())
-                .blockType(request.blockType())
-                .languageCode(request.languageCode())
-                .contentJson(request.contentJson())
-                .build();
+    private void mergeBlocks(ManualSection section, List<ManualBlockRequest> requests) {
+        Map<Long, ManualBlock> existingById = section.getBlocks().stream()
+                .filter(block -> block.getId() != null)
+                .collect(java.util.stream.Collectors.toMap(ManualBlock::getId, block -> block));
+        List<ManualBlock> merged = new ArrayList<>();
+
+        for (ManualBlockRequest request : requests) {
+            ManualBlock block = request.id() == null ? null : existingById.get(request.id());
+            if (request.id() != null && block == null) {
+                throw new ApiException("El bloque " + request.id() + " no pertenece a la seccion indicada");
+            }
+            if (block == null) {
+                block = ManualBlock.builder().section(section).build();
+            }
+            validateBlock(request);
+            block.setSection(section);
+            block.setSortOrder(request.sortOrder());
+            block.setBlockType(request.blockType());
+            block.setLanguageCode(request.languageCode());
+            block.setContentJson(request.contentJson());
+            block.setPlainText(request.plainText());
+            block.setAsset(request.assetId() == null ? null : assetRepository.findById(request.assetId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Asset no encontrado: " + request.assetId())));
+            block.setReusableBlock(request.reusableBlockId() == null ? null : reusableBlockRepository.findById(request.reusableBlockId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Bloque reutilizable no encontrado: " + request.reusableBlockId())));
+            merged.add(block);
+        }
+
+        section.getBlocks().removeIf(block -> !merged.contains(block));
+        for (ManualBlock block : merged) {
+            if (!section.getBlocks().contains(block)) {
+                section.getBlocks().add(block);
+            }
+        }
+    }
+
+    private void validateBlock(ManualBlockRequest request) {
+        if (request.blockType() == com.dikoin.manuals.enums.BlockType.FORMULA
+                && (request.contentJson() == null
+                || request.contentJson().isBlank()
+                || !request.contentJson().contains("\"latex\""))) {
+            throw new ApiException("La ecuacion debe contener una expresion LaTeX");
+        }
+    }
+
+    private void recalculateSectionNumbers(ManualVersion version) {
+        Map<ManualSection, List<ManualSection>> childrenByParent = new HashMap<>();
+        List<ManualSection> roots = new ArrayList<>();
+        Set<ManualSection> sections = new HashSet<>(version.getSections());
+
+        for (ManualSection section : version.getSections()) {
+            ManualSection parent = section.getParentSection();
+            if (parent == null || !sections.contains(parent)) {
+                section.setParentSection(null);
+                roots.add(section);
+            } else {
+                childrenByParent.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(section);
+            }
+        }
+
+        roots.sort(Comparator.comparing(ManualSection::getSortOrder));
+        for (int index = 0; index < roots.size(); index++) {
+            numberSection(roots.get(index), String.valueOf(index + 1), 1, childrenByParent, new HashSet<>());
+        }
+    }
+
+    private void numberSection(
+            ManualSection section,
+            String number,
+            int level,
+            Map<ManualSection, List<ManualSection>> childrenByParent,
+            Set<ManualSection> path
+    ) {
+        if (!path.add(section)) {
+            throw new ApiException("Se ha detectado un ciclo en la jerarquia de secciones");
+        }
+        section.setSectionNumber(number);
+        section.setLevel(level);
+        List<ManualSection> children = childrenByParent.getOrDefault(section, List.of()).stream()
+                .sorted(Comparator.comparing(ManualSection::getSortOrder))
+                .toList();
+        for (int index = 0; index < children.size(); index++) {
+            numberSection(children.get(index), number + "." + (index + 1), level + 1, childrenByParent, new HashSet<>(path));
+        }
     }
 
     private void deactivateOtherVersions(Long manualId, Long exceptVersionId) {
