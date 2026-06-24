@@ -30,6 +30,8 @@ export interface EditorSection {
   backendId?: number
   sortOrder: number
   sectionNumber?: string
+  parentSectionId?: number
+  level: number
   titleEs: string
   titleEn?: string
   status: 'READY' | 'PENDING' | 'IMPORTED' | 'REVIEWED'
@@ -53,6 +55,7 @@ export function backendBlockTypeToEditor(type: BlockType): EditorBlockType {
     FORMULA: 'formula',
     NOTE: 'nota',
     WARNING: 'advertencia',
+    INFO_BOX: 'nota',
     PAGE_BREAK: 'parrafo',
   }
   return map[type]
@@ -147,6 +150,19 @@ export function blockContentToJson(block: EditorBlock): string {
     const columns = rows[0] ?? []
     return JSON.stringify({ type: 'table', columns, rows: rows.slice(1), width: block.data?.width })
   }
+  if (block.type === 'formula') {
+    return JSON.stringify({
+      type: 'formula',
+      latex: block.content,
+      mathml: block.data?.mathml || null,
+      omml: block.data?.omml || null,
+      displayMode: block.data?.displayMode || 'block',
+      numbered: Boolean(block.data?.numbered),
+      equationNumber: block.data?.equationNumber || null,
+      caption: block.data?.caption || '',
+      align: block.data?.align || 'center',
+    })
+  }
   if (block.data?.json || block.data?.html) {
     return JSON.stringify({
       type: block.data.type || block.type,
@@ -162,9 +178,6 @@ export function blockContentToJson(block: EditorBlock): string {
       type: block.type === 'lista-ul' ? 'unordered_list' : 'ordered_list',
       items: block.content.split('\n').filter(Boolean),
     })
-  }
-  if (block.type === 'formula') {
-    return JSON.stringify({ type: 'formula', latex: block.content })
   }
   if (block.type === 'enlace') {
     const [text = 'Enlace', href = 'https://'] = block.content.split('|')
@@ -185,6 +198,8 @@ export function sectionsFromBackend(sections: ManualSectionResponse[] = []): Edi
     backendId: section.id,
     sortOrder: section.sortOrder ?? index + 1,
     sectionNumber: section.sectionNumber,
+    parentSectionId: section.parentSectionId,
+    level: section.level || 1,
     titleEs: section.titleEs,
     titleEn: section.titleEn,
     status: (section.completionStatus as EditorSection['status']) || 'PENDING',
@@ -220,6 +235,8 @@ export function versionRequestFromEditor(params: {
       id: section.backendId,
       sortOrder: sectionIndex + 1,
       sectionNumber: section.sectionNumber || String(sectionIndex + 1),
+      parentSectionId: section.parentSectionId,
+      level: section.level,
       titleEs: section.titleEs,
       titleEn: section.titleEn,
       completionStatus: section.status,
@@ -229,6 +246,9 @@ export function versionRequestFromEditor(params: {
         blockType: editorBlockTypeToBackend(block.type),
         languageCode: block.languageCode,
         contentJson: blockContentToJson(block),
+        plainText: block.content,
+        assetId: typeof block.data?.assetId === 'number' ? block.data.assetId : undefined,
+        reusableBlockId: typeof block.data?.reusableBlockId === 'number' ? block.data.reusableBlockId : undefined,
       })),
     })),
   }

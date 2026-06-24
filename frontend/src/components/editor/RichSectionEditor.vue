@@ -23,6 +23,9 @@ import {
   List,
   ListOrdered,
   Link2Off,
+  Library,
+  ListTree,
+  MoveRight,
   NotebookPen,
   PanelTopClose,
   Redo2,
@@ -32,19 +35,22 @@ import {
   Table as TableIcon,
   Trash2,
   Undo2,
+  X,
 } from '@lucide/vue'
 import { getAssets, uploadAsset } from '@/api/assets.api'
 import { toBackendUrl } from '@/api/http'
 import { getNotices } from '@/api/notices.api'
+import { createReusableFragment, getReusableBlocks } from '@/api/reusable-blocks.api'
 import type { EditorBlock, EditorBlockType, EditorSection } from '@/types/editor'
-import { randomId } from '@/types/editor'
-import type { AssetResponse, LanguageCode, NoticeTemplateResponse } from '@/types/api'
+import { backendBlockTypeToEditor, blockContentToJson, editorBlockTypeToBackend, parseContent, randomId } from '@/types/editor'
+import type { AssetResponse, LanguageCode, ManualBlockResponse, NoticeTemplateResponse, ReusableBlockResponse } from '@/types/api'
 
 type NoteMode = 'new' | 'library'
 type EditorRegistryRecord = { editor: Editor; root: () => HTMLElement | null; markDirty: () => void }
 type MovableBlockKind = 'note' | 'table' | 'image'
 type MovableBlockRange = { from: number; to: number; kind: MovableBlockKind }
 type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w'
+type SectionTarget = { id: string; number?: string; title: string }
 
 let sharedNoteClipboard: JSONContent | null = null
 let sharedNoteDrag: { editor: Editor; from: number; to: number; json: JSONContent; markSourceDirty: () => void } | null = null
@@ -58,6 +64,8 @@ const props = defineProps<{
   selected: boolean
   activeToolbar?: boolean
   manualId?: number
+  sectionTargets?: SectionTarget[]
+  selectionOwnerKey?: string
 }>()
 
 const emit = defineEmits<{
@@ -67,10 +75,14 @@ const emit = defineEmits<{
   delete: []
   duplicate: []
   saveReusable: []
+  addSubsection: []
+  moveBlocks: [payload: { sourceSectionId: string; targetSectionId: string; blocks: EditorBlock[] }]
+  selectionChange: [key: string, active: boolean]
 }>()
 
 const assets = ref<AssetResponse[]>([])
 const notices = ref<NoticeTemplateResponse[]>([])
+const reusableBlocks = ref<ReusableBlockResponse[]>([])
 const showImageModal = ref(false)
 const showNoticeModal = ref(false)
 const noteMode = ref<NoteMode>('new')
@@ -102,6 +114,53 @@ const tablePickerMaxRows = 6
 const tablePickerMaxCols = 7
 let headingNumberFrame = 0
 const editorDirty = ref(false)
+const selectedBlockIds = ref<string[]>([])
+const hoveredBlockId = ref('')
+const showFragmentModal = ref(false)
+const showReusableModal = ref(false)
+const showEquationModal = ref(false)
+const showMoveModal = ref(false)
+const fragmentName = ref('')
+const fragmentDescription = ref('')
+const fragmentSaving = ref(false)
+const fragmentMessage = ref('')
+const fragmentInsertPosition = ref<'END' | 'AFTER_SELECTION'>('END')
+const moveTargetSectionId = ref('')
+const equationTextarea = ref<HTMLTextAreaElement | null>(null)
+const editingEquationPos = ref<number | null>(null)
+const equationDraft = ref({
+  latex: '',
+  caption: '',
+  displayMode: 'block',
+  numbered: false,
+  equationNumber: '',
+  align: 'center',
+})
+const blockSelectionKey = new PluginKey('manualBlockSelection')
+
+const equationTemplates = [
+  { label: 'Fracción', latex: '\\frac{a}{b}' },
+  { label: 'Superíndice', latex: 'x^{2}' },
+  { label: 'Subíndice', latex: 'x_{i}' },
+  { label: 'Raíz', latex: '\\sqrt{x}' },
+  { label: 'Sumatoria', latex: '\\sum_{i=1}^{n} x_i' },
+  { label: 'Integral', latex: '\\int_{a}^{b} f(x)\\,dx' },
+  { label: 'Paréntesis', latex: '\\left( x \\right)' },
+  { label: 'Matriz 2x2', latex: '\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}' },
+]
+
+const greekTemplates = [
+  ['α', '\\alpha'],
+  ['β', '\\beta'],
+  ['γ', '\\gamma'],
+  ['δ', '\\delta'],
+  ['θ', '\\theta'],
+  ['λ', '\\lambda'],
+  ['μ', '\\mu'],
+  ['π', '\\pi'],
+  ['ρ', '\\rho'],
+  ['ω', '\\omega'],
+] as const
 
 const NoteBox = Node.create({
   name: 'noteBox',
@@ -138,6 +197,130 @@ const NoteBox = Node.create({
         class: 'note-drag-handle',
       },
     ], ['span', { class: 'note-content' }, 0]]
+  },
+})
+
+const FormulaBlock = Node.create({
+  name: 'formulaBlock',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      latex: { default: '' },
+      mathml: { default: null },
+      omml: { default: null },
+      displayMode: { default: 'block' },
+      numbered: { default: false },
+      equationNumber: { default: null },
+      caption: { default: '' },
+      align: { default: 'center' },
+    }
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-formula-block]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    const latex = String(HTMLAttributes.latex || '')
+    const caption = String(HTMLAttributes.caption || '')
+    return ['div', mergeAttributes(HTMLAttributes, {
+      'data-formula-block': 'true',
+      class: 'formula-block',
+      contenteditable: 'false',
+    }), [
+      'span',
+      { class: 'formula-latex' },
+      latex,
+    ], ...(caption ? [['small', { class: 'formula-caption' }, caption]] : [])]
+  },
+})
+
+const BlockIdentity = Extension.create({
+  name: 'blockIdentity',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'table', 'image', 'noteBox', 'formulaBlock'],
+      attributes: {
+        blockId: {
+          default: null,
+          parseHTML: (element) => element.getAttribute('data-block-id'),
+          renderHTML: (attributes) => attributes.blockId ? { 'data-block-id': attributes.blockId } : {},
+        },
+        backendId: {
+          default: null,
+          parseHTML: (element) => {
+            const value = element.getAttribute('data-backend-id')
+            return value ? Number(value) : null
+          },
+          renderHTML: (attributes) => attributes.backendId ? { 'data-backend-id': String(attributes.backendId) } : {},
+        },
+      },
+    }]
+  },
+})
+
+const BlockSelection = Extension.create({
+  name: 'blockSelection',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: blockSelectionKey,
+      appendTransaction: (_transactions, _oldState, newState) => {
+        let transaction = newState.tr
+        let changed = false
+        newState.doc.forEach((node, offset) => {
+          if (node.attrs.blockId) return
+          transaction = transaction.setNodeMarkup(offset, undefined, {
+            ...node.attrs,
+            blockId: randomId('block'),
+            backendId: node.attrs.backendId || null,
+          })
+          changed = true
+        })
+        return changed ? transaction : null
+      },
+      props: {
+        decorations: (state) => {
+          const decorations: Decoration[] = []
+          state.doc.forEach((node, offset) => {
+            const blockId = String(node.attrs.blockId || '')
+            if (!blockId) return
+            const selected = selectedBlockIds.value.includes(blockId)
+            const selectable = canToggleBlockSelection(blockId, state)
+            const wrapper = document.createElement('span')
+            const hovered = hoveredBlockId.value === blockId
+            wrapper.className = `block-checkbox-widget${selected ? ' selected' : ''}${hovered ? ' hovered' : ''}`
+            wrapper.contentEditable = 'false'
+            const input = document.createElement('input')
+            input.type = 'checkbox'
+            input.checked = selected
+            input.disabled = !selectable
+            input.setAttribute('aria-label', selected ? 'Deseleccionar bloque' : 'Seleccionar bloque')
+            if (!selectable) {
+              input.title = selected
+                ? 'Para mantener el rango contiguo, desmarca primero uno de los extremos'
+                : 'Solo puedes añadir bloques contiguos a la selección'
+            }
+            input.addEventListener('mousedown', (event) => event.preventDefault())
+            input.addEventListener('click', (event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              toggleBlockSelection(blockId)
+            })
+            wrapper.appendChild(input)
+            decorations.push(Decoration.widget(offset, wrapper, { side: -1, key: `check-${blockId}` }))
+            decorations.push(Decoration.node(offset, offset + node.nodeSize, {
+              class: [
+                'manual-selectable-block',
+                selected ? 'selected-manual-block' : '',
+                hovered ? 'selection-hovered' : '',
+              ].filter(Boolean).join(' '),
+            }))
+          })
+          return DecorationSet.create(state.doc, decorations)
+        },
+      },
+    })]
   },
 })
 
@@ -267,6 +450,9 @@ const editor = useEditor({
     TableHeader,
     TableCell,
     NoteBox,
+    FormulaBlock,
+    BlockIdentity,
+    BlockSelection,
     ParagraphEnter,
     HeadingNumbering,
   ],
@@ -405,6 +591,7 @@ watch(
   () => [props.section.id, props.language],
   () => {
     if (!editor.value) return
+    selectedBlockIds.value = []
     syncingFromProps.value = true
     editor.value.commands.setContent(docFromBlocks(visibleBlocks()))
     queueMicrotask(() => {
@@ -416,6 +603,198 @@ watch(
 
 function visibleBlocks() {
   return props.section.blocks.filter((block) => block.languageCode === props.language)
+}
+
+function updateBlockSelectionHover(event?: MouseEvent) {
+  const root = editor.value?.view.dom
+  if (!root) return
+  let activeBlockId = ''
+
+  if (event) {
+    const blocks = Array.from(root.querySelectorAll<HTMLElement>('.manual-selectable-block'))
+    for (const block of blocks) {
+      const host = block?.closest('.tableWrapper') as HTMLElement | null || block
+      const rect = host.getBoundingClientRect()
+      const insideExpandedRow = event.clientX >= rect.left - 48
+        && event.clientX <= rect.right + 9
+        && event.clientY >= rect.top - 5
+        && event.clientY <= rect.bottom + 5
+      if (insideExpandedRow) {
+        activeBlockId = String(block.dataset.blockId || '')
+        break
+      }
+    }
+  }
+
+  if (hoveredBlockId.value === activeBlockId) return
+  hoveredBlockId.value = activeBlockId
+  refreshBlockSelections()
+}
+
+const selectedCount = computed(() => selectedBlockIds.value.length)
+const hasSelection = computed(() => selectedCount.value > 0)
+const availableMoveTargets = computed(() => (props.sectionTargets || []).filter((section) => section.id !== props.section.id))
+const selectionKey = computed(() => `${props.section.id}:${props.language}`)
+
+watch(
+  () => props.selectionOwnerKey,
+  (ownerKey) => {
+    if (ownerKey && ownerKey !== selectionKey.value && selectedBlockIds.value.length) {
+      selectedBlockIds.value = []
+      refreshBlockSelections()
+    }
+  },
+)
+
+function refreshBlockSelections() {
+  const current = editor.value
+  if (!current) return
+  current.view.dispatch(current.state.tr.setMeta(blockSelectionKey, Date.now()))
+}
+
+function documentBlockIds(state = editor.value?.state) {
+  if (!state) return []
+  const ids: string[] = []
+  state.doc.forEach((node) => {
+    const blockId = String(node.attrs.blockId || '')
+    if (blockId) ids.push(blockId)
+  })
+  return ids
+}
+
+function canToggleBlockSelection(blockId: string, state = editor.value?.state) {
+  const ids = documentBlockIds(state)
+  const blockIndex = ids.indexOf(blockId)
+  if (blockIndex < 0 || !selectedBlockIds.value.length) return blockIndex >= 0
+
+  const selectedIndexes = selectedBlockIds.value
+    .map((id) => ids.indexOf(id))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)
+  if (!selectedIndexes.length) return true
+
+  const first = selectedIndexes[0]
+  const last = selectedIndexes[selectedIndexes.length - 1]
+  if (selectedBlockIds.value.includes(blockId)) {
+    return selectedIndexes.length === 1 || blockIndex === first || blockIndex === last
+  }
+  return blockIndex === first - 1 || blockIndex === last + 1
+}
+
+function toggleBlockSelection(blockId: string) {
+  if (!canToggleBlockSelection(blockId)) return
+  const ids = documentBlockIds()
+  selectedBlockIds.value = selectedBlockIds.value.includes(blockId)
+    ? selectedBlockIds.value.filter((id) => id !== blockId)
+    : [...selectedBlockIds.value, blockId].sort((left, right) => ids.indexOf(left) - ids.indexOf(right))
+  emit('selectionChange', selectionKey.value, selectedBlockIds.value.length > 0)
+  refreshBlockSelections()
+  activateEditor()
+}
+
+function clearBlockSelection() {
+  selectedBlockIds.value = []
+  emit('selectionChange', selectionKey.value, false)
+  refreshBlockSelections()
+}
+
+function selectedBlocksFromDocument() {
+  if (!editor.value) return []
+  return blocksFromDoc(editor.value.getJSON()).filter((block) => selectedBlockIds.value.includes(block.id))
+}
+
+function duplicateSelectedBlocks() {
+  if (!editor.value || !hasSelection.value) return
+  const doc = structuredClone(editor.value.getJSON())
+  doc.content = (doc.content || []).flatMap((node) => {
+    const blockId = String(node.attrs?.blockId || '')
+    if (!selectedBlockIds.value.includes(blockId)) return [node]
+    const copy = structuredClone(node)
+    copy.attrs = { ...(copy.attrs || {}), blockId: randomId('block'), backendId: null }
+    return [node, copy]
+  })
+  editor.value.commands.setContent(doc)
+  markEditorDirty()
+  clearBlockSelection()
+}
+
+function deleteSelectedBlocks() {
+  if (!editor.value || !hasSelection.value) return
+  const doc = structuredClone(editor.value.getJSON())
+  doc.content = (doc.content || []).filter((node) => !selectedBlockIds.value.includes(String(node.attrs?.blockId || '')))
+  if (!doc.content.length) {
+    doc.content = [{ type: 'paragraph', attrs: { blockId: randomId('block'), backendId: null } }]
+  }
+  editor.value.commands.setContent(doc)
+  markEditorDirty()
+  clearBlockSelection()
+}
+
+function openFragmentModal() {
+  if (!hasSelection.value) return
+  fragmentName.value = ''
+  fragmentDescription.value = ''
+  fragmentMessage.value = ''
+  showFragmentModal.value = true
+}
+
+async function saveSelectedFragment() {
+  const blocks = selectedBlocksFromDocument()
+  if (!blocks.length || !fragmentName.value.trim()) return
+  fragmentSaving.value = true
+  fragmentMessage.value = ''
+  try {
+    await createReusableFragment({
+      name: fragmentName.value.trim(),
+      description: fragmentDescription.value.trim() || undefined,
+      sourceSectionId: props.section.backendId,
+      blockIds: blocks.every((block) => block.backendId) ? blocks.map((block) => block.backendId as number) : undefined,
+      blocks: blocks.map((block, index) => ({
+        blockType: editorBlockTypeToBackend(block.type),
+        languageCode: block.languageCode,
+        contentJson: blockContentToJson(block),
+        plainText: block.content,
+        assetId: typeof block.data?.assetId === 'number' ? block.data.assetId : undefined,
+        sortOrder: index + 1,
+      })),
+      isReusable: true,
+    })
+    fragmentMessage.value = 'Fragmento guardado'
+    reusableBlocks.value = await getReusableBlocks()
+    clearBlockSelection()
+    setTimeout(() => {
+      showFragmentModal.value = false
+      fragmentMessage.value = ''
+    }, 650)
+  } catch {
+    fragmentMessage.value = 'No se pudo guardar el fragmento'
+  } finally {
+    fragmentSaving.value = false
+  }
+}
+
+function openMoveModal() {
+  if (!hasSelection.value || !availableMoveTargets.value.length) return
+  moveTargetSectionId.value = availableMoveTargets.value[0]?.id || ''
+  showMoveModal.value = true
+}
+
+function confirmMoveSelection() {
+  if (!moveTargetSectionId.value) return
+  const blocks = selectedBlocksFromDocument().map((block) => ({
+    ...structuredClone(block),
+    id: randomId('block'),
+    backendId: undefined,
+  }))
+  if (!blocks.length) return
+  emit('moveBlocks', {
+    sourceSectionId: props.section.id,
+    targetSectionId: moveTargetSectionId.value,
+    blocks,
+  })
+  deleteSelectedBlocks()
+  syncEditorToSection()
+  showMoveModal.value = false
 }
 
 function patch(value: Partial<EditorSection>) {
@@ -862,6 +1241,7 @@ function startActiveNoteDrag(event: MouseEvent) {
 }
 
 function handleSectionMouseMove(event: MouseEvent) {
+  updateBlockSelectionHover(event)
   const target = event.target instanceof Element ? event.target : null
   if (!target || target.closest('.note-actions-float') || target.closest('.block-actions-float')) return
   const note = target.closest('[data-note-box]')
@@ -889,6 +1269,7 @@ function handleSectionMouseMove(event: MouseEvent) {
 }
 
 function handleSectionMouseLeave() {
+  updateBlockSelectionHover()
   hideNoteActions()
   hideBlockActions()
   if (!activeNoteInfo()) clearActiveNoteElement()
@@ -1467,7 +1848,80 @@ function insertGenericNote() {
 }
 
 function insertEquation() {
-  editor.value?.chain().focus().insertContent(textToParagraphs('Ecuación: y = f(x)')).run()
+  const current = editor.value
+  const selectedNode = (current?.state.selection as unknown as { node?: { type: { name: string }; attrs: Record<string, unknown> } })?.node
+  if (selectedNode?.type.name === 'formulaBlock' && current) {
+    editingEquationPos.value = current.state.selection.from
+    equationDraft.value = {
+      latex: String(selectedNode.attrs.latex || ''),
+      caption: String(selectedNode.attrs.caption || ''),
+      displayMode: String(selectedNode.attrs.displayMode || 'block'),
+      numbered: Boolean(selectedNode.attrs.numbered),
+      equationNumber: String(selectedNode.attrs.equationNumber || ''),
+      align: String(selectedNode.attrs.align || 'center'),
+    }
+  } else {
+    editingEquationPos.value = null
+    equationDraft.value = {
+      latex: '',
+      caption: '',
+      displayMode: 'block',
+      numbered: false,
+      equationNumber: '',
+      align: 'center',
+    }
+  }
+  showEquationModal.value = true
+  queueMicrotask(() => equationTextarea.value?.focus())
+}
+
+function insertEquationSnippet(snippet: string) {
+  const textarea = equationTextarea.value
+  const value = equationDraft.value.latex
+  if (!textarea) {
+    equationDraft.value.latex = `${value}${value ? ' ' : ''}${snippet}`
+    return
+  }
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  equationDraft.value.latex = `${value.slice(0, start)}${snippet}${value.slice(end)}`
+  queueMicrotask(() => {
+    textarea.focus()
+    textarea.setSelectionRange(start + snippet.length, start + snippet.length)
+  })
+}
+
+function confirmEquation() {
+  const current = editor.value
+  const latex = equationDraft.value.latex.trim()
+  if (!current || !latex) return
+  const attrs = {
+    latex,
+    mathml: null,
+    omml: null,
+    displayMode: equationDraft.value.displayMode,
+    numbered: equationDraft.value.numbered,
+    equationNumber: equationDraft.value.numbered ? equationDraft.value.equationNumber.trim() || null : null,
+    caption: equationDraft.value.caption.trim(),
+    align: equationDraft.value.align,
+  }
+  if (editingEquationPos.value !== null) {
+    const node = current.state.doc.nodeAt(editingEquationPos.value)
+    if (node?.type.name === 'formulaBlock') {
+      current.view.dispatch(current.state.tr.setNodeMarkup(editingEquationPos.value, undefined, { ...node.attrs, ...attrs }))
+    }
+  } else {
+    current.chain().focus().insertContent({
+      type: 'formulaBlock',
+      attrs: {
+        ...attrs,
+        blockId: randomId('block'),
+        backendId: null,
+      },
+    }).run()
+  }
+  markEditorDirty()
+  showEquationModal.value = false
 }
 
 function insertChart() {
@@ -1475,7 +1929,76 @@ function insertChart() {
 }
 
 function insertContentBlock() {
-  editor.value?.chain().focus().insertContent(textToParagraphs('Contenido reutilizable pendiente')).run()
+  fragmentInsertPosition.value = hasSelection.value ? 'AFTER_SELECTION' : 'END'
+  fragmentMessage.value = ''
+  showReusableModal.value = true
+  loadModalData()
+}
+
+function insertReusableFragment(fragment: ReusableBlockResponse) {
+  if (!editor.value) return
+  try {
+    const parsed = JSON.parse(fragment.contentJson)
+    const snapshots = Array.isArray(parsed.blocks) ? parsed.blocks : []
+    const blocks: EditorBlock[] = snapshots
+      .filter((snapshot: Record<string, unknown>) => !snapshot.languageCode || snapshot.languageCode === props.language)
+      .map((snapshot: Record<string, unknown>, index: number) => {
+        const contentJson = typeof snapshot.contentJson === 'string'
+          ? snapshot.contentJson
+          : JSON.stringify(snapshot.contentJson || {})
+        const response: ManualBlockResponse = {
+          id: 0,
+          sortOrder: Number(snapshot.sortOrder || index + 1),
+          blockType: snapshot.blockType as ManualBlockResponse['blockType'],
+          languageCode: (snapshot.languageCode || props.language) as LanguageCode,
+          contentJson,
+          plainText: typeof snapshot.plainText === 'string' ? snapshot.plainText : undefined,
+          assetId: typeof snapshot.assetId === 'number' ? snapshot.assetId : undefined,
+          reusableBlockId: fragment.id,
+        }
+        let data: Record<string, unknown> = {}
+        try {
+          data = JSON.parse(contentJson)
+        } catch {
+          data = {}
+        }
+        return {
+          id: randomId('block'),
+          type: backendBlockTypeToEditor(response.blockType),
+          content: parseContent(response),
+          languageCode: response.languageCode,
+          data: {
+            ...data,
+            assetId: response.assetId,
+            reusableBlockId: fragment.id,
+          },
+        } satisfies EditorBlock
+      })
+    if (!blocks.length) {
+      fragmentMessage.value = 'El fragmento no contiene bloques para este idioma'
+      return
+    }
+    const insertedNodes = blocks.flatMap((block) => nodeFromBlock(block))
+    const doc: JSONContent = structuredClone(editor.value.getJSON())
+    const content: JSONContent[] = [...(doc.content || [])]
+    if (fragmentInsertPosition.value === 'AFTER_SELECTION' && hasSelection.value) {
+      const lastSelectedIndex = content.reduce(
+        (last, node, index) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')) ? index : last,
+        -1,
+      )
+      content.splice(lastSelectedIndex + 1, 0, ...insertedNodes)
+    } else {
+      content.push(...insertedNodes)
+    }
+    doc.content = content
+    editor.value.commands.setContent(doc)
+    markEditorDirty()
+    clearBlockSelection()
+    showReusableModal.value = false
+    fragmentMessage.value = ''
+  } catch {
+    fragmentMessage.value = 'El contenido del fragmento no es válido'
+  }
 }
 
 function insertNotice(notice: NoticeTemplateResponse) {
@@ -1516,15 +2039,18 @@ async function uploadImage(event: Event) {
 
 async function loadModalData() {
   try {
-    const [loadedAssets, loadedNotices] = await Promise.all([
+    const [loadedAssets, loadedNotices, loadedReusableBlocks] = await Promise.all([
       getAssets(props.manualId ? { manualId: props.manualId } : undefined),
       getNotices('NOTE'),
+      getReusableBlocks(),
     ])
     assets.value = loadedAssets.filter((asset) => ['IMAGE', 'EXTRACTED_IMAGE', 'PRODUCT_IMAGE'].includes(asset.assetType))
     notices.value = loadedNotices
+    reusableBlocks.value = loadedReusableBlocks
   } catch {
     assets.value = []
     notices.value = []
+    reusableBlocks.value = []
   }
 }
 
@@ -1567,26 +2093,32 @@ function docFromBlocks(blocks: EditorBlock[]): JSONContent {
 function nodeFromBlock(block: EditorBlock): JSONContent[] {
   const data = block.data || {}
   const savedJson = data.json as JSONContent | undefined
+  const identity = { blockId: block.id, backendId: block.backendId || null }
   if (block.type === 'nota-ref') {
     const refId = Number(block.content || data.noticeTemplateId || savedJson?.attrs?.refId || 0)
     const notice = noticeById(refId)
     return [{
       type: 'noteBox',
       attrs: {
+        ...identity,
         refId,
         title: notice ? noticeTitle(notice) : String(data.title || savedJson?.attrs?.title || 'Nota'),
       },
       content: textContent(notice ? noticeContent(notice) : String(data.text || block.content)),
     }]
   }
-  if (savedJson?.type) return [savedJson]
+  if (savedJson?.type) {
+    const clonedJson = JSON.parse(JSON.stringify(savedJson)) as JSONContent
+    return [{ ...clonedJson, attrs: { ...(clonedJson.attrs || {}), ...identity } }]
+  }
   if (block.type === 'titulo') {
-    return [{ type: 'heading', attrs: { level: Number(data.level || 1) }, content: textContent(block.content) }]
+    return [{ type: 'heading', attrs: { ...identity, level: Number(data.level || 1) }, content: textContent(block.content) }]
   }
   if (block.type === 'lista-ul' || block.type === 'lista-ol') {
     const listType = block.type === 'lista-ul' ? 'bulletList' : 'orderedList'
     return [{
       type: listType,
+      attrs: identity,
       content: block.content.split('\n').filter(Boolean).map((item) => ({
         type: 'listItem',
         content: [{ type: 'paragraph', content: textContent(item) }],
@@ -1595,23 +2127,42 @@ function nodeFromBlock(block: EditorBlock): JSONContent[] {
   }
   if (block.type === 'tabla') {
     const rows = block.content.split('\n').filter(Boolean).map((line) => line.split('|'))
-    return [tableNode(rows, data.width)]
+    const table = tableNode(rows, data.width)
+    table.attrs = { ...(table.attrs || {}), ...identity }
+    return [table]
   }
   if (block.type === 'imagen') {
     const attrs = savedJson?.attrs as Record<string, unknown> | undefined
-    return [{ type: 'image', attrs: { src: block.content, alt: String(data.assetId || ''), width: data.width || attrs?.width || null, height: data.height || attrs?.height || null } }]
+    return [{ type: 'image', attrs: { ...identity, src: block.content, alt: String(data.assetId || ''), width: data.width || attrs?.width || null, height: data.height || attrs?.height || null } }]
   }
   if (block.type === 'nota') {
     return [{
       type: 'noteBox',
       attrs: {
+        ...identity,
         refId: null,
         title: String(data.title || 'Nota'),
       },
       content: textContent(String(data.text || block.content)),
     }]
   }
-  return [{ type: 'paragraph', content: textContent(block.content) }]
+  if (block.type === 'formula') {
+    return [{
+      type: 'formulaBlock',
+      attrs: {
+        ...identity,
+        latex: block.content,
+        mathml: data.mathml || null,
+        omml: data.omml || null,
+        displayMode: data.displayMode || 'block',
+        numbered: Boolean(data.numbered),
+        equationNumber: data.equationNumber || null,
+        caption: data.caption || '',
+        align: data.align || 'center',
+      },
+    }]
+  }
+  return [{ type: 'paragraph', attrs: identity, content: textContent(block.content) }]
 }
 
 function tableNode(rows: string[][], width?: unknown): JSONContent {
@@ -1659,12 +2210,28 @@ function blockFromNode(node: JSONContent): EditorBlock[] {
     }
     return [editorBlock('nota', plainText(node), { type: 'note', json: node, title: node.attrs?.title || 'Nota', text: plainText(node) })]
   }
+  if (node.type === 'formulaBlock') {
+    return [editorBlock('formula', String(node.attrs?.latex || ''), {
+      type: 'formula',
+      json: node,
+      latex: node.attrs?.latex || '',
+      mathml: node.attrs?.mathml || null,
+      omml: node.attrs?.omml || null,
+      displayMode: node.attrs?.displayMode || 'block',
+      numbered: Boolean(node.attrs?.numbered),
+      equationNumber: node.attrs?.equationNumber || null,
+      caption: node.attrs?.caption || '',
+      align: node.attrs?.align || 'center',
+    }, node)]
+  }
   return []
 }
 
-function editorBlock(type: EditorBlockType, content: string, data?: Record<string, unknown>): EditorBlock {
+function editorBlock(type: EditorBlockType, content: string, data?: Record<string, unknown>, node?: JSONContent): EditorBlock {
+  const sourceNode = node || data?.json as JSONContent | undefined
   return {
-    id: randomId('block'),
+    id: String(sourceNode?.attrs?.blockId || randomId('block')),
+    backendId: sourceNode?.attrs?.backendId ? Number(sourceNode.attrs.backendId) : undefined,
     type,
     content,
     languageCode: props.language,
@@ -1809,6 +2376,7 @@ function imageAssetId(node: JSONContent) {
 
         <div class="ribbon-group section-actions">
           <div class="ribbon-row">
+            <button class="tool-btn" title="Añadir subsección" @click="emit('addSubsection')"><ListTree :size="16" /><span>Subsección</span></button>
             <button class="tool-btn" title="Duplicar sección" @click="emit('duplicate')"><Copy :size="16" /><span>Duplicar</span></button>
             <button class="tool-btn" title="Guardar como reutilizable" @click="emit('saveReusable')"><Save :size="16" /><span>Reutilizable</span></button>
             <button class="tool-btn danger" title="Eliminar sección" @click="emit('delete')"><Trash2 :size="16" /><span>Eliminar</span></button>
@@ -1817,6 +2385,15 @@ function imageAssetId(node: JSONContent) {
         </div>
       </div>
       </Teleport>
+
+      <div v-if="hasSelection" class="selection-actions" @mousedown.stop>
+        <strong>{{ selectedCount }} {{ selectedCount === 1 ? 'bloque seleccionado' : 'bloques seleccionados' }}</strong>
+        <button @click="duplicateSelectedBlocks"><Copy :size="15" /> Duplicar</button>
+        <button :disabled="!availableMoveTargets.length" @click="openMoveModal"><MoveRight :size="15" /> Mover</button>
+        <button class="danger" @click="deleteSelectedBlocks"><Trash2 :size="15" /> Eliminar</button>
+        <button class="primary" @click="openFragmentModal"><Library :size="15" /> Guardar como fragmento</button>
+        <button class="clear-selection" title="Limpiar selección" @click="clearBlockSelection"><X :size="16" /></button>
+      </div>
 
       <EditorContent
         :editor="editor"
@@ -2022,6 +2599,155 @@ function imageAssetId(node: JSONContent) {
         </div>
       </div>
     </div>
+
+    <div v-if="showFragmentModal" class="modal-backdrop" @click.self="showFragmentModal = false">
+      <form class="modal-card fragment-dialog" @submit.prevent="saveSelectedFragment">
+        <header>
+          <div>
+            <h3>Guardar fragmento reutilizable</h3>
+            <p>{{ selectedCount }} {{ selectedCount === 1 ? 'bloque' : 'bloques' }} en el snapshot</p>
+          </div>
+          <button type="button" @click="showFragmentModal = false">×</button>
+        </header>
+        <label>
+          Nombre
+          <input v-model="fragmentName" class="field" required maxlength="220" placeholder="Ej. Conexión inicial" />
+        </label>
+        <label>
+          Descripción opcional
+          <textarea v-model="fragmentDescription" class="field" rows="3" maxlength="600" placeholder="Qué incluye y cuándo conviene reutilizarlo" />
+        </label>
+        <p v-if="fragmentMessage" class="dialog-message">{{ fragmentMessage }}</p>
+        <footer>
+          <button type="button" class="btn btn-outline" @click="showFragmentModal = false">Cancelar</button>
+          <button type="submit" class="btn btn-primary" :disabled="fragmentSaving || !fragmentName.trim()">
+            {{ fragmentSaving ? 'Guardando...' : 'Guardar fragmento' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="showMoveModal" class="modal-backdrop" @click.self="showMoveModal = false">
+      <form class="modal-card move-dialog" @submit.prevent="confirmMoveSelection">
+        <header>
+          <h3>Mover bloques</h3>
+          <button type="button" @click="showMoveModal = false">×</button>
+        </header>
+        <label>
+          Sección destino
+          <select v-model="moveTargetSectionId" class="field" required>
+            <option v-for="target in availableMoveTargets" :key="target.id" :value="target.id">
+              {{ target.number }}. {{ target.title }}
+            </option>
+          </select>
+        </label>
+        <footer>
+          <button type="button" class="btn btn-outline" @click="showMoveModal = false">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Mover {{ selectedCount }} bloques</button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="showReusableModal" class="modal-backdrop" @click.self="showReusableModal = false">
+      <div class="modal-card reusable-dialog">
+        <header>
+          <div>
+            <h3>Insertar fragmento</h3>
+            <p>Se insertará como copia independiente en esta sección.</p>
+          </div>
+          <button @click="showReusableModal = false">×</button>
+        </header>
+        <div class="fragment-insert-options">
+          <label>
+            Posición
+            <select v-model="fragmentInsertPosition" class="field">
+              <option value="END">Al final de la sección</option>
+              <option value="AFTER_SELECTION" :disabled="!hasSelection">Después del último bloque seleccionado</option>
+            </select>
+          </label>
+          <button type="button" disabled title="Disponible en una fase posterior">Vinculado · Próximamente</button>
+        </div>
+        <p v-if="fragmentMessage" class="dialog-message">{{ fragmentMessage }}</p>
+        <div class="fragment-library">
+          <button
+            v-for="fragment in reusableBlocks.filter((item) => item.reusableType === 'FRAGMENT')"
+            :key="fragment.id"
+            @click="insertReusableFragment(fragment)"
+          >
+            <strong>{{ fragment.title }}</strong>
+            <span>{{ fragment.description || fragment.code }}</span>
+            <small>COPIA</small>
+          </button>
+          <p v-if="!reusableBlocks.some((item) => item.reusableType === 'FRAGMENT')" class="text-muted">
+            Todavía no hay fragmentos reutilizables.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showEquationModal" class="modal-backdrop equation-backdrop" @click.self="showEquationModal = false">
+      <form class="equation-dialog" @submit.prevent="confirmEquation">
+        <header>
+          <div>
+            <span class="equation-kicker">Herramientas matemáticas</span>
+            <h3>{{ editingEquationPos === null ? 'Insertar ecuación' : 'Editar ecuación' }}</h3>
+          </div>
+          <button type="button" class="modal-close" @click="showEquationModal = false">×</button>
+        </header>
+        <section class="equation-gallery">
+          <div class="structure-grid">
+            <button v-for="template in equationTemplates" :key="template.label" type="button" @click="insertEquationSnippet(template.latex)">
+              <span>{{ template.latex }}</span>
+              <small>{{ template.label }}</small>
+            </button>
+          </div>
+          <div class="greek-row">
+            <span>Símbolos</span>
+            <button v-for="[symbol, latex] in greekTemplates" :key="latex" type="button" @click="insertEquationSnippet(latex)">{{ symbol }}</button>
+          </div>
+        </section>
+        <section class="equation-editor-grid">
+          <label class="latex-field">
+            LaTeX
+            <textarea ref="equationTextarea" v-model="equationDraft.latex" class="field mono" rows="6" required placeholder="\frac{P_{salida}}{P_{entrada}} \cdot 100" />
+          </label>
+          <div class="equation-preview" :style="{ textAlign: equationDraft.align as 'left' | 'center' | 'right' }">
+            <span>Vista previa LaTeX</span>
+            <strong>{{ equationDraft.latex || 'La ecuación aparecerá aquí' }}</strong>
+            <small v-if="equationDraft.caption">{{ equationDraft.caption }}</small>
+          </div>
+          <label>
+            Leyenda
+            <input v-model="equationDraft.caption" class="field" placeholder="Cálculo del rendimiento" />
+          </label>
+          <label>
+            Alineación
+            <select v-model="equationDraft.align" class="field">
+              <option value="left">Izquierda</option>
+              <option value="center">Centro</option>
+              <option value="right">Derecha</option>
+            </select>
+          </label>
+          <label class="number-equation">
+            <input v-model="equationDraft.numbered" type="checkbox" />
+            Numerar ecuación
+          </label>
+          <label v-if="equationDraft.numbered">
+            Número
+            <input v-model="equationDraft.equationNumber" class="field" placeholder="1" />
+          </label>
+        </section>
+        <footer>
+          <span>Formato principal: LaTeX. MathML y OMML quedan preparados en el JSON.</span>
+          <div>
+            <button type="button" class="btn btn-outline" @click="showEquationModal = false">Cancelar</button>
+            <button type="submit" class="btn btn-primary" :disabled="!equationDraft.latex.trim()">
+              {{ editingEquationPos === null ? 'Insertar ecuación' : 'Actualizar ecuación' }}
+            </button>
+          </div>
+        </footer>
+      </form>
+    </div>
   </article>
 </template>
 
@@ -2075,7 +2801,34 @@ function imageAssetId(node: JSONContent) {
 .custom-table { border: 0; border-top: 1px solid #d8d8d8; background: #fbfbfb; color: #1f2937; padding: 7px 4px 3px; display: flex; align-items: center; gap: 8px; text-align: left; font-size: 12px; }
 .custom-table:hover { color: var(--dikoin-blue); background: #edf6fd; }
 .editor-shell { min-height: 240mm; padding: 14mm; background: #fff; }
-.editor-shell :deep(.rich-editor-surface) { min-height: 220mm; outline: 0; font-size: 12px; line-height: 1.42; }
+.editor-shell :deep(.rich-editor-surface) { min-height: 220mm; outline: 0; font-size: 12px; line-height: 1.42; position: relative; }
+.editor-shell :deep(.manual-selectable-block) { position: relative; isolation: isolate; transition: color .12s ease; }
+.editor-shell :deep(.manual-selectable-block::before) { content: ""; position: absolute; z-index: -1; top: -5px; right: -9px; bottom: -5px; left: -48px; border: 1px solid transparent; background: transparent; pointer-events: none; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
+.editor-shell :deep(.manual-selectable-block:hover::before) { border-color: #c5ddec; background: rgba(218, 238, 250, .58); box-shadow: 0 3px 10px rgba(14, 127, 187, .07); }
+.editor-shell :deep(.manual-selectable-block.selection-hovered::before) { border-color: #c5ddec; background: rgba(218, 238, 250, .58); box-shadow: 0 3px 10px rgba(14, 127, 187, .07); }
+.editor-shell :deep(.block-checkbox-widget:hover + .manual-selectable-block::before) { border-color: #c5ddec; background: rgba(218, 238, 250, .58); box-shadow: 0 3px 10px rgba(14, 127, 187, .07); }
+.editor-shell :deep(.tableWrapper:has(.manual-selectable-block:hover)) { position: relative; isolation: isolate; }
+.editor-shell :deep(.tableWrapper:has(.manual-selectable-block:hover)::before) { content: ""; position: absolute; z-index: -1; inset: -5px -9px -5px -48px; border: 1px solid #c5ddec; background: rgba(218, 238, 250, .58); box-shadow: 0 3px 10px rgba(14, 127, 187, .07); pointer-events: auto; }
+.editor-shell :deep(.block-checkbox-widget:hover + .tableWrapper) { position: relative; isolation: isolate; }
+.editor-shell :deep(.block-checkbox-widget:hover + .tableWrapper::before) { content: ""; position: absolute; z-index: -1; inset: -5px -9px -5px -48px; border: 1px solid #c5ddec; background: rgba(218, 238, 250, .58); box-shadow: 0 3px 10px rgba(14, 127, 187, .07); pointer-events: auto; }
+.editor-shell :deep(.block-checkbox-widget) { position: absolute; left: -40px; margin-top: 1px; z-index: 5; display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid #a9c8dc; background: #fff; box-shadow: 0 2px 7px rgba(15, 23, 42, .08); opacity: 0; pointer-events: auto; transform: translateX(4px); transition: opacity .12s ease, transform .12s ease, border-color .12s ease; }
+.editor-shell :deep(.block-checkbox-widget:hover),
+.editor-shell :deep(.block-checkbox-widget:focus-within),
+.editor-shell :deep(.block-checkbox-widget.selected),
+.editor-shell :deep(.block-checkbox-widget.hovered),
+.editor-shell :deep(.block-checkbox-widget:has(+ .manual-selectable-block:hover)),
+.editor-shell :deep(.block-checkbox-widget:has(+ .tableWrapper:hover)) { opacity: 1; pointer-events: auto; transform: translateX(0); border-color: var(--dikoin-blue); }
+.editor-shell :deep(.block-checkbox-widget input) { width: 15px; height: 15px; accent-color: var(--dikoin-blue); cursor: pointer; }
+.editor-shell :deep(.block-checkbox-widget input:disabled) { cursor: not-allowed; opacity: .42; }
+.editor-shell :deep(.selected-manual-block) { border-radius: 3px; outline: 2px solid rgba(14, 127, 187, .38); outline-offset: 5px; background: linear-gradient(90deg, rgba(219, 238, 250, .72), rgba(239, 248, 253, .36)); }
+.selection-actions { position: sticky; top: 36px; z-index: 52; min-height: 44px; display: flex; align-items: center; gap: 7px; padding: 7px 12px; background: #eef8fd; border-bottom: 1px solid #acd5e9; box-shadow: 0 6px 14px rgba(15, 23, 42, .08); }
+.selection-actions strong { margin-right: auto; color: var(--dikoin-blue-dark); font-size: 12px; }
+.selection-actions button { border: 1px solid #b9d8e8; background: #fff; color: var(--dikoin-blue-dark); padding: 6px 9px; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; }
+.selection-actions button:hover:not(:disabled) { border-color: var(--dikoin-blue); color: var(--dikoin-blue); }
+.selection-actions button.primary { background: var(--dikoin-blue); border-color: var(--dikoin-blue); color: #fff; }
+.selection-actions button.danger { color: var(--dikoin-red); border-color: #fecaca; }
+.selection-actions button:disabled { opacity: .45; cursor: default; }
+.selection-actions .clear-selection { padding: 6px; }
 .editor-shell :deep(.is-editor-empty:first-child::before) { content: attr(data-placeholder); float: left; color: #9aa7b4; pointer-events: none; height: 0; }
 .editor-shell :deep(.ProseMirror-focused .is-editor-empty:first-child::before) { display: none; }
 .editor-shell :deep(.ProseMirror p:empty::after) { content: "\00a0"; }
@@ -2142,6 +2895,10 @@ function imageAssetId(node: JSONContent) {
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 17H7A5 5 0 0 1 7 7h2'/%3E%3Cpath d='M15 7h2a5 5 0 1 1 0 10h-2'/%3E%3Cline x1='8' x2='16' y1='12' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .editor-shell :deep(.note-box::before) { content: attr(title); display: block; font-weight: 600; margin-bottom: 4px; }
+.editor-shell :deep(.formula-block) { display: grid; justify-items: center; gap: 5px; margin: 18px 0; padding: 14px 18px; border: 1px solid #c9d8e4; border-left: 5px solid var(--dikoin-blue); background: linear-gradient(135deg, #f8fbfe, #fff); cursor: pointer; }
+.editor-shell :deep(.formula-block.ProseMirror-selectednode) { outline: 2px solid var(--dikoin-blue); outline-offset: 3px; }
+.editor-shell :deep(.formula-latex) { font-family: Cambria, "Times New Roman", serif; font-size: 20px; color: #172b3a; white-space: pre-wrap; }
+.editor-shell :deep(.formula-caption) { color: var(--muted-foreground); font-size: 11px; }
 .table-delete-float { position: absolute; z-index: 8; width: 28px; height: 28px; border: 1px solid #fecaca; background: #fff; color: var(--dikoin-red); padding: 0; border-radius: var(--radius); display: inline-grid; place-items: center; box-shadow: 0 8px 20px rgba(0,0,0,.12); }
 .table-delete-float:hover { background: var(--dikoin-red-light); border-color: var(--dikoin-red); }
 .block-actions-float { position: absolute; z-index: 8; display: inline-flex; gap: 4px; }
@@ -2214,4 +2971,49 @@ function imageAssetId(node: JSONContent) {
 .notice-list button { border: 1px solid var(--border); background: #fff; text-align: left; padding: 10px; display: grid; gap: 4px; }
 .notice-list button:hover { border-color: var(--dikoin-blue); background: var(--dikoin-blue-lighter); }
 .notice-list span { color: var(--muted-foreground); font-size: 12px; line-height: 1.35; max-height: 48px; overflow: hidden; }
+.fragment-dialog, .move-dialog { width: min(520px, 100%); }
+.fragment-dialog header p, .reusable-dialog header p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 12px; }
+.fragment-dialog label, .move-dialog label { display: grid; gap: 6px; color: var(--dikoin-blue-dark); font-size: 12px; font-weight: 600; }
+.fragment-dialog footer, .move-dialog footer { display: flex; justify-content: flex-end; gap: 9px; }
+.dialog-message { margin: 0; padding: 8px 10px; background: var(--dikoin-blue-lighter); color: var(--dikoin-blue-dark); font-size: 12px; }
+.fragment-library { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.fragment-insert-options { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; }
+.fragment-insert-options label { display: grid; gap: 5px; color: var(--dikoin-blue-dark); font-size: 11px; font-weight: 700; }
+.fragment-insert-options > button { height: 35px; border: 1px dashed #cbd8e1; background: #f8fafc; color: #94a3b8; padding: 0 10px; }
+.fragment-library > button { position: relative; min-height: 96px; border: 1px solid var(--border); background: linear-gradient(145deg, #fff, #f6fafc); padding: 12px; display: grid; align-content: start; gap: 6px; text-align: left; }
+.fragment-library > button:hover { border-color: var(--dikoin-blue); box-shadow: 0 8px 18px rgba(14, 127, 187, .1); }
+.fragment-library strong { color: var(--dikoin-blue-dark); }
+.fragment-library span { color: var(--muted-foreground); font-size: 12px; }
+.fragment-library small { position: absolute; right: 8px; bottom: 8px; color: var(--dikoin-blue); font-weight: 700; }
+.equation-backdrop { z-index: 320; }
+.equation-dialog { width: min(980px, 96vw); max-height: 92vh; overflow: auto; background: #fff; border: 1px solid #aebdca; box-shadow: 0 28px 80px rgba(15, 23, 42, .32); }
+.equation-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #d9e3ea; background: linear-gradient(110deg, #f7fbfd, #eaf4f9); }
+.equation-dialog h3 { margin: 2px 0 0; color: #193649; font-family: Georgia, serif; font-size: 21px; }
+.equation-kicker { color: var(--dikoin-blue); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.equation-dialog .modal-close { border: 0; background: transparent; color: #607789; font-size: 26px; }
+.equation-gallery { padding: 14px 18px; border-bottom: 1px solid #d9e3ea; background: #fbfdfe; display: grid; gap: 10px; }
+.structure-grid { display: grid; grid-template-columns: repeat(8, minmax(78px, 1fr)); gap: 7px; }
+.structure-grid button { min-height: 74px; border: 1px solid #cbd8e1; background: #fff; color: #273f50; padding: 7px 5px; display: grid; place-items: center; gap: 6px; }
+.structure-grid button:hover { border-color: var(--dikoin-blue); background: #eef8fd; }
+.structure-grid button span { font-family: Cambria, "Times New Roman", serif; font-size: 14px; }
+.structure-grid button small { color: #607789; font-size: 10px; font-weight: 600; }
+.greek-row { display: flex; align-items: center; gap: 5px; }
+.greek-row > span { margin-right: 6px; color: #526b7c; font-size: 11px; font-weight: 700; }
+.greek-row button { width: 32px; height: 30px; border: 1px solid #cbd8e1; background: #fff; color: #273f50; font-family: Cambria, serif; font-size: 17px; }
+.equation-editor-grid { padding: 18px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr); gap: 14px; }
+.equation-editor-grid label { display: grid; gap: 6px; color: #526b7c; font-size: 11px; font-weight: 700; }
+.latex-field { grid-row: span 2; }
+.latex-field textarea { min-height: 144px; resize: vertical; font-size: 13px; line-height: 1.5; }
+.equation-preview { min-height: 118px; padding: 14px; border: 1px solid #cbd8e1; background: repeating-linear-gradient(0deg, #fff, #fff 27px, #f2f6f8 28px); display: grid; align-content: center; gap: 9px; }
+.equation-preview > span { color: #78909f; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.equation-preview strong { font-family: Cambria, "Times New Roman", serif; font-size: 21px; font-weight: 500; overflow-wrap: anywhere; }
+.equation-preview small { color: #607789; }
+.number-equation { grid-template-columns: auto 1fr !important; justify-content: start; align-items: center; }
+.equation-dialog > footer { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 13px 18px 17px; border-top: 1px solid #d9e3ea; color: #78909f; font-size: 10px; }
+.equation-dialog > footer > div { display: flex; gap: 9px; }
+@media (max-width: 860px) {
+  .structure-grid { grid-template-columns: repeat(4, 1fr); }
+  .equation-editor-grid { grid-template-columns: 1fr; }
+  .selection-actions { flex-wrap: wrap; }
+}
 </style>

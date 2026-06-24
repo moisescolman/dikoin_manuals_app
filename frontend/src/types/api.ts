@@ -12,6 +12,7 @@ export type BlockType =
   | 'FORMULA'
   | 'NOTE'
   | 'WARNING'
+  | 'INFO_BOX'
   | 'PAGE_BREAK'
 
 export type AssetType =
@@ -176,6 +177,8 @@ export interface ManualSectionResponse {
   id: number
   sortOrder: number
   sectionNumber?: string
+  parentSectionId?: number
+  level: number
   titleEs: string
   titleEn?: string
   completionStatus?: string
@@ -188,6 +191,9 @@ export interface ManualBlockResponse {
   blockType: BlockType
   languageCode: LanguageCode
   contentJson: string
+  plainText?: string
+  assetId?: number
+  reusableBlockId?: number
 }
 
 export interface ManualCreateRequest {
@@ -217,6 +223,8 @@ export interface ManualSectionRequest {
   id?: number
   sortOrder: number
   sectionNumber?: string
+  parentSectionId?: number
+  level?: number
   titleEs: string
   titleEn?: string
   completionStatus?: string
@@ -229,6 +237,9 @@ export interface ManualBlockRequest {
   blockType: BlockType
   languageCode: LanguageCode
   contentJson: string
+  plainText?: string
+  assetId?: number
+  reusableBlockId?: number
 }
 
 export interface AssetResponse {
@@ -338,6 +349,8 @@ export interface ReusableBlockResponse {
   id: number
   code: string
   title: string
+  description?: string
+  reusableType: 'SINGLE_BLOCK' | 'FRAGMENT' | 'NOTE'
   productCategory?: string
   productCodes?: string
   contentJson: string
@@ -349,10 +362,62 @@ export interface ReusableBlockResponse {
 export interface ReusableBlockRequest {
   code: string
   title: string
+  description?: string
+  reusableType?: 'SINGLE_BLOCK' | 'FRAGMENT' | 'NOTE'
   productCategory?: string
   productCodes?: string
   contentJson: string
   active: boolean
+}
+
+export interface ReusableFragmentBlockRequest {
+  blockType: BlockType
+  languageCode: LanguageCode
+  contentJson: string
+  plainText?: string
+  assetId?: number
+  sortOrder?: number
+}
+
+export interface CreateReusableFragmentRequest {
+  name: string
+  description?: string
+  sourceSectionId?: number
+  blockIds?: number[]
+  blocks?: ReusableFragmentBlockRequest[]
+  isReusable: boolean
+}
+
+export interface InsertReusableFragmentRequest {
+  targetSectionId: number
+  insertAfterBlockId?: number
+  mode: 'COPY'
+}
+
+export interface ReusableFragmentInsertResponse {
+  reusableBlockId: number
+  targetSectionId: number
+  blocks: ManualBlockResponse[]
+}
+
+export interface OrderItemRequest {
+  id: number
+  sortOrder: number
+}
+
+export interface ReorderRequest {
+  items: OrderItemRequest[]
+}
+
+export interface ManualSectionPatchRequest {
+  titleEs?: string
+  titleEn?: string
+  completionStatus?: string
+}
+
+export interface MoveBlockRequest {
+  targetSectionId: number
+  insertAfterBlockId?: number
 }
 
 export interface ReusableBlockUsageResponse {

@@ -19,6 +19,8 @@ const saved = ref('')
 const form = reactive({
   code: '',
   title: '',
+  description: '',
+  reusableType: 'SINGLE_BLOCK' as ReusableBlockResponse['reusableType'],
   productCategory: '',
   productCodes: '',
   active: true,
@@ -56,6 +58,8 @@ async function loadUsages(id: number) {
 function fillForm(block: ReusableBlockResponse) {
   form.code = block.code
   form.title = block.title
+  form.description = block.description || ''
+  form.reusableType = block.reusableType || 'SINGLE_BLOCK'
   form.productCategory = block.productCategory || ''
   form.productCodes = block.productCodes || ''
   form.active = block.active
@@ -68,6 +72,8 @@ function createNew() {
   usages.value = []
   form.code = `BLQ-${String(blocks.value.length + 1).padStart(3, '0')}`
   form.title = 'Nuevo bloque común'
+  form.description = ''
+  form.reusableType = 'SINGLE_BLOCK'
   form.productCategory = ''
   form.productCodes = ''
   form.active = true
@@ -79,6 +85,7 @@ function emptySection(): EditorSection {
     id: randomId('section'),
     sortOrder: 1,
     sectionNumber: '1',
+    level: 1,
     titleEs: 'Contenido',
     status: 'READY',
     collapsed: false,
@@ -94,6 +101,7 @@ function sectionFromContent(contentJson: string): EditorSection {
         id: 0,
         sortOrder: 1,
         sectionNumber: '1',
+        level: 1,
         titleEs: 'Contenido',
         completionStatus: 'READY',
         blocks: parsed.blocks.map((block: any, index: number) => ({
@@ -101,7 +109,9 @@ function sectionFromContent(contentJson: string): EditorSection {
           sortOrder: block.sortOrder ?? index + 1,
           blockType: block.blockType,
           languageCode: block.languageCode,
-          contentJson: block.contentJson,
+          contentJson: typeof block.contentJson === 'string' ? block.contentJson : JSON.stringify(block.contentJson || {}),
+          plainText: block.plainText,
+          assetId: block.assetId,
         })),
       }])[0]
     }
@@ -177,6 +187,10 @@ async function save() {
           <div class="form-row">
             <label>Código <input v-model="form.code" class="field mono" :readonly="!editing" required /></label>
             <label>Título <input v-model="form.title" class="field" :readonly="!editing" required /></label>
+          </div>
+          <div class="form-row">
+            <label>Tipo <input class="field" :value="form.reusableType" readonly /></label>
+            <label>Descripción <input v-model="form.description" class="field" :readonly="!editing" /></label>
           </div>
           <div class="form-row">
             <label>Categoría producto <input v-model="form.productCategory" class="field" :readonly="!editing" /></label>

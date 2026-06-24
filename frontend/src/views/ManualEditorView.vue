@@ -6,7 +6,7 @@ import { createReusableBlock } from '@/api/reusable-blocks.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useManualsStore } from '@/stores/manuals.store'
-import type { EditorSection } from '@/types/editor'
+import type { EditorBlock, EditorSection } from '@/types/editor'
 import { randomId, sectionsFromBackend, versionRequestFromEditor } from '@/types/editor'
 import type { LanguageCode, ManualStatus } from '@/types/api'
 
@@ -25,11 +25,17 @@ const draggingIndex = ref<number | null>(null)
 const dropTargetIndex = ref<number | null>(null)
 const sectionsPanelCollapsed = ref(false)
 const sectionEditorRefs = ref<Array<{ flushEditorSync: () => void }>>([])
+const selectionOwnerKey = ref('')
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
 const editorLanguages = computed<LanguageCode[]>(() => languageMode.value === 'BOTH' ? ['ES', 'EN'] : [languageMode.value])
 const activeLanguageLabel = computed(() => languageMode.value === 'BOTH' ? 'ES + EN' : languageMode.value)
+const sectionTargets = computed(() => sections.value.map((section) => ({
+  id: section.id,
+  number: section.sectionNumber,
+  title: sectionTitle(section),
+})))
 
 onMounted(async () => {
   const loaded = await store.fetchManual(Number(props.id))
@@ -50,6 +56,7 @@ function addSection() {
     id: randomId('section'),
     sortOrder: next,
     sectionNumber: String(next),
+    level: 1,
     titleEs: 'Nueva sección',
     titleEn: isEnglish ? 'New section' : undefined,
     status: 'PENDING',
@@ -66,6 +73,14 @@ function activateEditor(sectionId: string, language: LanguageCode) {
   selectedSectionId.value = sectionId
   selectedLanguage.value = language
   activeEditorKey.value = editorKey(sectionId, language)
+}
+
+function updateSelectionOwner(key: string, active: boolean) {
+  if (active) {
+    selectionOwnerKey.value = key
+  } else if (selectionOwnerKey.value === key) {
+    selectionOwnerKey.value = ''
+  }
 }
 
 function updateSection(section: EditorSection) {
@@ -93,11 +108,53 @@ function flushSectionEditors() {
 }
 
 function deleteSection(id: string) {
-  sections.value = sections.value.filter((section) => section.id !== id)
+  const section = sections.value.find((item) => item.id === id)
+  const removedBackendIds = new Set<number>()
+  if (section?.backendId) removedBackendIds.add(section.backendId)
+  let changed = true
+  while (changed) {
+    changed = false
+    sections.value.forEach((item) => {
+      if (item.backendId && item.parentSectionId && removedBackendIds.has(item.parentSectionId) && !removedBackendIds.has(item.backendId)) {
+        removedBackendIds.add(item.backendId)
+        changed = true
+      }
+    })
+  }
+  sections.value = renumberSections(sections.value.filter((item) => item.id !== id && (!item.backendId || !removedBackendIds.has(item.backendId))))
   if (selectedSectionId.value === id) {
     selectedSectionId.value = ''
     activeEditorKey.value = ''
   }
+}
+
+function addSubsection(parent: EditorSection) {
+  if (!parent.backendId) {
+    window.alert('Guarda primero la sección para poder añadirle subsecciones.')
+    return
+  }
+  const siblings = sections.value.filter((section) => section.parentSectionId === parent.backendId)
+  const prefix = `${parent.sectionNumber || parent.sortOrder}.`
+  let insertAt = sections.value.findIndex((section) => section.id === parent.id) + 1
+  while (insertAt < sections.value.length && String(sections.value[insertAt].sectionNumber || '').startsWith(prefix)) {
+    insertAt++
+  }
+  const subsection: EditorSection = {
+    id: randomId('section'),
+    sortOrder: siblings.length + 1,
+    sectionNumber: `${parent.sectionNumber || parent.sortOrder}.${siblings.length + 1}`,
+    parentSectionId: parent.backendId,
+    level: (parent.level || 1) + 1,
+    titleEs: 'Nueva subsección',
+    titleEn: languageMode.value === 'EN' || languageMode.value === 'BOTH' ? 'New subsection' : undefined,
+    status: 'PENDING',
+    collapsed: false,
+    blocks: [],
+  }
+  const copy = [...sections.value]
+  copy.splice(insertAt, 0, subsection)
+  sections.value = renumberSections(copy)
+  activateEditor(subsection.id, selectedLanguage.value)
 }
 
 function duplicateSection(index: number) {
@@ -160,7 +217,42 @@ function moveSection(index: number, direction: -1 | 1) {
 }
 
 function renumberSections(value: EditorSection[]) {
-  return value.map((section, idx) => ({ ...section, sortOrder: idx + 1, sectionNumber: String(idx + 1) }))
+  const byParent = new Map<number | null, EditorSection[]>()
+  value.forEach((section) => {
+    const key = section.parentSectionId || null
+    byParent.set(key, [...(byParent.get(key) || []), section])
+  })
+  const result: EditorSection[] = []
+  const visit = (parentId: number | null, prefix = '', level = 1) => {
+    const siblings = byParent.get(parentId) || []
+    siblings.forEach((section, index) => {
+      const number = prefix ? `${prefix}.${index + 1}` : String(index + 1)
+      result.push({ ...section, sortOrder: index + 1, sectionNumber: number, level })
+      if (section.backendId) visit(section.backendId, number, level + 1)
+    })
+  }
+  visit(null)
+  const included = new Set(result.map((section) => section.id))
+  value.filter((section) => !included.has(section.id)).forEach((section) => {
+    result.push({
+      ...section,
+      parentSectionId: undefined,
+      level: 1,
+      sortOrder: result.length + 1,
+      sectionNumber: String(result.length + 1),
+    })
+  })
+  return result
+}
+
+function moveSelectedBlocks(payload: { sourceSectionId: string; targetSectionId: string; blocks: EditorBlock[] }) {
+  sections.value = sections.value.map((section) => {
+    if (section.id !== payload.targetSectionId) return section
+    return {
+      ...section,
+      blocks: [...section.blocks, ...payload.blocks],
+    }
+  })
 }
 
 function dropSection(targetIndex: number) {
@@ -325,7 +417,7 @@ function sectionTitle(section: EditorSection) {
         <button class="btn btn-primary" @click="addSection"><Plus :size="14" /> Añadir sección</button>
         <ol>
           <li v-for="(section, index) in sections" :key="section.id">
-            <button @click="section.collapsed = false">{{ section.sectionNumber || index + 1 }}. {{ sectionTitle(section) }}</button>
+            <button :style="{ paddingLeft: `${Math.max(0, (section.level || 1) - 1) * 14}px` }" @click="section.collapsed = false">{{ section.sectionNumber || index + 1 }}. {{ sectionTitle(section) }}</button>
             <div>
               <button @click="moveSection(index, -1)">↑</button>
               <button @click="moveSection(index, 1)">↓</button>
@@ -355,10 +447,15 @@ function sectionTitle(section: EditorSection) {
               :active-toolbar="activeEditorKey === editorKey(section.id, lang)"
               :language="lang"
               :manual-id="manual?.id"
+              :section-targets="sectionTargets"
+              :selection-owner-key="selectionOwnerKey"
               @update="updateSectionForLanguage($event, lang)"
               @delete="deleteSection(section.id)"
               @duplicate="duplicateSection(index)"
+              @add-subsection="addSubsection(section)"
               @save-reusable="saveReusable(section)"
+              @move-blocks="moveSelectedBlocks"
+              @selection-change="updateSelectionOwner"
               @select="selectedSectionId = $event"
               @activate="activateEditor"
             />
