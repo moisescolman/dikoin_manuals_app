@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, ImageUp, Save } from '@lucide/vue'
 import { getDocumentTypes } from '@/api/document-types.api'
@@ -18,7 +18,6 @@ const documentTypeId = ref<number | ''>('')
 const documentYear = ref(new Date().getFullYear().toString().slice(-2))
 const documentVersion = ref('01')
 const languageCode = ref<LanguageCode>('ES')
-const title = ref('')
 const titleEs = ref('')
 const titleEn = ref('')
 const category = ref('')
@@ -29,14 +28,23 @@ const error = ref('')
 
 const selectedProduct = computed(() => productsStore.products.find((product) => product.id === Number(productId.value)))
 const selectedDocumentType = computed(() => documentTypes.value.find((type) => type.id === Number(documentTypeId.value)))
+const yearOptions = computed(() => {
+  const currentYear = new Date().getFullYear()
+  return Array.from({ length: 11 }, (_, index) => currentYear + 5 - index)
+})
 const generatedManualCode = computed(() => {
   if (!selectedProduct.value || !selectedDocumentType.value || !documentYear.value || !documentVersion.value) return ''
-  return `${selectedDocumentType.value.code}-${selectedProduct.value.code}-${twoDigits(documentYear.value)}${twoDigits(documentVersion.value)}[${languageCode.value}]`
+  return `${selectedDocumentType.value.code}-${selectedProduct.value.code} ${twoDigits(documentYear.value)}${twoDigits(documentVersion.value)}`
 })
-const canCreate = computed(() => Boolean(title.value && productId.value && documentTypeId.value && documentYear.value && documentVersion.value))
+const canCreate = computed(() => Boolean(titleEs.value && productId.value && documentTypeId.value && documentYear.value && documentVersion.value))
 
 onMounted(async () => {
   await Promise.all([productsStore.fetchProducts(), loadDocumentTypes()])
+})
+
+watch(productId, () => {
+  titleEs.value = selectedProduct.value?.nameEs || selectedProduct.value?.name || ''
+  titleEn.value = ''
 })
 
 async function loadDocumentTypes() {
@@ -59,8 +67,8 @@ async function submit() {
   error.value = ''
   try {
     const manual = await createManual({
-      title: title.value,
-      titleEs: titleEs.value || title.value,
+      title: titleEs.value,
+      titleEs: titleEs.value,
       titleEn: titleEn.value || undefined,
       category: category.value || selectedDocumentType.value?.name,
       productId: Number(productId.value),
@@ -74,7 +82,7 @@ async function submit() {
       await uploadAsset({ file: productImage.value, assetType: 'PRODUCT_IMAGE', manualId: manual.id })
     }
 
-    router.push({ name: 'manual-editor', params: { id: manual.id } })
+    router.push({ name: 'manual-editor', params: { id: manual.id }, query: { lang: languageCode.value } })
   } catch (err) {
     error.value = getApiError(err)
   } finally {
@@ -106,28 +114,35 @@ function twoDigits(value: string) {
       <form class="card wizard" @submit.prevent="submit">
         <h2>Datos iniciales</h2>
 
-        <label>
-          Producto
-          <select v-model="productId" class="field" required>
-            <option value="">Selecciona producto</option>
-            <option v-for="product in productsStore.products" :key="product.id" :value="product.id">
-              {{ product.code }} - {{ product.name }}
-            </option>
-          </select>
-        </label>
+        <div class="primary-row">
+          <label>
+            Producto
+            <select v-model="productId" class="field" required>
+              <option value="">Selecciona producto</option>
+              <option v-for="product in productsStore.products" :key="product.id" :value="product.id">
+                {{ product.code }} - {{ product.nameEs || product.name }}
+              </option>
+            </select>
+          </label>
 
-        <label>
-          Tipo documental
-          <select v-model="documentTypeId" class="field" required>
-            <option value="">Selecciona tipo</option>
-            <option v-for="type in documentTypes" :key="type.id" :value="type.id">
-              {{ type.code }} - {{ type.name }}
-            </option>
-          </select>
-        </label>
+          <label>
+            Tipo documental
+            <select v-model="documentTypeId" class="field" required>
+              <option value="">Selecciona tipo</option>
+              <option v-for="type in documentTypes" :key="type.id" :value="type.id">
+                {{ type.code }} - {{ type.name }}
+              </option>
+            </select>
+          </label>
+        </div>
 
-        <div class="form-row">
-          <label>Año <input v-model="documentYear" class="field mono" maxlength="2" required /></label>
+        <div class="document-row">
+          <label>
+            Año
+            <select v-model="documentYear" class="field mono" required>
+              <option v-for="year in yearOptions" :key="year" :value="String(year).slice(-2)">{{ year }}</option>
+            </select>
+          </label>
           <label>Version <input v-model="documentVersion" class="field mono" maxlength="2" required /></label>
           <label>
             Idioma
@@ -136,12 +151,13 @@ function twoDigits(value: string) {
               <option value="EN">EN</option>
             </select>
           </label>
+          <label class="code-field">Código generado <input class="field mono" :value="generatedManualCode" readonly /></label>
         </div>
 
-        <label>Codigo generado <input class="field mono" :value="generatedManualCode" readonly /></label>
-        <label>Titulo del manual <input v-model="title" class="field" required /></label>
-        <label>Titulo ES <input v-model="titleEs" class="field" placeholder="Si se deja vacio usa el titulo" /></label>
-        <label>Titulo EN <input v-model="titleEn" class="field" /></label>
+        <div class="title-row">
+          <label>Título ES <input v-model="titleEs" class="field" required placeholder="Se completa al seleccionar el producto" /></label>
+          <label>Título EN <input v-model="titleEn" class="field" placeholder="Título del manual en inglés" /></label>
+        </div>
         <label>Categoria <input v-model="category" class="field" :placeholder="selectedDocumentType?.name || 'Categoria del manual'" /></label>
 
         <label class="image-upload">
@@ -162,8 +178,8 @@ function twoDigits(value: string) {
           <span v-else>Imagen del producto</span>
         </div>
         <div class="preview-title">
-          <h2>{{ selectedProduct?.name || 'Nombre del producto' }}</h2>
-          <p>{{ title || 'Titulo del manual' }}</p>
+          <h2>{{ titleEs || 'Nombre del producto' }}</h2>
+          <p>{{ titleEs || 'Título del manual' }}</p>
           <strong>{{ selectedDocumentType?.name || 'Tipo de manual' }}</strong>
         </div>
         <small class="mono">{{ generatedManualCode || 'CODIGO' }}</small>
@@ -188,7 +204,7 @@ function twoDigits(value: string) {
 
 .create-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
 }
@@ -204,10 +220,24 @@ function twoDigits(value: string) {
   font-size: 16px;
 }
 
-.form-row {
+.primary-row,
+.title-row,
+.document-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
   gap: 10px;
+}
+
+.primary-row,
+.title-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.document-row {
+  grid-template-columns: minmax(90px, .55fr) minmax(90px, .55fr) minmax(90px, .55fr) minmax(240px, 1.8fr);
+}
+
+.code-field {
+  min-width: 0;
 }
 
 label {
@@ -301,7 +331,9 @@ label {
 @media (max-width: 1060px) {
 
   .create-grid,
-  .form-row {
+  .primary-row,
+  .title-row,
+  .document-row {
     grid-template-columns: 1fr;
   }
 }
