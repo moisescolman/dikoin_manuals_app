@@ -1,6 +1,7 @@
 package com.dikoin.manuals.rest;
 
 import com.dikoin.manuals.dtos.reusableblock.*;
+import com.dikoin.manuals.enums.ReusableType;
 import com.dikoin.manuals.servicios.ReusableBlockService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +17,11 @@ public class ReusableBlockRestController {
     private final ReusableBlockService reusableBlockService;
 
     @GetMapping
-    public List<ReusableBlockResponse> findAll(@RequestParam(defaultValue = "false") boolean includeInactive) {
-        return reusableBlockService.findAll(includeInactive);
+    public List<ReusableBlockResponse> findAll(
+            @RequestParam(defaultValue = "false") boolean includeInactive,
+            @RequestParam(required = false) ReusableType type
+    ) {
+        return reusableBlockService.findAll(includeInactive, type);
     }
 
     @GetMapping("/{id}")
@@ -46,6 +50,11 @@ public class ReusableBlockRestController {
     @PutMapping("/{id}")
     public ReusableBlockResponse update(@PathVariable Long id, @Valid @RequestBody ReusableBlockRequest request) {
         return reusableBlockService.update(id, request);
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id) {
+        reusableBlockService.delete(id);
     }
 
     @GetMapping("/{id}/usages")

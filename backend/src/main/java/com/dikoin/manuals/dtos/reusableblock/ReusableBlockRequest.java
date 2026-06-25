@@ -1,16 +1,18 @@
 package com.dikoin.manuals.dtos.reusableblock;
 
 import com.dikoin.manuals.enums.ReusableType;
-import jakarta.validation.constraints.NotBlank;
-
 public record ReusableBlockRequest(
-        @NotBlank String code,
-        @NotBlank String title,
+        String code,
+        String title,
+        String titleEs,
+        String titleEn,
         String description,
+        String descriptionEs,
+        String descriptionEn,
         ReusableType reusableType,
         String productCategory,
         String productCodes,
-        @NotBlank String contentJson,
+        String contentJson,
         boolean active
 ) {
 }

@@ -25,17 +25,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class ReusableBlockServiceImpl implements ReusableBlockService {
 
+    private static final Pattern CODE_NUMBER = Pattern.compile("^[A-Z]+-(\\d+)$");
     private final ReusableBlockRepository reusableBlockRepository;
     private final ManualBlockRepository manualBlockRepository;
     private final ManualSectionRepository manualSectionRepository;
@@ -46,10 +48,17 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ReusableBlockResponse> findAll(boolean includeInactive) {
-        List<ReusableBlock> blocks = includeInactive
-                ? reusableBlockRepository.findAllByOrderByUpdatedAtDesc()
-                : reusableBlockRepository.findByActiveTrueOrderByUpdatedAtDesc();
+    public List<ReusableBlockResponse> findAll(boolean includeInactive, ReusableType type) {
+        List<ReusableBlock> blocks;
+        if (type == null) {
+            blocks = includeInactive
+                    ? reusableBlockRepository.findAllByOrderByUpdatedAtDesc()
+                    : reusableBlockRepository.findByActiveTrueOrderByUpdatedAtDesc();
+        } else {
+            blocks = includeInactive
+                    ? reusableBlockRepository.findByReusableTypeOrderByUpdatedAtDesc(type)
+                    : reusableBlockRepository.findByReusableTypeAndActiveTrueOrderByUpdatedAtDesc(type);
+        }
         return blocks.stream().map(reusableBlockMapper::toResponse).toList();
     }
 
@@ -62,25 +71,33 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
     @Override
     @Transactional
     public ReusableBlockResponse create(ReusableBlockRequest request) {
-        if (reusableBlockRepository.existsByCodeIgnoreCase(request.code())) {
-            throw new ApiException("Ya existe un bloque con codigo " + request.code());
+        ReusableType type = request.reusableType() == null ? ReusableType.SINGLE_BLOCK : request.reusableType();
+        String code = request.code() == null || request.code().isBlank()
+                ? nextCode(type)
+                : request.code().trim();
+        if (reusableBlockRepository.existsByCodeIgnoreCase(code)) {
+            throw new ApiException("Ya existe contenido reutilizable con codigo " + code);
         }
         ReusableBlock block = ReusableBlock.builder().build();
-        applyRequest(request, block);
+        applyRequest(request, block, code);
         return reusableBlockMapper.toResponse(reusableBlockRepository.save(block));
     }
 
     @Override
     @Transactional
     public ReusableBlockResponse createFragment(CreateReusableFragmentRequest request) {
-        List<SnapshotBlock> snapshots = snapshotBlocks(request);
+        List<SnapshotBlock> snapshots = bilingualSnapshots(snapshotBlocks(request));
         if (snapshots.isEmpty()) {
             throw new ApiException("No se puede guardar un fragmento sin bloques");
         }
         ReusableBlock fragment = ReusableBlock.builder()
                 .code(nextFragmentCode())
                 .title(request.name().trim())
+                .titleEs(request.name().trim())
+                .titleEn(request.name().trim())
                 .description(request.description())
+                .descriptionEs(request.description())
+                .descriptionEn(request.description())
                 .reusableType(ReusableType.FRAGMENT)
                 .contentJson(fragmentJson(snapshots))
                 .active(request.isReusable())
@@ -148,8 +165,20 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
     @Transactional
     public ReusableBlockResponse update(Long id, ReusableBlockRequest request) {
         ReusableBlock block = findBlock(id);
-        applyRequest(request, block);
+        String code = request.code() == null || request.code().isBlank() ? block.getCode() : request.code().trim();
+        if (!code.equalsIgnoreCase(block.getCode()) && reusableBlockRepository.existsByCodeIgnoreCase(code)) {
+            throw new ApiException("Ya existe contenido reutilizable con codigo " + code);
+        }
+        applyRequest(request, block, code);
         return reusableBlockMapper.toResponse(reusableBlockRepository.save(block));
+    }
+
+    @Override
+    @Transactional
+    public void delete(Long id) {
+        ReusableBlock block = findBlock(id);
+        block.setActive(false);
+        reusableBlockRepository.save(block);
     }
 
     @Override
@@ -167,10 +196,22 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
                 .toList();
     }
 
-    private void applyRequest(ReusableBlockRequest request, ReusableBlock block) {
-        block.setCode(request.code());
-        block.setTitle(request.title());
-        block.setDescription(request.description());
+    private void applyRequest(ReusableBlockRequest request, ReusableBlock block, String code) {
+        String titleEs = firstNotBlank(request.titleEs(), request.title(), block.getTitleEs(), block.getTitle());
+        String titleEn = firstNotBlank(request.titleEn(), block.getTitleEn(), titleEs);
+        if (titleEs == null) {
+            throw new ApiException("El titulo en español es obligatorio");
+        }
+        if (request.contentJson() == null || request.contentJson().isBlank()) {
+            throw new ApiException("El contenido reutilizable no puede estar vacio");
+        }
+        block.setCode(code);
+        block.setTitle(titleEs);
+        block.setTitleEs(titleEs);
+        block.setTitleEn(titleEn);
+        block.setDescription(firstNotBlank(request.descriptionEs(), request.description()));
+        block.setDescriptionEs(firstNotBlank(request.descriptionEs(), request.description()));
+        block.setDescriptionEn(firstNotBlank(request.descriptionEn(), block.getDescriptionEn(), request.descriptionEs(), request.description()));
         if (request.reusableType() != null) {
             block.setReusableType(request.reusableType());
         } else if (block.getReusableType() == null) {
@@ -178,8 +219,91 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
         }
         block.setProductCategory(request.productCategory());
         block.setProductCodes(request.productCodes());
-        block.setContentJson(request.contentJson());
+        block.setContentJson(normalizeBilingualContent(request.contentJson()));
         block.setActive(request.active());
+    }
+
+    private String normalizeBilingualContent(String contentJson) {
+        try {
+            JsonNode parsed = objectMapper.readTree(contentJson);
+            if (!(parsed instanceof ObjectNode root) || !root.path("blocks").isArray()) {
+                return contentJson;
+            }
+            List<ObjectNode> esBlocks = new ArrayList<>();
+            List<ObjectNode> enBlocks = new ArrayList<>();
+            for (JsonNode node : root.path("blocks")) {
+                if (!(node instanceof ObjectNode objectNode)) {
+                    continue;
+                }
+                String language = objectNode.path("languageCode").asText("ES");
+                (LanguageCode.EN.name().equals(language) ? enBlocks : esBlocks).add(objectNode.deepCopy());
+            }
+            esBlocks.sort(Comparator.comparing(node -> node.path("sortOrder").asInt(Integer.MAX_VALUE)));
+            enBlocks.sort(Comparator.comparing(node -> node.path("sortOrder").asInt(Integer.MAX_VALUE)));
+            int count = Math.max(esBlocks.size(), enBlocks.size());
+            ArrayNode normalized = objectMapper.createArrayNode();
+            for (int index = 0; index < count; index++) {
+                ObjectNode es = alignedBlock(esBlocks, enBlocks, index, LanguageCode.ES);
+                ObjectNode en = alignedBlock(enBlocks, esBlocks, index, LanguageCode.EN);
+                String canonicalType = es.path("blockType").asText(en.path("blockType").asText());
+                es.put("blockType", canonicalType);
+                en.put("blockType", canonicalType);
+                es.put("sortOrder", index + 1);
+                en.put("sortOrder", index + 1);
+                normalized.add(es);
+                normalized.add(en);
+            }
+            root.set("blocks", normalized);
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception exception) {
+            throw new ApiException("El JSON del contenido reutilizable no es valido", exception);
+        }
+    }
+
+    private ObjectNode alignedBlock(
+            List<ObjectNode> primary,
+            List<ObjectNode> fallback,
+            int index,
+            LanguageCode language
+    ) {
+        ObjectNode block;
+        if (index < primary.size()) {
+            block = primary.get(index).deepCopy();
+        } else if (index < fallback.size()) {
+            block = fallback.get(index).deepCopy();
+        } else {
+            block = objectMapper.createObjectNode();
+        }
+        block.put("languageCode", language.name());
+        return block;
+    }
+
+    private String firstNotBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    private String nextCode(ReusableType type) {
+        String prefix = type == ReusableType.FRAGMENT ? "FRG-" : "SEC-";
+        int next = reusableBlockRepository.findByCodeStartingWithIgnoreCase(prefix).stream()
+                .map(ReusableBlock::getCode)
+                .map(this::codeNumber)
+                .max(Integer::compareTo)
+                .orElse(0) + 1;
+        String code;
+        do {
+            code = prefix + String.format("%03d", next++);
+        } while (reusableBlockRepository.existsByCodeIgnoreCase(code));
+        return code;
+    }
+
+    private int codeNumber(String code) {
+        Matcher matcher = CODE_NUMBER.matcher(code == null ? "" : code.trim().toUpperCase());
+        return matcher.matches() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
     private ReusableBlock findBlock(Long id) {
@@ -226,6 +350,46 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
                         block.getSortOrder()
                 ))
                 .toList();
+    }
+
+    private List<SnapshotBlock> bilingualSnapshots(List<SnapshotBlock> snapshots) {
+        List<SnapshotBlock> es = snapshots.stream()
+                .filter(block -> block.languageCode() == LanguageCode.ES)
+                .sorted(Comparator.comparing(block -> block.sortOrder() == null ? Integer.MAX_VALUE : block.sortOrder()))
+                .toList();
+        List<SnapshotBlock> en = snapshots.stream()
+                .filter(block -> block.languageCode() == LanguageCode.EN)
+                .sorted(Comparator.comparing(block -> block.sortOrder() == null ? Integer.MAX_VALUE : block.sortOrder()))
+                .toList();
+        int count = Math.max(es.size(), en.size());
+        List<SnapshotBlock> normalized = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            SnapshotBlock esBlock = alignedSnapshot(es, en, index, LanguageCode.ES);
+            SnapshotBlock enBlock = alignedSnapshot(en, es, index, LanguageCode.EN);
+            BlockType type = esBlock.blockType() != null ? esBlock.blockType() : enBlock.blockType();
+            normalized.add(new SnapshotBlock(type, LanguageCode.ES, esBlock.contentJson(), esBlock.plainText(), esBlock.assetId(), index + 1));
+            normalized.add(new SnapshotBlock(type, LanguageCode.EN, enBlock.contentJson(), enBlock.plainText(), enBlock.assetId(), index + 1));
+        }
+        return normalized;
+    }
+
+    private SnapshotBlock alignedSnapshot(
+            List<SnapshotBlock> primary,
+            List<SnapshotBlock> fallback,
+            int index,
+            LanguageCode language
+    ) {
+        SnapshotBlock source = index < primary.size()
+                ? primary.get(index)
+                : fallback.get(index);
+        return new SnapshotBlock(
+                source.blockType(),
+                language,
+                source.contentJson(),
+                source.plainText(),
+                source.assetId(),
+                index + 1
+        );
     }
 
     private String fragmentJson(List<SnapshotBlock> snapshots) {
@@ -299,13 +463,7 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
     }
 
     private String nextFragmentCode() {
-        String base = "FRG-" + Instant.now().toEpochMilli();
-        String code = base;
-        int suffix = 1;
-        while (reusableBlockRepository.existsByCodeIgnoreCase(code)) {
-            code = base + "-" + suffix++;
-        }
-        return code;
+        return nextCode(ReusableType.FRAGMENT);
     }
 
     private record SnapshotBlock(

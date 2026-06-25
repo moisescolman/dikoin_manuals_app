@@ -25,8 +25,20 @@ public class ReusableBlock {
     @Column(nullable = false, length = 220)
     private String title;
 
+    @Column(length = 220)
+    private String titleEs;
+
+    @Column(length = 220)
+    private String titleEn;
+
     @Column(length = 600)
     private String description;
+
+    @Column(length = 600)
+    private String descriptionEs;
+
+    @Column(length = 600)
+    private String descriptionEn;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
