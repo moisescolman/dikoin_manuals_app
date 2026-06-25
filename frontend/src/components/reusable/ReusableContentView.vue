@@ -2,10 +2,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Edit, Eye, Plus, Save, Trash2 } from '@lucide/vue'
 import { useRouter } from 'vue-router'
+import { getProductCategories } from '@/api/products.api'
 import { createReusableBlock, deleteReusableBlock, getReusableBlocks, updateReusableBlock } from '@/api/reusable-blocks.api'
 import ReusableContentPreview from '@/components/reusable/ReusableContentPreview.vue'
 import BackendError from '@/components/shared/BackendError.vue'
-import type { LanguageCode, ReusableBlockResponse } from '@/types/api'
+import LanguageSegmentedControl from '@/components/shared/LanguageSegmentedControl.vue'
+import ProductCategoryMultiSelect from '@/components/shared/ProductCategoryMultiSelect.vue'
+import type { LanguageCode, ProductCategoryResponse, ReusableBlockResponse } from '@/types/api'
 
 const props = defineProps<{ kind: 'SINGLE_BLOCK' | 'FRAGMENT' }>()
 const router = useRouter()
@@ -15,6 +18,9 @@ const loading = ref(false)
 const error = ref('')
 const saved = ref('')
 const previewLanguage = ref<LanguageCode>('ES')
+const formLanguage = ref<LanguageCode>('ES')
+const categories = ref<ProductCategoryResponse[]>([])
+const selectedCategoryCodes = ref<string[]>([])
 const form = reactive({
   code: '', titleEs: '', titleEn: '', descriptionEs: '', descriptionEn: '',
   productCategory: '', productCodes: '', active: true,
@@ -25,8 +31,40 @@ const pageTitle = computed(() => isSection.value ? 'Secciones' : 'Fragmentos')
 const singular = computed(() => isSection.value ? 'sección' : 'fragmento')
 const selected = computed(() => items.value.find((item) => item.id === selectedId.value))
 const editorRoute = computed(() => isSection.value ? 'reusable-section-editor' : 'reusable-fragment-editor')
+const currentTitle = computed({
+  get: () => formLanguage.value === 'EN' ? form.titleEn : form.titleEs,
+  set: (value: string) => {
+    if (formLanguage.value === 'EN') form.titleEn = value
+    else form.titleEs = value
+  },
+})
+const currentDescription = computed({
+  get: () => formLanguage.value === 'EN' ? form.descriptionEn : form.descriptionEs,
+  set: (value: string) => {
+    if (formLanguage.value === 'EN') form.descriptionEn = value
+    else form.descriptionEs = value
+  },
+})
 
-onMounted(load)
+onMounted(initialize)
+
+async function initialize() {
+  try {
+    categories.value = await getProductCategories()
+  } catch {
+    categories.value = []
+  }
+  await load()
+}
+
+function categoryCodes(value?: string) {
+  if (!value) return []
+  const available = new Set(categories.value.map((category) => category.code.toUpperCase()))
+  return value
+    .split(/[|,;]/)
+    .map((entry) => entry.trim().split(/\s+-\s+/)[0]?.trim() || '')
+    .filter((code, index, values) => Boolean(code) && available.has(code.toUpperCase()) && values.indexOf(code) === index)
+}
 
 async function load(preferredId?: number) {
   loading.value = true
@@ -51,6 +89,7 @@ function select(item: ReusableBlockResponse) {
   form.descriptionEs = item.descriptionEs || item.description || ''
   form.descriptionEn = item.descriptionEn || ''
   form.productCategory = item.productCategory || ''
+  selectedCategoryCodes.value = categoryCodes(item.productCategory)
   form.productCodes = item.productCodes || ''
   form.active = item.active
 }
@@ -61,6 +100,7 @@ function createNew() {
     code: '', titleEs: '', titleEn: '', descriptionEs: '', descriptionEn: '',
     productCategory: '', productCodes: '', active: true,
   })
+  selectedCategoryCodes.value = []
 }
 
 function emptyContent() {
@@ -86,7 +126,7 @@ async function save() {
       descriptionEs: form.descriptionEs || undefined,
       descriptionEn: form.descriptionEn || undefined,
       reusableType: props.kind,
-      productCategory: form.productCategory || undefined,
+      productCategory: selectedCategoryCodes.value.join(', ') || undefined,
       productCodes: form.productCodes || undefined,
       contentJson: selected.value?.contentJson || emptyContent(),
       active: form.active,
@@ -170,11 +210,22 @@ async function remove() {
           </div>
           <label class="check"><input v-model="form.active" type="checkbox" /> Activo</label>
         </div>
-        <label>Título en español <input v-model="form.titleEs" class="field" required /></label>
-        <label>Title in English <input v-model="form.titleEn" class="field" /></label>
-        <label>Descripción ES <textarea v-model="form.descriptionEs" class="field" rows="2" /></label>
-        <label>Description EN <textarea v-model="form.descriptionEn" class="field" rows="2" /></label>
-        <label>Categoría de producto <input v-model="form.productCategory" class="field" /></label>
+        <div class="form-language">
+          <div>
+            <strong>Idioma del formulario</strong>
+            <span>{{ formLanguage === 'ES' ? 'Datos en español' : 'English data' }}</span>
+          </div>
+          <LanguageSegmentedControl v-model="formLanguage" :aria-label="`Idioma del formulario de ${singular}`" />
+        </div>
+        <label>
+          {{ formLanguage === 'ES' ? 'Título en español' : 'Title in English' }}
+          <input v-model="currentTitle" class="field" :required="formLanguage === 'ES'" />
+        </label>
+        <label>
+          {{ formLanguage === 'ES' ? 'Descripción en español' : 'English description' }}
+          <textarea v-model="currentDescription" class="field" rows="3" />
+        </label>
+        <ProductCategoryMultiSelect v-model="selectedCategoryCodes" :categories="categories" />
         <label>Códigos de producto <input v-model="form.productCodes" class="field mono" /></label>
         <div class="actions">
           <button class="btn btn-primary" :disabled="loading"><Save :size="15" /> Guardar</button>
@@ -189,10 +240,7 @@ async function remove() {
             <strong>Vista previa</strong>
             <span>{{ selected?.code || 'Selecciona un registro' }}</span>
           </div>
-          <div class="lang-switch">
-            <button :class="{ active: previewLanguage === 'ES' }" @click="previewLanguage = 'ES'">ES</button>
-            <button :class="{ active: previewLanguage === 'EN' }" @click="previewLanguage = 'EN'">EN</button>
-          </div>
+          <LanguageSegmentedControl v-model="previewLanguage" aria-label="Idioma de la vista previa" />
         </div>
         <ReusableContentPreview :item="selected" :language="previewLanguage" />
       </section>
@@ -201,9 +249,9 @@ async function remove() {
 </template>
 
 <style scoped>
-.library-page { height: 100%; padding: 24px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 16px; overflow: hidden; }
+.library-page { min-height: 100%; padding: 24px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 16px; overflow: auto; }
 .page-head, .metadata-head, .preview-head, .actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.content-grid { min-height: 0; display: grid; grid-template-columns: minmax(480px, 1.15fr) minmax(430px, .85fr); grid-template-rows: auto minmax(0, 1fr); gap: 16px; overflow: hidden; }
+.content-grid { min-height: 0; display: grid; grid-template-columns: minmax(480px, 1.15fr) minmax(430px, .85fr); grid-template-rows: auto minmax(620px, 1fr); gap: 16px; overflow: visible; }
 .list-card { min-width: 0; grid-row: 1 / 3; display: flex; flex-direction: column; overflow: hidden; }
 .list-head { display: flex; justify-content: space-between; padding: 13px 15px; border-bottom: 1px solid var(--border); }
 .list-head span, .metadata-head span, .preview-head span { color: var(--muted-foreground); font-size: 12px; }
@@ -212,17 +260,18 @@ tbody tr { cursor: pointer; }
 tbody tr.selected td { background: var(--dikoin-blue-lighter); }
 .item-title { color: var(--dikoin-blue); font-weight: 600; }
 .row-button { border: 0; background: transparent; color: var(--muted-foreground); }
-.metadata { max-height: 390px; padding: 15px; display: grid; gap: 10px; overflow: auto; }
+.metadata { padding: 15px; display: grid; gap: 10px; align-self: start; overflow: visible; }
 .metadata-head > div, .preview-head > div:first-child { display: grid; gap: 3px; }
 label { display: grid; gap: 5px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
 .check { display: flex; align-items: center; gap: 6px; }
 .actions { justify-content: flex-start; flex-wrap: wrap; }
+.form-language { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.form-language > div { display: grid; gap: 3px; }
+.form-language strong { color: var(--foreground); font-size: 12px; }
+.form-language span { color: var(--muted-foreground); font-size: 11px; }
 .preview-card { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .preview-head { padding: 12px 15px; border-bottom: 1px solid var(--border); }
 .preview-card :deep(.preview-shell) { flex: 1; min-height: 0; }
-.lang-switch { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.lang-switch button { border: 0; background: #fff; padding: 6px 12px; }
-.lang-switch button.active { background: var(--dikoin-blue); color: #fff; }
 .success-msg { padding: 10px; border: 1px solid #86efac; border-radius: var(--radius); background: var(--dikoin-green-light); color: #065f46; }
 .btn-danger { background: var(--dikoin-red); border-color: var(--dikoin-red); color: #fff; }
 @media (max-width: 1050px) {

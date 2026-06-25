@@ -56,7 +56,9 @@ let resizeObserver: ResizeObserver | null = null
 let paginationRun = 0
 
 const contentSections = computed(() => {
-  return (props.manual.activeVersion?.sections || []).filter((section) => !isGeneratedTocSource(section))
+  return (props.manual.activeVersion?.sections || [])
+    .filter((section) => section.visible !== false)
+    .filter((section) => !isGeneratedTocSource(section))
 })
 
 const contentUnits = computed<ContentUnit[]>(() => {
@@ -236,6 +238,31 @@ function tableRows(blockJson: string) {
     return parsed.rows
   }
   return []
+}
+
+function tableHasHeader(blockJson: string) {
+  const parsed = content(blockJson)
+  return parsed.hasHeader ?? parsed.json?.attrs?.hasHeader ?? true
+}
+
+function imageFigureStyle(blockJson: string) {
+  const parsed = content(blockJson)
+  const align = parsed.align || parsed.json?.attrs?.align || 'inline'
+  if (align === 'center') return { display: 'block', marginLeft: 'auto', marginRight: 'auto' }
+  if (align === 'right') return { display: 'block', marginLeft: 'auto', marginRight: '0' }
+  if (align === 'inline') return { display: 'inline-block', marginLeft: '0', marginRight: '8px', verticalAlign: 'top' }
+  return { display: 'block', marginLeft: '0', marginRight: 'auto' }
+}
+
+function movableBlockStyle(blockJson: string) {
+  const parsed = content(blockJson)
+  const align = parsed.align || parsed.json?.attrs?.align || 'left'
+  const width = parsed.width || parsed.json?.attrs?.width
+  return {
+    width: typeof width === 'number' ? `${width}px` : width,
+    marginLeft: align === 'center' || align === 'right' ? 'auto' : '0',
+    marginRight: align === 'center' ? 'auto' : align === 'right' ? '0' : 'auto',
+  }
 }
 
 function tableWidth(blockJson: string) {
@@ -634,7 +661,7 @@ function contentPageForBlock(blockId: number) {
             <ol v-else-if="unit.block.blockType === 'ORDERED_LIST'">
               <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
             </ol>
-            <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ width: tableWidth(unit.block.contentJson) }">
+            <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ ...movableBlockStyle(unit.block.contentJson), width: tableWidth(unit.block.contentJson) }">
               <colgroup v-if="tableColumnWidths(unit.block.contentJson).length">
                 <col
                   v-for="(columnWidth, columnIndex) in tableColumnWidths(unit.block.contentJson)"
@@ -644,7 +671,7 @@ function contentPageForBlock(blockId: number) {
               </colgroup>
               <tbody>
                 <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
-                  <template v-if="rowIndex === 0">
+                  <template v-if="rowIndex === 0 && tableHasHeader(unit.block.contentJson)">
                     <th v-for="(cell, cellIndex) in row" :key="`h-${cellIndex}`">{{ cell }}</th>
                   </template>
                   <template v-else>
@@ -658,8 +685,8 @@ function contentPageForBlock(blockId: number) {
               <strong>{{ content(unit.block.contentJson).title || 'Nota' }}</strong>
               <p>{{ content(unit.block.contentJson).text }}</p>
             </div>
-            <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula">{{ content(unit.block.contentJson).latex }}</div>
-            <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image">
+            <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula" :style="movableBlockStyle(unit.block.contentJson)">{{ content(unit.block.contentJson).latex }}</div>
+            <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(unit.block.contentJson)">
               <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson), height: imageHeight(unit.block.contentJson) }" alt="" />
               <figcaption v-if="content(unit.block.contentJson).caption">{{ content(unit.block.contentJson).caption }}</figcaption>
             </figure>
@@ -715,7 +742,7 @@ function contentPageForBlock(blockId: number) {
                   <ol v-else-if="unit.block.blockType === 'ORDERED_LIST'">
                     <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
                   </ol>
-                  <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ width: tableWidth(unit.block.contentJson) }">
+                  <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ ...movableBlockStyle(unit.block.contentJson), width: tableWidth(unit.block.contentJson) }">
                     <colgroup v-if="tableColumnWidths(unit.block.contentJson).length">
                       <col
                         v-for="(columnWidth, columnIndex) in tableColumnWidths(unit.block.contentJson)"
@@ -725,7 +752,7 @@ function contentPageForBlock(blockId: number) {
                     </colgroup>
                     <tbody>
                       <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
-                        <template v-if="rowIndex === 0">
+                        <template v-if="rowIndex === 0 && tableHasHeader(unit.block.contentJson)">
                           <th v-for="(cell, cellIndex) in row" :key="`mh-${cellIndex}`">{{ cell }}</th>
                         </template>
                         <template v-else>
@@ -736,8 +763,8 @@ function contentPageForBlock(blockId: number) {
                   </table>
                   <div v-else-if="unit.block.blockType === 'WARNING'" class="warning">ADVERTENCIA: {{ content(unit.block.contentJson).text }}</div>
                   <div v-else-if="unit.block.blockType === 'NOTE'" class="note">NOTA: {{ content(unit.block.contentJson).text }}</div>
-                  <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula">{{ content(unit.block.contentJson).latex }}</div>
-                  <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image">
+                  <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula" :style="movableBlockStyle(unit.block.contentJson)">{{ content(unit.block.contentJson).latex }}</div>
+                  <figure v-else-if="unit.block.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(unit.block.contentJson)">
                     <img v-if="imageSource(unit.block.contentJson)" :src="imageSource(unit.block.contentJson)" :style="{ width: imageWidth(unit.block.contentJson), height: imageHeight(unit.block.contentJson) }" alt="" />
                     <figcaption v-if="content(unit.block.contentJson).caption">{{ content(unit.block.contentJson).caption }}</figcaption>
                   </figure>

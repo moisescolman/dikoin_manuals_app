@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { AlertTriangle, Plus, Save, Trash2, X } from '@lucide/vue'
 import { createNotice, deleteNotice, getNoticeUsages, getNotices, updateNotice } from '@/api/notices.api'
+import { getProductCategories } from '@/api/products.api'
 import BackendError from '@/components/shared/BackendError.vue'
-import type { NoticeTemplateRequest, NoticeTemplateResponse, NoticeType, NoticeUsageResponse } from '@/types/api'
+import LanguageSegmentedControl from '@/components/shared/LanguageSegmentedControl.vue'
+import ProductCategoryMultiSelect from '@/components/shared/ProductCategoryMultiSelect.vue'
+import type { LanguageCode, NoticeTemplateRequest, NoticeTemplateResponse, NoticeType, NoticeUsageResponse, ProductCategoryResponse } from '@/types/api'
 
 const notes = ref<NoticeTemplateResponse[]>([])
 const selectedId = ref<number | null>(null)
@@ -14,6 +17,9 @@ const saved = ref('')
 const deleteCandidateId = ref<number | null>(null)
 const deleteUsages = ref<NoticeUsageResponse[]>([])
 const previousSelectedId = ref<number | null>(null)
+const activeLanguage = ref<LanguageCode>('ES')
+const categories = ref<ProductCategoryResponse[]>([])
+const selectedCategoryCodes = ref<string[]>([])
 
 const form = reactive({
   code: '',
@@ -29,7 +35,66 @@ const form = reactive({
   active: true,
 })
 
-onMounted(load)
+onMounted(initialize)
+
+const currentTitle = computed({
+  get: () => activeLanguage.value === 'EN' ? form.titleEn : form.titleEs,
+  set: (value: string) => {
+    if (activeLanguage.value === 'EN') {
+      form.titleEn = value
+      return
+    }
+    form.titleEs = value
+  },
+})
+
+const currentVisibleTitle = computed({
+  get: () => activeLanguage.value === 'EN' ? form.visibleTitleEn : form.visibleTitleEs,
+  set: (value: string) => {
+    if (activeLanguage.value === 'EN') {
+      form.visibleTitleEn = value
+      return
+    }
+    form.visibleTitleEs = value
+  },
+})
+
+const currentContent = computed({
+  get: () => activeLanguage.value === 'EN' ? form.contentEn : form.contentEs,
+  set: (value: string) => {
+    if (activeLanguage.value === 'EN') {
+      form.contentEn = value
+      return
+    }
+    form.contentEs = value
+  },
+})
+
+const currentFormTitle = computed(() => currentTitle.value || (activeLanguage.value === 'EN' ? 'Untitled note' : 'Nota sin titulo'))
+const currentVisibleTitlePlaceholder = computed(() => activeLanguage.value === 'EN' ? 'Note' : 'Nota')
+const currentEditorTitle = computed(() => activeLanguage.value === 'EN' ? 'English' : 'Espanol')
+const currentEditorHint = computed(() => activeLanguage.value === 'EN' ? 'Stored with the note' : 'Version principal')
+const currentTitleLabel = computed(() => activeLanguage.value === 'EN' ? 'Note title' : 'Titulo de la nota')
+const currentVisibleTitleLabel = computed(() => activeLanguage.value === 'EN' ? 'Visible title' : 'Titulo visible')
+const currentContentLabel = computed(() => activeLanguage.value === 'EN' ? 'Text' : 'Texto')
+
+async function initialize() {
+  try {
+    categories.value = await getProductCategories()
+  } catch {
+    categories.value = []
+  }
+  await load()
+}
+
+function categoryCodes(value?: string) {
+  if (!value) return []
+  const available = new Set(categories.value.map((category) => category.code.toUpperCase()))
+  return value
+    .split(/[|,;]/)
+    .map((entry) => entry.trim().split(/\s+-\s+/)[0]?.trim() || '')
+    .filter((code, index, values) => Boolean(code) && available.has(code.toUpperCase()) && values.indexOf(code) === index)
+}
 
 async function load() {
   loading.value = true
@@ -61,6 +126,7 @@ function select(note: NoticeTemplateResponse) {
   form.visibleTitleEs = note.visibleTitleEs || 'Nota'
   form.visibleTitleEn = note.visibleTitleEn || 'Note'
   form.productCategory = note.productCategory || ''
+  selectedCategoryCodes.value = categoryCodes(note.productCategory)
   form.productCodes = note.productCodes || ''
   form.contentEs = note.contentEs || ''
   form.contentEn = note.contentEn || ''
@@ -80,6 +146,7 @@ function createNew() {
   form.visibleTitleEs = 'Nota'
   form.visibleTitleEn = 'Note'
   form.productCategory = ''
+  selectedCategoryCodes.value = []
   form.productCodes = ''
   form.contentEs = ''
   form.contentEn = ''
@@ -106,7 +173,7 @@ function payload(): NoticeTemplateRequest {
     titleEn: form.titleEn,
     visibleTitleEs: form.visibleTitleEs || 'Nota',
     visibleTitleEn: form.visibleTitleEn || 'Note',
-    productCategory: form.productCategory || undefined,
+    productCategory: selectedCategoryCodes.value.join(', ') || undefined,
     productCodes: form.productCodes || undefined,
     contentEs: form.contentEs,
     contentEn: form.contentEn,
@@ -205,30 +272,30 @@ async function confirmDelete() {
     <div v-if="saved" class="success-msg">{{ saved }}</div>
 
     <div class="notes-layout">
-      <form class="card editor" @submit.prevent="save">
-        <section class="preview-panel" aria-label="Vista previa de la nota">
+      <section class="card preview-panel" aria-label="Vista previa de la nota">
           <div class="panel-title">
             <span>Vista previa</span>
             <small>{{ form.active ? 'Activa' : 'Inactiva' }}</small>
           </div>
           <div class="preview-grid">
-            <article class="note-preview">
+            <article class="note-preview" :class="{ active: activeLanguage === 'ES' }" @click="activeLanguage = 'ES'">
               <span>ES</span>
               <strong>{{ form.visibleTitleEs || 'Nota' }}</strong>
               <p>{{ form.contentEs || 'Texto de la nota' }}</p>
             </article>
-            <article class="note-preview">
+            <article class="note-preview" :class="{ active: activeLanguage === 'EN' }" @click="activeLanguage = 'EN'">
               <span>EN</span>
               <strong>{{ form.visibleTitleEn || 'Note' }}</strong>
               <p>{{ form.contentEn || 'Note text' }}</p>
             </article>
           </div>
-        </section>
+      </section>
 
+      <form class="card editor" @submit.prevent="save">
         <div class="form-header">
           <div>
             <span class="eyebrow">{{ selectedId ? 'Editar nota' : 'Nueva nota' }}</span>
-            <h2>{{ form.titleEs || 'Sin título' }}</h2>
+            <h2>{{ currentFormTitle }}</h2>
           </div>
           <div class="readonly-code">
             <span>Codigo</span>
@@ -237,30 +304,28 @@ async function confirmDelete() {
         </div>
 
         <div class="metadata-grid">
-          <label>Categoria producto <input v-model="form.productCategory" class="field" /></label>
+          <ProductCategoryMultiSelect v-model="selectedCategoryCodes" :categories="categories" />
           <label>Codigos producto <input v-model="form.productCodes" class="field mono" placeholder="FLB10.1, HY100" /></label>
           <label class="check"><input v-model="form.active" type="checkbox" /> Activa</label>
+        </div>
+
+        <div class="language-selector">
+          <div>
+            <strong>Idioma del formulario</strong>
+            <span>{{ activeLanguage === 'ES' ? 'Editando la versión en español' : 'Editing the English version' }}</span>
+          </div>
+          <LanguageSegmentedControl v-model="activeLanguage" aria-label="Idioma del formulario de nota" />
         </div>
 
         <section class="language-editors" aria-label="Contenido bilingue de la nota">
           <div class="language-panel">
             <div class="language-panel-title">
-              <span>Español</span>
-              <small>Version principal</small>
+              <span>{{ currentEditorTitle }}</span>
+              <small>{{ currentEditorHint }}</small>
             </div>
-            <label>Titulo de la nota <input v-model="form.titleEs" class="field" required /></label>
-            <label>Titulo visible <input v-model="form.visibleTitleEs" class="field" placeholder="Nota" /></label>
-            <label>Texto <textarea v-model="form.contentEs" class="field note-text" rows="10" required /></label>
-          </div>
-
-          <div class="language-panel">
-            <div class="language-panel-title">
-              <span>English</span>
-              <small>Stored with the note</small>
-            </div>
-            <label>Note title <input v-model="form.titleEn" class="field" required /></label>
-            <label>Visible title <input v-model="form.visibleTitleEn" class="field" placeholder="Note" /></label>
-            <label>Text <textarea v-model="form.contentEn" class="field note-text" rows="10" required /></label>
+            <label>{{ currentTitleLabel }} <input v-model="currentTitle" class="field" required /></label>
+            <label>{{ currentVisibleTitleLabel }} <input v-model="currentVisibleTitle" class="field" :placeholder="currentVisibleTitlePlaceholder" /></label>
+            <label>{{ currentContentLabel }} <textarea v-model="currentContent" class="field note-text" rows="10" required /></label>
           </div>
         </section>
 
@@ -330,12 +395,12 @@ async function confirmDelete() {
 
 <style scoped>
 .notes-page {
-  height: 100%;
+  min-height: 100%;
   padding: 24px;
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto auto;
   gap: 16px;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .head {
@@ -447,11 +512,10 @@ async function confirmDelete() {
 }
 
 .editor {
-  max-height: 100%;
   padding: 16px;
   display: grid;
   gap: 14px;
-  overflow: auto;
+  overflow: visible;
 }
 
 .form-header {
@@ -511,6 +575,8 @@ label {
 .preview-panel {
   display: grid;
   gap: 10px;
+  padding: 16px;
+  align-content: start;
 }
 
 .preview-grid {
@@ -543,6 +609,13 @@ label {
   color: #78350f;
   padding: 12px 14px;
   box-shadow: 0 8px 18px rgba(146, 64, 14, .08);
+  cursor: pointer;
+}
+
+.note-preview.active {
+  border-color: var(--dikoin-blue-light);
+  border-left-color: var(--dikoin-blue);
+  box-shadow: 0 0 0 2px rgba(14, 127, 187, .12);
 }
 
 .note-preview span {
@@ -564,15 +637,13 @@ label {
 
 .metadata-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 1fr) auto;
   gap: 12px;
   align-items: end;
 }
 
 .language-editors {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  display: block;
 }
 
 .language-panel {
@@ -668,20 +739,52 @@ label {
 .notes-layout {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(250px, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto minmax(560px, auto);
   gap: 16px;
-  overflow: hidden;
+  align-items: stretch;
+  overflow: visible;
 }
 
 .editor {
-  max-height: min(610px, 62vh);
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .list-card {
+  grid-column: 1;
+  grid-row: 2;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.preview-panel {
+  grid-column: 1 / 3;
+  grid-row: 1;
+}
+
+.language-selector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.language-selector > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.language-selector strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.language-selector span {
+  color: var(--muted-foreground);
+  font-size: 11px;
 }
 
 .list-card .list-head {
@@ -722,7 +825,6 @@ label {
 
 @media (max-width: 1100px) {
   .notes-page {
-    height: auto;
     overflow: visible;
   }
 
@@ -732,7 +834,16 @@ label {
   }
 
   .notes-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
     overflow: visible;
+  }
+
+  .list-card,
+  .preview-panel,
+  .editor {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .preview-grid,

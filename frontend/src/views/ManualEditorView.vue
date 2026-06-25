@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
+import { ArrowLeft, Copy, Eye, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
 import { createReusableBlock } from '@/api/reusable-blocks.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import BackendError from '@/components/shared/BackendError.vue'
@@ -9,6 +9,14 @@ import { useManualsStore } from '@/stores/manuals.store'
 import type { EditorBlock, EditorSection } from '@/types/editor'
 import { randomId, sectionsFromBackend, versionRequestFromEditor } from '@/types/editor'
 import type { LanguageCode, ManualStatus } from '@/types/api'
+
+type BlockSelectionSync = {
+  sectionId: string
+  active: boolean
+  indexes: number[]
+  includeParallel: boolean
+  sourceLanguage: LanguageCode
+}
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
@@ -26,6 +34,7 @@ const dropTargetIndex = ref<number | null>(null)
 const sectionsPanelCollapsed = ref(false)
 const sectionEditorRefs = ref<Array<{ flushEditorSync: () => void }>>([])
 const selectionOwnerKey = ref('')
+const blockSelectionSync = ref<BlockSelectionSync | null>(null)
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
@@ -59,7 +68,8 @@ function addSection() {
     level: 1,
     titleEs: 'Nueva sección',
     titleEn: isEnglish ? 'New section' : undefined,
-    status: 'PENDING',
+    status: 'DRAFT',
+    visible: true,
     collapsed: false,
     blocks: [],
   })
@@ -75,12 +85,23 @@ function activateEditor(sectionId: string, language: LanguageCode) {
   activeEditorKey.value = editorKey(sectionId, language)
 }
 
-function updateSelectionOwner(key: string, active: boolean) {
+function updateSelectionOwner(key: string, active: boolean, indexes: number[] = []) {
   if (active) {
     selectionOwnerKey.value = key
+    if (blockSelectionSync.value) {
+      blockSelectionSync.value = { ...blockSelectionSync.value, indexes: [...indexes] }
+    }
   } else if (selectionOwnerKey.value === key) {
     selectionOwnerKey.value = ''
+    if (blockSelectionSync.value) {
+      blockSelectionSync.value = { ...blockSelectionSync.value, indexes: [] }
+    }
   }
+}
+
+function updateBlockSelectionMode(payload: BlockSelectionSync) {
+  blockSelectionSync.value = payload.active ? { ...payload, indexes: [...payload.indexes] } : null
+  selectionOwnerKey.value = payload.active ? editorKey(payload.sectionId, payload.sourceLanguage) : ''
 }
 
 function updateSection(section: EditorSection) {
@@ -147,7 +168,8 @@ function addSubsection(parent: EditorSection) {
     level: (parent.level || 1) + 1,
     titleEs: 'Nueva subsección',
     titleEn: languageMode.value === 'EN' || languageMode.value === 'BOTH' ? 'New subsection' : undefined,
-    status: 'PENDING',
+    status: 'DRAFT',
+    visible: true,
     collapsed: false,
     blocks: [],
   }
@@ -357,6 +379,38 @@ async function showBothLanguages() {
   }
 }
 
+async function cloneSpanishToEnglish() {
+  if (saving.value) return
+  const hasEnglish = sections.value.some((section) => section.blocks.some((block) => block.languageCode === 'EN'))
+  if (hasEnglish && !window.confirm('La versión inglesa actual se reemplazará con una copia del español. ¿Continuar?')) return
+  flushSectionEditors()
+  sections.value = sections.value.map((section) => ({
+    ...section,
+    titleEn: section.titleEs,
+    blocks: [
+      ...section.blocks.filter((block) => block.languageCode === 'ES'),
+      ...section.blocks
+        .filter((block) => block.languageCode === 'ES')
+        .map((block) => ({
+          ...structuredClone(block),
+          id: randomId('block'),
+          backendId: undefined,
+          languageCode: 'EN' as const,
+        })),
+    ],
+  }))
+  saving.value = true
+  try {
+    await saveDraft('Versión inglesa clonada desde el contenido español')
+    selectedLanguage.value = 'EN'
+    languageMode.value = 'EN'
+    saved.value = true
+    window.setTimeout(() => { saved.value = false }, 2000)
+  } finally {
+    saving.value = false
+  }
+}
+
 async function sendReview() {
   if (!manual.value || !version.value) return
   flushSectionEditors()
@@ -389,6 +443,9 @@ function sectionTitle(section: EditorSection) {
         <button :class="{ active: languageMode === 'EN' }" :disabled="saving" @click="changeLanguage('EN')">EN</button>
         <button :class="{ active: languageMode === 'BOTH' }" :disabled="saving" @click="showBothLanguages"><Languages :size="13" /> Ambos idiomas</button>
       </div>
+      <button v-if="languageMode === 'EN'" class="btn btn-outline" :disabled="saving" @click="cloneSpanishToEnglish">
+        <Copy :size="14" /> Clonar del Español
+      </button>
       <dl class="top-properties">
         <div><dt>Versión</dt><dd>v{{ version?.versionNumber }}</dd></div>
         <div><dt>Estado</dt><dd>{{ version?.status }}</dd></div>
@@ -453,7 +510,7 @@ function sectionTitle(section: EditorSection) {
               :language="lang"
               :manual-id="manual?.id"
               :section-targets="sectionTargets"
-              :selection-owner-key="selectionOwnerKey"
+              :selection-sync="blockSelectionSync"
               @update="updateSectionForLanguage($event, lang)"
               @delete="deleteSection(section.id)"
               @duplicate="duplicateSection(index)"
@@ -461,6 +518,8 @@ function sectionTitle(section: EditorSection) {
               @save-reusable="saveReusable(section)"
               @move-blocks="moveSelectedBlocks"
               @selection-change="updateSelectionOwner"
+              @selection-mode-change="updateBlockSelectionMode"
+              @save-section="save"
               @select="selectedSectionId = $event"
               @activate="activateEditor"
             />
@@ -594,6 +653,7 @@ function sectionTitle(section: EditorSection) {
   display: flex;
   align-items: stretch;
   overflow: visible;
+  isolation: isolate;
   padding-top: 7px;
   border-top: 1px solid #edf3f8;
 }

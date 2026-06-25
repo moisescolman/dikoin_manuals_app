@@ -80,6 +80,23 @@ function imageSource(block: Snapshot) {
   return toBackendUrl(String((content(block) as Record<string, any>).src || ''))
 }
 
+function hasHeader(block: Snapshot) {
+  const value = content(block) as Record<string, any>
+  return value.hasHeader ?? value.json?.attrs?.hasHeader ?? true
+}
+
+function imageStyle(block: Snapshot) {
+  const value = content(block) as Record<string, any>
+  const align = value.align || value.json?.attrs?.align || 'inline'
+  return {
+    width: typeof value.width === 'number' ? `${value.width}px` : value.width,
+    height: typeof value.height === 'number' ? `${value.height}px` : value.height,
+    display: align === 'inline' ? 'inline-block' : 'block',
+    marginLeft: align === 'center' || align === 'right' ? 'auto' : '0',
+    marginRight: align === 'center' ? 'auto' : align === 'right' ? '0' : '8px',
+  }
+}
+
 function blockWeight(block: Snapshot) {
   if (block.blockType === 'IMAGE') return 320
   if (block.blockType === 'TABLE') return 90 + rows(block).length * 38
@@ -120,12 +137,17 @@ function headingNumber(pageBlock: { block: Snapshot; index: number }) {
         </ol>
         <table v-else-if="entry.block.blockType === 'TABLE'">
           <tr v-for="(row, rowIndex) in rows(entry.block)" :key="rowIndex">
-            <component :is="rowIndex === 0 ? 'th' : 'td'" v-for="(cell, cellIndex) in row" :key="cellIndex">
+            <component :is="rowIndex === 0 && hasHeader(entry.block) ? 'th' : 'td'" v-for="(cell, cellIndex) in row" :key="cellIndex">
               {{ cell }}
             </component>
           </tr>
         </table>
-        <img v-else-if="entry.block.blockType === 'IMAGE' && imageSource(entry.block)" :src="imageSource(entry.block)" alt="" />
+        <img
+          v-else-if="entry.block.blockType === 'IMAGE' && imageSource(entry.block)"
+          :src="imageSource(entry.block)"
+          :style="imageStyle(entry.block)"
+          alt=""
+        />
         <aside v-else-if="['NOTE', 'WARNING', 'INFO_BOX'].includes(entry.block.blockType)">
           {{ text(entry.block) }}
         </aside>

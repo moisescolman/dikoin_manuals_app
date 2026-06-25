@@ -70,6 +70,7 @@ export async function changeManualStatus(manualId: number, status: ManualStatus,
       titleEs: section.titleEs,
       titleEn: section.titleEn,
       completionStatus: section.completionStatus,
+      visible: section.visible,
       blocks: section.blocks.map((block) => ({
         id: block.id,
         sortOrder: block.sortOrder,

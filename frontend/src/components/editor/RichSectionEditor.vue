@@ -12,19 +12,21 @@ import { Extension, mergeAttributes, Node, type Editor, type JSONContent } from 
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   ChevronUp,
   ClipboardPaste,
   Copy,
-  ChartColumn,
   FileImage,
   FileText,
   GripVertical,
   Heading,
   List,
+  ListChecks,
   ListOrdered,
   Link2Off,
   Library,
-  ListTree,
   MoveRight,
   NotebookPen,
   PanelTopClose,
@@ -47,10 +49,17 @@ import type { AssetResponse, LanguageCode, ManualBlockResponse, NoticeTemplateRe
 
 type NoteMode = 'new' | 'library'
 type EditorRegistryRecord = { editor: Editor; root: () => HTMLElement | null; markDirty: () => void }
-type MovableBlockKind = 'note' | 'table' | 'image'
+type MovableBlockKind = 'note' | 'table' | 'image' | 'formula'
 type MovableBlockRange = { from: number; to: number; kind: MovableBlockKind }
 type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w'
 type SectionTarget = { id: string; number?: string; title: string }
+type BlockSelectionSync = {
+  sectionId: string
+  active: boolean
+  indexes: number[]
+  includeParallel: boolean
+  sourceLanguage: LanguageCode
+}
 
 let sharedNoteClipboard: JSONContent | null = null
 let sharedNoteDrag: { editor: Editor; from: number; to: number; json: JSONContent; markSourceDirty: () => void } | null = null
@@ -66,6 +75,7 @@ const props = defineProps<{
   manualId?: number
   sectionTargets?: SectionTarget[]
   selectionOwnerKey?: string
+  selectionSync?: BlockSelectionSync | null
 }>()
 
 const emit = defineEmits<{
@@ -77,7 +87,9 @@ const emit = defineEmits<{
   saveReusable: []
   addSubsection: []
   moveBlocks: [payload: { sourceSectionId: string; targetSectionId: string; blocks: EditorBlock[] }]
-  selectionChange: [key: string, active: boolean]
+  selectionChange: [key: string, active: boolean, indexes: number[]]
+  selectionModeChange: [payload: BlockSelectionSync]
+  saveSection: []
 }>()
 
 const assets = ref<AssetResponse[]>([])
@@ -110,22 +122,26 @@ const showCustomTableModal = ref(false)
 const customTableRows = ref(2)
 const customTableCols = ref(5)
 const rememberTableSize = ref(false)
+const tableWithHeader = ref(true)
 const tablePickerMaxRows = 6
 const tablePickerMaxCols = 7
 let headingNumberFrame = 0
 const editorDirty = ref(false)
+const blockSelectionMode = ref(false)
 const selectedBlockIds = ref<string[]>([])
 const hoveredBlockId = ref('')
 const showFragmentModal = ref(false)
 const showReusableModal = ref(false)
 const showEquationModal = ref(false)
 const showMoveModal = ref(false)
+const showSelectionMismatchModal = ref(false)
+const selectionMismatchCounts = ref({ current: 0, parallel: 0 })
 const fragmentName = ref('')
 const fragmentDescription = ref('')
 const fragmentSaving = ref(false)
 const fragmentMessage = ref('')
 const fragmentInsertPosition = ref<'END' | 'AFTER_SELECTION'>('END')
-const fragmentPreviewBlocks = computed(() => selectedBlocksFromDocument())
+const fragmentPreviewBlocks = computed(() => selectedFragmentBlocks())
 const moveTargetSectionId = ref('')
 const equationTextarea = ref<HTMLTextAreaElement | null>(null)
 const editingEquationPos = ref<number | null>(null)
@@ -243,6 +259,9 @@ const FormulaBlock = Node.create({
       equationNumber: { default: null },
       caption: { default: '' },
       align: { default: 'center' },
+      width: { default: null },
+      offsetX: { default: 0 },
+      offsetY: { default: 0 },
     }
   },
   parseHTML() {
@@ -253,8 +272,10 @@ const FormulaBlock = Node.create({
     const caption = String(HTMLAttributes.caption || '')
     return ['div', mergeAttributes(HTMLAttributes, {
       'data-formula-block': 'true',
+      'data-align': String(HTMLAttributes.align || 'center'),
       class: 'formula-block',
       contenteditable: 'false',
+      style: HTMLAttributes.width ? `width: ${cssSize(HTMLAttributes.width)}; max-width: 100%;` : undefined,
     }), [
       'span',
       { class: 'formula-latex' },
@@ -267,7 +288,7 @@ const BlockIdentity = Extension.create({
   name: 'blockIdentity',
   addGlobalAttributes() {
     return [{
-      types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'table', 'image', 'noteBox', 'formulaBlock'],
+      types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'table', 'image', 'noteBox', 'formulaBlock', 'reusableSectionBox'],
       attributes: {
         blockId: {
           default: null,
@@ -309,9 +330,13 @@ const BlockSelection = Extension.create({
       props: {
         decorations: (state) => {
           const decorations: Decoration[] = []
+          if (!blockSelectionMode.value) {
+            return DecorationSet.empty
+          }
           state.doc.forEach((node, offset) => {
             const blockId = String(node.attrs.blockId || '')
             if (!blockId) return
+            if (node.type.name === 'paragraph' && node.content.size === 0) return
             const selected = selectedBlockIds.value.includes(blockId)
             const selectable = canToggleBlockSelection(blockId, state)
             const wrapper = document.createElement('span')
@@ -437,6 +462,21 @@ const ResizableImage = Image.extend({
         default: null,
         parseHTML: (element) => element.getAttribute('height') || element.style.height || null,
       },
+      align: {
+        default: 'inline',
+        parseHTML: (element) => element.getAttribute('data-align') || 'inline',
+        renderHTML: (attributes) => ({ 'data-align': attributes.align || 'inline' }),
+      },
+      assetId: {
+        default: null,
+        parseHTML: (element) => {
+          const value = element.getAttribute('data-asset-id')
+          return value ? Number(value) : null
+        },
+        renderHTML: (attributes) => attributes.assetId ? { 'data-asset-id': String(attributes.assetId) } : {},
+      },
+      offsetX: { default: 0 },
+      offsetY: { default: 0 },
     }
   },
 })
@@ -455,6 +495,16 @@ const ResizableTable = Table.extend({
             style: `width: ${cssSize(attributes.width)};`,
           }
         },
+      },
+      hasHeader: {
+        default: true,
+        parseHTML: (element) => element.getAttribute('data-has-header') !== 'false',
+        renderHTML: (attributes) => ({ 'data-has-header': String(attributes.hasHeader !== false) }),
+      },
+      align: {
+        default: 'left',
+        parseHTML: (element) => element.getAttribute('data-align') || 'left',
+        renderHTML: (attributes) => ({ 'data-align': attributes.align || 'left' }),
       },
     }
   },
@@ -496,8 +546,14 @@ const editor = useEditor({
         return true
       },
       paste: (_view, event) => {
-        if (!isInsideLinkedNote()) return false
+        if (isInsideLinkedNote()) {
+          event.preventDefault()
+          return true
+        }
+        const imageFile = clipboardImageFile(event)
+        if (!imageFile) return false
         event.preventDefault()
+        void insertClipboardImage(imageFile)
         return true
       },
       keydown: (_view, event) => {
@@ -634,6 +690,13 @@ function visibleBlocks() {
 }
 
 function updateBlockSelectionHover(event?: MouseEvent) {
+  if (!blockSelectionMode.value) {
+    if (hoveredBlockId.value) {
+      hoveredBlockId.value = ''
+      refreshBlockSelections()
+    }
+    return
+  }
   const root = editor.value?.view.dom
   if (!root) return
   let activeBlockId = ''
@@ -674,6 +737,29 @@ watch(
   },
 )
 
+watch(
+  () => props.selectionSync,
+  (sync) => {
+    const belongsHere = Boolean(sync?.active && sync.sectionId === props.section.id)
+    if (!belongsHere) {
+      if (blockSelectionMode.value || selectedBlockIds.value.length) {
+        blockSelectionMode.value = false
+        selectedBlockIds.value = []
+        hoveredBlockId.value = ''
+        refreshBlockSelections()
+      }
+      return
+    }
+    blockSelectionMode.value = true
+    const ids = documentBlockIds()
+    selectedBlockIds.value = (sync?.indexes || [])
+      .map((index) => ids[index])
+      .filter((id): id is string => Boolean(id))
+    refreshBlockSelections()
+  },
+  { deep: true, immediate: true },
+)
+
 function refreshBlockSelections() {
   const current = editor.value
   if (!current) return
@@ -684,6 +770,7 @@ function documentBlockIds(state = editor.value?.state) {
   if (!state) return []
   const ids: string[] = []
   state.doc.forEach((node) => {
+    if (node.type.name === 'paragraph' && node.content.size === 0) return
     const blockId = String(node.attrs.blockId || '')
     if (blockId) ids.push(blockId)
   })
@@ -691,22 +778,7 @@ function documentBlockIds(state = editor.value?.state) {
 }
 
 function canToggleBlockSelection(blockId: string, state = editor.value?.state) {
-  const ids = documentBlockIds(state)
-  const blockIndex = ids.indexOf(blockId)
-  if (blockIndex < 0 || !selectedBlockIds.value.length) return blockIndex >= 0
-
-  const selectedIndexes = selectedBlockIds.value
-    .map((id) => ids.indexOf(id))
-    .filter((index) => index >= 0)
-    .sort((left, right) => left - right)
-  if (!selectedIndexes.length) return true
-
-  const first = selectedIndexes[0]
-  const last = selectedIndexes[selectedIndexes.length - 1]
-  if (selectedBlockIds.value.includes(blockId)) {
-    return selectedIndexes.length === 1 || blockIndex === first || blockIndex === last
-  }
-  return blockIndex === first - 1 || blockIndex === last + 1
+  return blockSelectionMode.value && documentBlockIds(state).includes(blockId)
 }
 
 function toggleBlockSelection(blockId: string) {
@@ -715,20 +787,77 @@ function toggleBlockSelection(blockId: string) {
   selectedBlockIds.value = selectedBlockIds.value.includes(blockId)
     ? selectedBlockIds.value.filter((id) => id !== blockId)
     : [...selectedBlockIds.value, blockId].sort((left, right) => ids.indexOf(left) - ids.indexOf(right))
-  emit('selectionChange', selectionKey.value, selectedBlockIds.value.length > 0)
+  const indexes = selectedBlockIds.value
+    .map((id) => ids.indexOf(id))
+    .filter((index) => index >= 0)
+  emit('selectionChange', selectionKey.value, selectedBlockIds.value.length > 0, indexes)
   refreshBlockSelections()
   activateEditor()
 }
 
-function clearBlockSelection() {
+function clearBlockSelection(disableMode = false) {
   selectedBlockIds.value = []
-  emit('selectionChange', selectionKey.value, false)
+  hoveredBlockId.value = ''
+  if (disableMode) blockSelectionMode.value = false
+  emit('selectionChange', selectionKey.value, false, [])
+  if (disableMode) {
+    emit('selectionModeChange', {
+      sectionId: props.section.id,
+      active: false,
+      indexes: [],
+      includeParallel: false,
+      sourceLanguage: props.language,
+    })
+  }
   refreshBlockSelections()
+}
+
+function toggleBlockSelectionMode() {
+  if (blockSelectionMode.value) {
+    clearBlockSelection(true)
+    return
+  }
+  const currentCount = blocksFromDoc(editor.value?.getJSON() || { type: 'doc', content: [] }).length
+  const parallelLanguage: LanguageCode = props.language === 'ES' ? 'EN' : 'ES'
+  const parallelCount = props.section.blocks.filter((block) => block.languageCode === parallelLanguage).length
+  if (currentCount !== parallelCount) {
+    selectionMismatchCounts.value = { current: currentCount, parallel: parallelCount }
+    showSelectionMismatchModal.value = true
+    return
+  }
+  enableBlockSelection(true)
+}
+
+function enableBlockSelection(includeParallel: boolean) {
+  showSelectionMismatchModal.value = false
+  blockSelectionMode.value = true
+  emit('selectionModeChange', {
+    sectionId: props.section.id,
+    active: true,
+    indexes: [],
+    includeParallel,
+    sourceLanguage: props.language,
+  })
+  refreshBlockSelections()
+  activateEditor()
 }
 
 function selectedBlocksFromDocument() {
   if (!editor.value) return []
   return blocksFromDoc(editor.value.getJSON()).filter((block) => selectedBlockIds.value.includes(block.id))
+}
+
+function selectedFragmentBlocks() {
+  const current = selectedBlocksFromDocument()
+  if (!props.selectionSync?.includeParallel) return current
+  const parallelLanguage: LanguageCode = props.language === 'ES' ? 'EN' : 'ES'
+  const parallel = props.section.blocks.filter((block) => block.languageCode === parallelLanguage)
+  return [
+    ...current,
+    ...props.selectionSync.indexes
+      .map((index) => parallel[index])
+      .filter((block): block is EditorBlock => Boolean(block)),
+  ]
 }
 
 function duplicateSelectedBlocks() {
@@ -767,7 +896,7 @@ function openFragmentModal() {
 }
 
 async function saveSelectedFragment() {
-  const blocks = selectedBlocksFromDocument()
+  const blocks = selectedFragmentBlocks()
   if (!blocks.length || !fragmentName.value.trim()) return
   fragmentSaving.value = true
   fragmentMessage.value = ''
@@ -1068,7 +1197,14 @@ function textToParagraphs(text: string): JSONContent[] {
 }
 
 function insertTable(rows = 3, cols = 3) {
-  editor.value?.chain().focus().insertTable({ rows: Math.max(rows, 1), cols: Math.max(cols, 1), withHeaderRow: true }).run()
+  editor.value?.chain().focus().insertTable({
+    rows: Math.max(rows, 1),
+    cols: Math.max(cols, 1),
+    withHeaderRow: tableWithHeader.value,
+  }).run()
+  if (editor.value?.isActive('table')) {
+    editor.value.commands.updateAttributes('table', { hasHeader: tableWithHeader.value })
+  }
   closeTablePicker()
 }
 
@@ -1513,6 +1649,8 @@ function movableBlockElementFromTarget(target: Element | null) {
   if (table) return { element: table, kind: 'table' as MovableBlockKind }
   const image = target.tagName === 'IMG' ? target as HTMLElement : target.closest('img') as HTMLElement | null
   if (image && image.closest('.rich-editor-surface')) return { element: image, kind: 'image' as MovableBlockKind }
+  const formula = target.closest('[data-formula-block]') as HTMLElement | null
+  if (formula) return { element: formula, kind: 'formula' as MovableBlockKind }
   return null
 }
 
@@ -1633,7 +1771,7 @@ function startBlockResize(event: MouseEvent, handle: ResizeHandle) {
         blockElement.style.maxWidth = '100%'
         blockElement.style.setProperty('height', `${Math.round(nextHeight)}px`, 'important')
         ;(blockElement as HTMLImageElement).style.objectFit = 'contain'
-      } else {
+      } else if (range.kind === 'table') {
         blockElement.style.tableLayout = 'fixed'
       }
     }
@@ -1655,7 +1793,7 @@ function updateBlockSize(range: MovableBlockRange, width: number, height: number
   const current = editor.value
   if (!current) return
   const node = current.state.doc.nodeAt(range.from)
-  if (!node || !['table', 'image'].includes(node.type.name)) return
+  if (!node || !['table', 'image', 'formulaBlock'].includes(node.type.name)) return
   const nextAttrs = {
     ...node.attrs,
     width: Math.round(width),
@@ -1663,6 +1801,22 @@ function updateBlockSize(range: MovableBlockRange, width: number, height: number
   }
   current.view.dispatch(current.state.tr.setNodeMarkup(range.from, undefined, nextAttrs).scrollIntoView())
   markEditorDirty()
+}
+
+function alignActiveBlock(align: 'left' | 'center' | 'right') {
+  const range = blockActionRange.value
+  const current = editor.value
+  if (!range || !current) return
+  const node = current.state.doc.nodeAt(range.from)
+  if (!node || !['image', 'table', 'formulaBlock'].includes(node.type.name)) return
+  current.view.dispatch(current.state.tr.setNodeMarkup(range.from, undefined, {
+    ...node.attrs,
+    align,
+    offsetX: 0,
+    offsetY: 0,
+  }))
+  markEditorDirty()
+  requestAnimationFrame(updateBlockActionsPosition)
 }
 
 function activeNoteJson(range = noteActionRange.value || activeNoteInfo()) {
@@ -1676,7 +1830,7 @@ function activeBlockJson(range = blockActionRange.value) {
   const current = editor.value
   if (!current || !range) return null
   const node = current.state.doc.nodeAt(range.from)
-  const expectedType = range.kind === 'table' ? 'table' : 'image'
+  const expectedType = range.kind === 'table' ? 'table' : range.kind === 'formula' ? 'formulaBlock' : 'image'
   return node?.type.name === expectedType ? node.toJSON() as JSONContent : null
 }
 
@@ -1686,6 +1840,7 @@ function noteJsonText(noteJson: JSONContent) {
 
 function blockPreviewText(blockJson: JSONContent, kind: MovableBlockKind) {
   if (kind === 'image') return String(blockJson.attrs?.alt || blockJson.attrs?.src || 'Imagen')
+  if (kind === 'formula') return String(blockJson.attrs?.latex || 'Ecuación')
   const rows = tableRowsFromNode(blockJson)
   const cols = rows[0]?.length || 0
   return `${rows.length} filas x ${cols} columnas`
@@ -1804,7 +1959,7 @@ function blockInfoFromElement(element: HTMLElement, kind: MovableBlockKind): Mov
 function blockInfoAtPos(pos: number, kind: MovableBlockKind): MovableBlockRange | null {
   const current = editor.value
   if (!current) return null
-  const typeName = kind === 'table' ? 'table' : 'image'
+  const typeName = kind === 'table' ? 'table' : kind === 'formula' ? 'formulaBlock' : 'image'
   const safePos = Math.min(Math.max(pos, 0), current.state.doc.content.size)
   const nodeAtPos = current.state.doc.nodeAt(safePos)
   if (nodeAtPos?.type.name === typeName) {
@@ -1833,7 +1988,7 @@ function blockInfoAtPos(pos: number, kind: MovableBlockKind): MovableBlockRange 
 function blockInfoByDom(element: HTMLElement, kind: MovableBlockKind): MovableBlockRange | null {
   const current = editor.value
   if (!current) return null
-  const typeName = kind === 'table' ? 'table' : 'image'
+  const typeName = kind === 'table' ? 'table' : kind === 'formula' ? 'formulaBlock' : 'image'
   let found: MovableBlockRange | null = null
   current.state.doc.descendants((node, pos) => {
     if (found || node.type.name !== typeName) return false
@@ -1952,10 +2107,6 @@ function confirmEquation() {
   showEquationModal.value = false
 }
 
-function insertChart() {
-  editor.value?.chain().focus().insertContent(textToParagraphs('Gráfico: título y datos pendientes')).run()
-}
-
 function insertContentBlock() {
   fragmentInsertPosition.value = hasSelection.value ? 'AFTER_SELECTION' : 'END'
   fragmentMessage.value = ''
@@ -2029,6 +2180,12 @@ function insertReusableFragment(fragment: ReusableBlockResponse) {
   }
 }
 
+function blockKindLabel(kind: MovableBlockKind | null) {
+  if (kind === 'table') return 'tabla'
+  if (kind === 'formula') return 'ecuación'
+  return 'imagen'
+}
+
 function insertReusableSection(sectionItem: ReusableBlockResponse) {
   editor.value?.chain().focus().insertContent({
     type: 'reusableSectionBox',
@@ -2060,8 +2217,43 @@ function toggleNoteMenu() {
 }
 
 function insertImage(src: string, assetId?: number) {
-  editor.value?.chain().focus().setImage({ src, alt: assetId ? `asset-${assetId}` : 'imagen' }).run()
+  editor.value?.chain().focus().insertContent({
+    type: 'image',
+    attrs: {
+      src,
+      alt: assetId ? `asset-${assetId}` : 'imagen',
+      assetId: assetId || null,
+      width: 240,
+      align: 'inline',
+      offsetX: 0,
+      offsetY: 0,
+    },
+  }).run()
   showImageModal.value = false
+}
+
+function clipboardImageFile(event: ClipboardEvent) {
+  const items = Array.from(event.clipboardData?.items || [])
+  const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+  const source = imageItem?.getAsFile()
+  if (!source) return null
+  const extension = source.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png'
+  return new File([source], source.name || `imagen-portapapeles-${Date.now()}.${extension}`, { type: source.type })
+}
+
+async function insertClipboardImage(file: File) {
+  uploadingImage.value = true
+  try {
+    const asset = await uploadAsset({ file, assetType: 'IMAGE', manualId: props.manualId })
+    const src = asset.fileUrl ? toBackendUrl(asset.fileUrl) : toBackendUrl(`/api/v1/assets/${asset.id}/file`)
+    assets.value = [asset, ...assets.value.filter((item) => item.id !== asset.id)]
+    insertImage(src, asset.id)
+    markEditorDirty()
+  } catch {
+    window.alert('No se pudo guardar la imagen pegada desde el portapapeles.')
+  } finally {
+    uploadingImage.value = false
+  }
 }
 
 async function uploadImage(event: Event) {
@@ -2185,13 +2377,30 @@ function nodeFromBlock(block: EditorBlock): JSONContent[] {
   }
   if (block.type === 'tabla') {
     const rows = block.content.split('\n').filter(Boolean).map((line) => line.split('|'))
-    const table = tableNode(rows, data.width)
+    const table = tableNode(rows, data.width, data.hasHeader !== false)
     table.attrs = { ...(table.attrs || {}), ...identity }
+    table.attrs = {
+      ...(table.attrs || {}),
+      hasHeader: data.hasHeader !== false,
+      align: data.align || 'left',
+    }
     return [table]
   }
   if (block.type === 'imagen') {
     const attrs = savedJson?.attrs as Record<string, unknown> | undefined
-    return [{ type: 'image', attrs: { ...identity, src: block.content, alt: String(data.assetId || ''), width: data.width || attrs?.width || null, height: data.height || attrs?.height || null } }]
+    return [{
+      type: 'image',
+      attrs: {
+        ...identity,
+        src: block.content,
+        alt: String(data.assetId || ''),
+        width: data.width || attrs?.width || null,
+        height: data.height || attrs?.height || null,
+        align: data.align || attrs?.align || 'inline',
+        offsetX: data.offsetX || attrs?.offsetX || 0,
+        offsetY: data.offsetY || attrs?.offsetY || 0,
+      },
+    }]
   }
   if (block.type === 'nota') {
     return [{
@@ -2217,21 +2426,24 @@ function nodeFromBlock(block: EditorBlock): JSONContent[] {
         equationNumber: data.equationNumber || null,
         caption: data.caption || '',
         align: data.align || 'center',
+        width: data.width || null,
+        offsetX: data.offsetX || 0,
+        offsetY: data.offsetY || 0,
       },
     }]
   }
   return [{ type: 'paragraph', attrs: identity, content: textContent(block.content) }]
 }
 
-function tableNode(rows: string[][], width?: unknown): JSONContent {
+function tableNode(rows: string[][], width?: unknown, hasHeader = true): JSONContent {
   const normalized = rows.length ? rows : [['Cabecera 1', 'Cabecera 2'], ['', '']]
   return {
     type: 'table',
-    attrs: { width: width || null },
+    attrs: { width: width || null, hasHeader },
     content: normalized.map((row, rowIndex) => ({
       type: 'tableRow',
       content: row.map((cell) => ({
-        type: rowIndex === 0 ? 'tableHeader' : 'tableCell',
+        type: hasHeader && rowIndex === 0 ? 'tableHeader' : 'tableCell',
         content: [{ type: 'paragraph', content: textContent(cell) }],
       })),
     })),
@@ -2239,7 +2451,10 @@ function tableNode(rows: string[][], width?: unknown): JSONContent {
 }
 
 function blocksFromDoc(doc: JSONContent): EditorBlock[] {
-  return (doc.content || []).flatMap((node) => blockFromNode(node)).filter(Boolean) as EditorBlock[]
+  return (doc.content || [])
+    .filter((node) => node.type !== 'paragraph' || plainText(node).trim())
+    .flatMap((node) => blockFromNode(node))
+    .filter(Boolean) as EditorBlock[]
 }
 
 function blockFromNode(node: JSONContent): EditorBlock[] {
@@ -2256,10 +2471,28 @@ function blockFromNode(node: JSONContent): EditorBlock[] {
   }
   if (node.type === 'table') {
     const rows = tableRowsFromNode(node)
-    return [editorBlock('tabla', rows.map((row) => row.join('|')).join('\n'), { type: 'table', json: node, rows: rows.slice(1), columns: rows[0] || [], width: node.attrs?.width || null })]
+    return [editorBlock('tabla', rows.map((row) => row.join('|')).join('\n'), {
+      type: 'table',
+      json: node,
+      rows: rows.slice(1),
+      columns: rows[0] || [],
+      width: node.attrs?.width || null,
+      hasHeader: node.attrs?.hasHeader !== false,
+      align: node.attrs?.align || 'left',
+    })]
   }
   if (node.type === 'image') {
-    return [editorBlock('imagen', String(node.attrs?.src || ''), { type: 'image', json: node, assetId: imageAssetId(node), caption: '', width: node.attrs?.width || null, height: node.attrs?.height || null })]
+    return [editorBlock('imagen', String(node.attrs?.src || ''), {
+      type: 'image',
+      json: node,
+      assetId: imageAssetId(node),
+      caption: '',
+      width: node.attrs?.width || null,
+      height: node.attrs?.height || null,
+      align: node.attrs?.align || 'inline',
+      offsetX: node.attrs?.offsetX || 0,
+      offsetY: node.attrs?.offsetY || 0,
+    })]
   }
   if (node.type === 'noteBox') {
     const refId = Number(node.attrs?.refId || 0)
@@ -2290,6 +2523,9 @@ function blockFromNode(node: JSONContent): EditorBlock[] {
       equationNumber: node.attrs?.equationNumber || null,
       caption: node.attrs?.caption || '',
       align: node.attrs?.align || 'center',
+      width: node.attrs?.width || null,
+      offsetX: node.attrs?.offsetX || 0,
+      offsetY: node.attrs?.offsetY || 0,
     }, node)]
   }
   return []
@@ -2341,19 +2577,44 @@ function tableRowsFromNode(node: JSONContent): string[][] {
 }
 
 function imageAssetId(node: JSONContent) {
+  const assetId = Number(node.attrs?.assetId || 0)
+  if (assetId) return assetId
   const alt = String(node.attrs?.alt || '')
   return alt.startsWith('asset-') ? Number(alt.replace('asset-', '')) : undefined
 }
 </script>
 
 <template>
-  <article class="rich-section" :class="{ selected }" @click="selectSection">
+  <article class="rich-section" :class="{ selected, hidden: !section.visible }" @click="selectSection">
     <header class="section-bar">
       <button class="drag-handle" draggable="true" title="Arrastrar sección" @click.stop @mousedown.stop>
         <GripVertical class="drag-dots" :size="17" />
       </button>
       <span class="section-number">{{ section.sectionNumber || section.sortOrder }}.</span>
       <input class="section-title-input" :value="sectionTitle" placeholder="Título de sección" @input="patchTitle(($event.target as HTMLInputElement).value)" />
+      <select
+        class="section-control"
+        :value="section.status"
+        title="Estado de la sección"
+        @click.stop
+        @change="patch({ status: ($event.target as HTMLSelectElement).value as EditorSection['status'] })"
+      >
+        <option value="DRAFT">Borrador</option>
+        <option value="COMPLETED">Completado</option>
+        <option value="REVIEW">Revisión</option>
+        <option value="APPROVED">Aprobado</option>
+      </select>
+      <select
+        class="section-control visibility"
+        :value="section.visible ? 'VISIBLE' : 'HIDDEN'"
+        title="Visibilidad de la sección"
+        @click.stop
+        @change="patch({ visible: ($event.target as HTMLSelectElement).value === 'VISIBLE' })"
+      >
+        <option value="VISIBLE">Visible</option>
+        <option value="HIDDEN">Oculto</option>
+      </select>
+      <button class="bar-save" title="Guardar sección" @click.stop="emit('saveSection')"><Save :size="14" /> Guardar</button>
       <button class="bar-icon" title="Comprimir editor" @click.stop="patch({ collapsed: !section.collapsed })">
         <ChevronUp :class="{ collapsed: section.collapsed }" :size="18" />
       </button>
@@ -2423,6 +2684,10 @@ function imageAssetId(node: JSONContent) {
                     @click="insertTable(Math.ceil(cell / tablePickerMaxCols), ((cell - 1) % tablePickerMaxCols) + 1)"
                   />
                 </div>
+                <label class="table-header-choice">
+                  <input v-model="tableWithHeader" type="checkbox" />
+                  Primera fila como encabezado
+                </label>
                 <button class="custom-table" @click="openCustomTableModal"><TableIcon :size="13" /> Insertar tabla...</button>
               </div>
             </div>
@@ -2435,7 +2700,6 @@ function imageAssetId(node: JSONContent) {
               </div>
             </div>
             <button class="tool-btn" title="Ecuación" @click="insertEquation"><Sigma :size="16" /><span>Ecuación</span></button>
-            <button class="tool-btn" title="Gráfico" @click="insertChart"><ChartColumn :size="16" /><span>Gráfico</span></button>
             <button class="tool-btn" title="Contenido" @click="insertContentBlock"><FileText :size="16" /><span>Contenido</span></button>
             <button class="tool-btn save-content" title="Guardar como contenido" @click="emit('saveReusable')"><Save :size="16" /><span>Guardar contenido</span></button>
           </div>
@@ -2444,7 +2708,15 @@ function imageAssetId(node: JSONContent) {
 
         <div class="ribbon-group section-actions">
           <div class="ribbon-row">
-            <button class="tool-btn" title="Añadir subsección" @click="emit('addSubsection')"><ListTree :size="16" /><span>Subsección</span></button>
+            <button
+              class="tool-btn select-blocks-tool"
+              :class="{ active: blockSelectionMode }"
+              :aria-pressed="blockSelectionMode"
+              title="Seleccionar bloques para guardarlos como fragmento"
+              @click="toggleBlockSelectionMode"
+            >
+              <ListChecks :size="16" /><span>Seleccionar bloques</span>
+            </button>
             <button class="tool-btn" title="Duplicar sección" @click="emit('duplicate')"><Copy :size="16" /><span>Duplicar</span></button>
             <button class="tool-btn" title="Guardar como reutilizable" @click="emit('saveReusable')"><Save :size="16" /><span>Reutilizable</span></button>
             <button class="tool-btn danger" title="Eliminar sección" @click="emit('delete')"><Trash2 :size="16" /><span>Eliminar</span></button>
@@ -2460,12 +2732,13 @@ function imageAssetId(node: JSONContent) {
         <button :disabled="!availableMoveTargets.length" @click="openMoveModal"><MoveRight :size="15" /> Mover</button>
         <button class="danger" @click="deleteSelectedBlocks"><Trash2 :size="15" /> Eliminar</button>
         <button class="primary" @click="openFragmentModal"><Library :size="15" /> Guardar como fragmento</button>
-        <button class="clear-selection" title="Limpiar selección" @click="clearBlockSelection"><X :size="16" /></button>
+        <button class="clear-selection" title="Salir de selección de bloques" @click="clearBlockSelection(true)"><X :size="16" /></button>
       </div>
 
       <EditorContent
         :editor="editor"
         class="editor-shell"
+        :class="{ 'block-selection-mode': blockSelectionMode }"
         :style="{ '--section-prefix': `${section.sectionNumber || section.sortOrder}.` }"
         @mousedown.stop
         @click.stop="handleSectionClick"
@@ -2477,8 +2750,8 @@ function imageAssetId(node: JSONContent) {
       >
         <button
           class="block-action-drag"
-          :title="`Arrastrar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
-          :aria-label="`Arrastrar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
+          :title="`Arrastrar ${blockKindLabel(blockActionsPosition.kind)}`"
+          :aria-label="`Arrastrar ${blockKindLabel(blockActionsPosition.kind)}`"
           @mousedown.stop.prevent="startActiveBlockDrag"
           @click.stop
         >
@@ -2486,8 +2759,8 @@ function imageAssetId(node: JSONContent) {
         </button>
         <button
           class="block-action-copy"
-          :title="`Copiar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
-          :aria-label="`Copiar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
+          :title="`Copiar ${blockKindLabel(blockActionsPosition.kind)}`"
+          :aria-label="`Copiar ${blockKindLabel(blockActionsPosition.kind)}`"
           @mousedown.prevent
           @click.stop="copyActiveBlock"
         >
@@ -2495,17 +2768,41 @@ function imageAssetId(node: JSONContent) {
         </button>
         <button
           class="block-action-cut"
-          :title="`Cortar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
-          :aria-label="`Cortar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
+          :title="`Cortar ${blockKindLabel(blockActionsPosition.kind)}`"
+          :aria-label="`Cortar ${blockKindLabel(blockActionsPosition.kind)}`"
           @mousedown.prevent
           @click.stop="cutActiveBlock"
         >
           <Scissors :size="16" />
         </button>
         <button
+          title="Alinear a la izquierda"
+          aria-label="Alinear a la izquierda"
+          @mousedown.prevent
+          @click.stop="alignActiveBlock('left')"
+        >
+          <AlignLeft :size="16" />
+        </button>
+        <button
+          title="Centrar elemento"
+          aria-label="Centrar elemento"
+          @mousedown.prevent
+          @click.stop="alignActiveBlock('center')"
+        >
+          <AlignCenter :size="16" />
+        </button>
+        <button
+          title="Alinear a la derecha"
+          aria-label="Alinear a la derecha"
+          @mousedown.prevent
+          @click.stop="alignActiveBlock('right')"
+        >
+          <AlignRight :size="16" />
+        </button>
+        <button
           class="block-action-delete"
-          :title="`Eliminar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
-          :aria-label="`Eliminar ${blockActionsPosition.kind === 'table' ? 'tabla' : 'imagen'}`"
+          :title="`Eliminar ${blockKindLabel(blockActionsPosition.kind)}`"
+          :aria-label="`Eliminar ${blockKindLabel(blockActionsPosition.kind)}`"
           @mousedown.prevent
           @click.stop="deleteActiveBlock"
         >
@@ -2644,6 +2941,10 @@ function imageAssetId(node: JSONContent) {
             <input v-model="rememberTableSize" type="checkbox" />
             Recordar dimensiones para tablas nuevas
           </label>
+          <label class="remember-size">
+            <input v-model="tableWithHeader" type="checkbox" />
+            Usar primera fila como encabezado
+          </label>
         </section>
         <footer>
           <button type="submit" class="btn btn-primary">Aceptar</button>
@@ -2668,6 +2969,29 @@ function imageAssetId(node: JSONContent) {
       </div>
     </div>
 
+    <div v-if="showSelectionMismatchModal" class="modal-backdrop" @click.self="showSelectionMismatchModal = false">
+      <section class="modal-card selection-warning-dialog">
+        <header>
+          <div>
+            <h3>Los bloques ES y EN no coinciden</h3>
+            <p>
+              {{ language }} tiene {{ selectionMismatchCounts.current }} bloques y la versión paralela tiene
+              {{ selectionMismatchCounts.parallel }}.
+            </p>
+          </div>
+          <button type="button" class="modal-close" @click="showSelectionMismatchModal = false">×</button>
+        </header>
+        <p>
+          No es posible seleccionar automáticamente los bloques paralelos. ¿Deseas seleccionar y guardar
+          solamente los bloques del idioma {{ language }}?
+        </p>
+        <footer>
+          <button type="button" class="btn btn-outline" @click="showSelectionMismatchModal = false">Cancelar selección</button>
+          <button type="button" class="btn btn-primary" @click="enableBlockSelection(false)">Guardar solo {{ language }}</button>
+        </footer>
+      </section>
+    </div>
+
     <div v-if="showFragmentModal" class="modal-backdrop" @click.self="showFragmentModal = false">
       <form class="modal-card fragment-dialog" @submit.prevent="saveSelectedFragment">
         <header>
@@ -2686,7 +3010,7 @@ function imageAssetId(node: JSONContent) {
           <textarea v-model="fragmentDescription" class="field" rows="3" maxlength="600" placeholder="Qué incluye y cuándo conviene reutilizarlo" />
         </label>
         <section class="fragment-preview">
-          <strong>Vista previa del fragmento ({{ language }})</strong>
+          <strong>Vista previa del fragmento ({{ selectionSync?.includeParallel ? 'ES + EN' : language }})</strong>
           <ol>
             <li v-for="block in fragmentPreviewBlocks" :key="block.id">
               <span>{{ block.type }}</span>
@@ -2864,7 +3188,7 @@ function imageAssetId(node: JSONContent) {
   position: sticky;
   top: 0;
   z-index: 55;
-  height: 34px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2941,8 +3265,7 @@ function imageAssetId(node: JSONContent) {
   border: 1px solid #dce7f0;
   border-radius: var(--radius);
   background: linear-gradient(#ffffff, #f5f9fd);
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: visible;
   box-shadow: 0 7px 12px rgba(15, 23, 42, .05);
 }
 
@@ -3212,6 +3535,7 @@ function imageAssetId(node: JSONContent) {
 }
 
 .editor-shell {
+  --selection-row-width: calc(182mm + 48px);
   min-height: 240mm;
   padding: 14mm;
   background: #fff;
@@ -3237,59 +3561,68 @@ function imageAssetId(node: JSONContent) {
   position: absolute;
   z-index: -1;
   top: -5px;
-  right: -9px;
   bottom: -5px;
   left: -48px;
+  width: var(--selection-row-width);
+  box-sizing: border-box;
   border: 1px solid transparent;
   background: transparent;
   pointer-events: none;
   transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
 }
 
-.editor-shell :deep(.manual-selectable-block:hover::before) {
+.editor-shell.block-selection-mode :deep(.manual-selectable-block:hover::before) {
   border-color: #c5ddec;
   background: rgba(218, 238, 250, .58);
   box-shadow: 0 3px 10px rgba(14, 127, 187, .07);
 }
 
-.editor-shell :deep(.manual-selectable-block.selection-hovered::before) {
+.editor-shell.block-selection-mode :deep(.manual-selectable-block.selection-hovered::before) {
   border-color: #c5ddec;
   background: rgba(218, 238, 250, .58);
   box-shadow: 0 3px 10px rgba(14, 127, 187, .07);
 }
 
-.editor-shell :deep(.block-checkbox-widget:hover + .manual-selectable-block::before) {
+.editor-shell.block-selection-mode :deep(.block-checkbox-widget:hover + .manual-selectable-block::before) {
   border-color: #c5ddec;
   background: rgba(218, 238, 250, .58);
   box-shadow: 0 3px 10px rgba(14, 127, 187, .07);
 }
 
-.editor-shell :deep(.tableWrapper:has(.manual-selectable-block:hover)) {
+.editor-shell.block-selection-mode :deep(.tableWrapper:has(.manual-selectable-block:hover)) {
   position: relative;
   isolation: isolate;
 }
 
-.editor-shell :deep(.tableWrapper:has(.manual-selectable-block:hover)::before) {
+.editor-shell.block-selection-mode :deep(.tableWrapper:has(.manual-selectable-block:hover)::before) {
   content: "";
   position: absolute;
   z-index: -1;
-  inset: -5px -9px -5px -48px;
+  top: -5px;
+  bottom: -5px;
+  left: -48px;
+  width: var(--selection-row-width);
+  box-sizing: border-box;
   border: 1px solid #c5ddec;
   background: rgba(218, 238, 250, .58);
   box-shadow: 0 3px 10px rgba(14, 127, 187, .07);
   pointer-events: auto;
 }
 
-.editor-shell :deep(.block-checkbox-widget:hover + .tableWrapper) {
+.editor-shell.block-selection-mode :deep(.block-checkbox-widget:hover + .tableWrapper) {
   position: relative;
   isolation: isolate;
 }
 
-.editor-shell :deep(.block-checkbox-widget:hover + .tableWrapper::before) {
+.editor-shell.block-selection-mode :deep(.block-checkbox-widget:hover + .tableWrapper::before) {
   content: "";
   position: absolute;
   z-index: -1;
-  inset: -5px -9px -5px -48px;
+  top: -5px;
+  bottom: -5px;
+  left: -48px;
+  width: var(--selection-row-width);
+  box-sizing: border-box;
   border: 1px solid #c5ddec;
   background: rgba(218, 238, 250, .58);
   box-shadow: 0 3px 10px rgba(14, 127, 187, .07);
@@ -3326,6 +3659,11 @@ function imageAssetId(node: JSONContent) {
   /* border-color: var(--dikoin-blue); */
 }
 
+.editor-shell.block-selection-mode :deep(.block-checkbox-widget) {
+  opacity: 1;
+  transform: translateX(0);
+}
+
 .editor-shell :deep(.block-checkbox-widget input) {
   width: 15px;
   height: 15px;
@@ -3339,9 +3677,22 @@ function imageAssetId(node: JSONContent) {
 }
 
 .editor-shell :deep(.selected-manual-block) {
-  outline: 2px solid rgba(14, 127, 187, .38);
-  outline-offset: 5px;
-  background: linear-gradient(90deg, rgba(219, 238, 250, .72), rgba(239, 248, 253, .36));
+  background: transparent;
+}
+
+.rich-section.hidden .section-content {
+  opacity: .58;
+}
+
+.editor-shell :deep(.selected-manual-block:not(img)::before) {
+  border-color: rgba(14, 127, 187, .55);
+  background: linear-gradient(90deg, rgba(219, 238, 250, .78), rgba(239, 248, 253, .48));
+  box-shadow: 0 0 0 1px rgba(14, 127, 187, .18);
+}
+
+.editor-shell :deep(img.selected-manual-block) {
+  outline: 2px solid var(--dikoin-blue);
+  outline-offset: 3px;
 }
 
 .selection-actions {
@@ -3442,11 +3793,20 @@ function imageAssetId(node: JSONContent) {
   font-size: 12px;
 }
 
-.editor-shell :deep(h1::before),
-.editor-shell :deep(h2::before),
-.editor-shell :deep(h3::before) {
+.editor-shell :deep(h1),
+.editor-shell :deep(h2),
+.editor-shell :deep(h3) {
+  display: flex;
+  align-items: baseline;
+}
+
+.editor-shell :deep(h1::after),
+.editor-shell :deep(h2::after),
+.editor-shell :deep(h3::after) {
   content: attr(data-heading-number);
   display: inline-block;
+  order: -1;
+  flex: 0 0 auto;
   margin-right: 8px;
   color: var(--dikoin-blue);
   font-weight: 600;
@@ -3938,7 +4298,7 @@ function imageAssetId(node: JSONContent) {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
   background: rgba(15, 23, 42, .35);
   display: grid;
   place-items: center;
@@ -4136,6 +4496,23 @@ function imageAssetId(node: JSONContent) {
   width: min(520px, 100%);
 }
 
+.selection-warning-dialog {
+  width: min(540px, 100%);
+}
+
+.selection-warning-dialog header p,
+.selection-warning-dialog > p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.selection-warning-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .fragment-dialog header p,
 .reusable-dialog header p {
   margin: 4px 0 0;
@@ -4149,6 +4526,90 @@ function imageAssetId(node: JSONContent) {
   gap: 6px;
   color: var(--dikoin-blue-dark);
   font-size: 12px;
+  font-weight: 600;
+}
+
+.editor-shell :deep(img[data-align="inline"]) {
+  display: inline-block;
+  max-width: 100%;
+  margin: 4px 8px 4px 0;
+  vertical-align: top;
+}
+
+.editor-shell :deep(img[data-align="left"]) {
+  display: block;
+  margin: 6px auto 6px 0;
+}
+
+.editor-shell :deep(img[data-align="center"]) {
+  display: block;
+  margin: 6px auto;
+}
+
+.editor-shell :deep(img[data-align="right"]) {
+  display: block;
+  margin: 6px 0 6px auto;
+}
+
+.editor-shell :deep(table[data-align="center"]),
+.editor-shell :deep(.formula-block[data-align="center"]) {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.editor-shell :deep(table[data-align="right"]),
+.editor-shell :deep(.formula-block[data-align="right"]) {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.editor-shell :deep(table[data-align="left"]),
+.editor-shell :deep(.formula-block[data-align="left"]) {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.table-header-choice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 4px 4px;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.section-control {
+  max-width: 118px;
+  height: 26px;
+  border: 1px solid rgba(255, 255, 255, .45);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.section-control option {
+  color: var(--foreground);
+  background: #fff;
+}
+
+.section-control.visibility {
+  max-width: 82px;
+}
+
+.bar-save {
+  height: 26px;
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--dikoin-blue-dark);
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
   font-weight: 600;
 }
 

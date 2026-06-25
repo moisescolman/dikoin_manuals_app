@@ -182,6 +182,7 @@ export interface ManualSectionResponse {
   titleEs: string
   titleEn?: string
   completionStatus?: string
+  visible: boolean
   blocks: ManualBlockResponse[]
 }
 
@@ -228,6 +229,7 @@ export interface ManualSectionRequest {
   titleEs: string
   titleEn?: string
   completionStatus?: string
+  visible?: boolean
   blocks: ManualBlockRequest[]
 }
 
@@ -421,6 +423,7 @@ export interface ManualSectionPatchRequest {
   titleEs?: string
   titleEn?: string
   completionStatus?: string
+  visible?: boolean
 }
 
 export interface MoveBlockRequest {

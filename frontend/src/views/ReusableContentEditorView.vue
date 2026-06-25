@@ -39,7 +39,7 @@ async function load() {
 function emptySection(): EditorSection {
   return {
     id: randomId('reusable'), sortOrder: 1, sectionNumber: '1', level: 1,
-    titleEs: 'Contenido', titleEn: 'Content', status: 'READY', collapsed: false, blocks: [],
+    titleEs: 'Contenido', titleEn: 'Content', status: 'DRAFT', visible: true, collapsed: false, blocks: [],
   }
 }
 
@@ -54,6 +54,7 @@ function fromContent(value: ReusableBlockResponse) {
       titleEs: value.titleEs || value.title || parsed.titleEs,
       titleEn: value.titleEn || parsed.titleEn || value.titleEs || value.title,
       completionStatus: 'READY',
+      visible: true,
       blocks: (Array.isArray(parsed.blocks) ? parsed.blocks : []).map((block: any, index: number) => ({
         id: index,
         sortOrder: block.sortOrder ?? index + 1,
@@ -183,6 +184,7 @@ function changeLanguage(value: LanguageCode) {
         @update="updateForLanguage"
         @delete="section = emptySection()"
         @save-reusable="save"
+        @save-section="save"
       />
     </main>
   </section>

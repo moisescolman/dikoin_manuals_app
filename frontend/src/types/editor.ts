@@ -34,7 +34,8 @@ export interface EditorSection {
   level: number
   titleEs: string
   titleEn?: string
-  status: 'READY' | 'PENDING' | 'IMPORTED' | 'REVIEWED'
+  status: 'DRAFT' | 'COMPLETED' | 'REVIEW' | 'APPROVED'
+  visible: boolean
   collapsed: boolean
   blocks: EditorBlock[]
 }
@@ -130,6 +131,9 @@ export function blockContentToJson(block: EditorBlock): string {
       assetId: block.data?.assetId,
       width: block.data?.width,
       height: block.data?.height,
+      align: block.data?.align || 'inline',
+      offsetX: block.data?.offsetX || 0,
+      offsetY: block.data?.offsetY || 0,
       json: block.data?.json,
     })
   }
@@ -140,6 +144,8 @@ export function blockContentToJson(block: EditorBlock): string {
         columns: block.data?.columns || [],
         rows: block.data?.rows || [],
         width: block.data?.width,
+        hasHeader: block.data?.hasHeader !== false,
+        align: block.data?.align || 'left',
         json: block.data?.json,
       })
     }
@@ -148,7 +154,14 @@ export function blockContentToJson(block: EditorBlock): string {
       .filter(Boolean)
       .map((line) => line.split('|').map((cell) => cell.trim()))
     const columns = rows[0] ?? []
-    return JSON.stringify({ type: 'table', columns, rows: rows.slice(1), width: block.data?.width })
+    return JSON.stringify({
+      type: 'table',
+      columns,
+      rows: rows.slice(1),
+      width: block.data?.width,
+      hasHeader: block.data?.hasHeader !== false,
+      align: block.data?.align || 'left',
+    })
   }
   if (block.type === 'formula') {
     return JSON.stringify({
@@ -161,6 +174,9 @@ export function blockContentToJson(block: EditorBlock): string {
       equationNumber: block.data?.equationNumber || null,
       caption: block.data?.caption || '',
       align: block.data?.align || 'center',
+      width: block.data?.width,
+      offsetX: block.data?.offsetX || 0,
+      offsetY: block.data?.offsetY || 0,
     })
   }
   if (block.data?.json || block.data?.html) {
@@ -202,7 +218,8 @@ export function sectionsFromBackend(sections: ManualSectionResponse[] = []): Edi
     level: section.level || 1,
     titleEs: section.titleEs,
     titleEn: section.titleEn,
-    status: (section.completionStatus as EditorSection['status']) || 'PENDING',
+    status: normalizeSectionStatus(section.completionStatus),
+    visible: section.visible !== false,
     collapsed: false,
     blocks: section.blocks.map((block) => ({
       id: randomId('block'),
@@ -240,6 +257,7 @@ export function versionRequestFromEditor(params: {
       titleEs: section.titleEs,
       titleEn: section.titleEn,
       completionStatus: section.status,
+      visible: section.visible,
       blocks: section.blocks.map((block, blockIndex) => ({
         id: block.backendId,
         sortOrder: blockIndex + 1,
@@ -252,6 +270,14 @@ export function versionRequestFromEditor(params: {
       })),
     })),
   }
+}
+
+function normalizeSectionStatus(status?: string): EditorSection['status'] {
+  const normalized = String(status || '').toUpperCase()
+  if (normalized === 'READY' || normalized === 'COMPLETED') return 'COMPLETED'
+  if (normalized === 'REVIEWED' || normalized === 'REVIEW') return 'REVIEW'
+  if (normalized === 'APPROVED') return 'APPROVED'
+  return 'DRAFT'
 }
 
 function contentTypeFromJson(contentJson: string): EditorBlockType | null {
