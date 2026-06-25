@@ -8,8 +8,11 @@ import type {
   ReusableFragmentInsertResponse,
 } from '@/types/api'
 
-export async function getReusableBlocks(includeInactive = false) {
-  const { data } = await http.get<ReusableBlockResponse[]>('/reusable-blocks', { params: { includeInactive } })
+export async function getReusableBlocks(
+  includeInactive = false,
+  type?: ReusableBlockResponse['reusableType'],
+) {
+  const { data } = await http.get<ReusableBlockResponse[]>('/reusable-blocks', { params: { includeInactive, type } })
   return data
 }
 
@@ -36,6 +39,10 @@ export async function insertReusableFragment(id: number, request: InsertReusable
 export async function updateReusableBlock(id: number, request: ReusableBlockRequest) {
   const { data } = await http.put<ReusableBlockResponse>(`/reusable-blocks/${id}`, request)
   return data
+}
+
+export async function deleteReusableBlock(id: number) {
+  await http.delete(`/reusable-blocks/${id}`)
 }
 
 export async function getReusableBlockUsages(id: number) {

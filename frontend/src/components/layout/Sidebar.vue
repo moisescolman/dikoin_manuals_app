@@ -39,7 +39,7 @@ const nav = [
   { name: 'import', label: 'Importar manual', icon: Upload },
   { name: 'products', label: 'Productos', icon: Package },
   { name: 'notes', label: 'Notas', icon: StickyNote },
-  { name: 'reusable-blocks', label: 'Bloques', icon: SquareDashedText },
+  { name: 'reusable-blocks', label: 'Secciones', icon: SquareDashedText },
   { name: 'reusable-fragments', label: 'Fragmentos', icon: Group },
   { name: 'templates', label: 'Plantillas', icon: LayoutTemplate },
   { name: 'assets', label: 'Assets', icon: Archive },

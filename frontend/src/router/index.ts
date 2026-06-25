@@ -13,6 +13,8 @@ import ProductsView from '@/views/ProductsView.vue'
 import AssetsView from '@/views/AssetsView.vue'
 import NotesView from '@/views/NotesView.vue'
 import ReusableBlocksView from '@/views/ReusableBlocksView.vue'
+import ReusableFragmentsView from '@/views/ReusableFragmentsView.vue'
+import ReusableContentEditorView from '@/views/ReusableContentEditorView.vue'
 import TemplatesView from '@/views/TemplatesView.vue'
 import HistoryView from '@/views/HistoryView.vue'
 import ClientPortalView from '@/views/ClientPortalView.vue'
@@ -36,7 +38,10 @@ const router = createRouter({
         { path: 'importar', name: 'import', component: ImportManualView },
         { path: 'productos', name: 'products', component: ProductsView },
         { path: 'notas', name: 'notes', component: NotesView },
-        { path: 'bloques', name: 'reusable-blocks', component: ReusableBlocksView },
+        { path: 'secciones', alias: '/bloques', name: 'reusable-blocks', component: ReusableBlocksView },
+        { path: 'secciones/:id/editor', name: 'reusable-section-editor', component: ReusableContentEditorView, props: (route) => ({ id: route.params.id, kind: 'SINGLE_BLOCK' }) },
+        { path: 'fragmentos', name: 'reusable-fragments', component: ReusableFragmentsView },
+        { path: 'fragmentos/:id/editor', name: 'reusable-fragment-editor', component: ReusableContentEditorView, props: (route) => ({ id: route.params.id, kind: 'FRAGMENT' }) },
         { path: 'assets', name: 'assets', component: AssetsView },
         { path: 'plantillas', name: 'templates', component: TemplatesView },
         { path: 'historial/:id?', name: 'history', component: HistoryView, props: true },

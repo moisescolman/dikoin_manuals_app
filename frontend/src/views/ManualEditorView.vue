@@ -183,10 +183,8 @@ function duplicateSection(index: number) {
 async function saveReusable(section: EditorSection) {
   flushSectionEditors()
   const currentSection = sections.value.find((item) => item.id === section.id) || section
-  const title = window.prompt('Título del bloque reutilizable', currentSection.titleEs || currentSection.titleEn || 'Bloque reutilizable')
+  const title = window.prompt('Título de la sección reutilizable', currentSection.titleEs || currentSection.titleEn || 'Sección reutilizable')
   if (!title) return
-  const code = window.prompt('Código del bloque reutilizable', `BLQ-${String(Date.now()).slice(-6)}`)
-  if (!code) return
   const request = versionRequestFromEditor({
     versionNumber: '1',
     status: 'DRAFT',
@@ -196,11 +194,18 @@ async function saveReusable(section: EditorSection) {
     sections: [currentSection],
   })
   await createReusableBlock({
-    code,
     title,
+    titleEs: title,
+    titleEn: currentSection.titleEn,
+    reusableType: 'SINGLE_BLOCK',
     productCategory: manual.value?.category || '',
     productCodes: manual.value?.productCode || '',
-    contentJson: JSON.stringify({ blocks: request.sections[0].blocks }),
+    contentJson: JSON.stringify({
+      type: 'SECTION',
+      titleEs: currentSection.titleEs,
+      titleEn: currentSection.titleEn,
+      blocks: request.sections[0].blocks,
+    }),
     active: true,
   })
   saved.value = true

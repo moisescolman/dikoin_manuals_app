@@ -125,6 +125,7 @@ const fragmentDescription = ref('')
 const fragmentSaving = ref(false)
 const fragmentMessage = ref('')
 const fragmentInsertPosition = ref<'END' | 'AFTER_SELECTION'>('END')
+const fragmentPreviewBlocks = computed(() => selectedBlocksFromDocument())
 const moveTargetSectionId = ref('')
 const equationTextarea = ref<HTMLTextAreaElement | null>(null)
 const editingEquationPos = ref<number | null>(null)
@@ -197,6 +198,32 @@ const NoteBox = Node.create({
         class: 'note-drag-handle',
       },
     ], ['span', { class: 'note-content' }, 0]]
+  },
+})
+
+const ReusableSectionBox = Node.create({
+  name: 'reusableSectionBox',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      refId: { default: null },
+      title: { default: 'Sección reutilizable' },
+      code: { default: '' },
+    }
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-reusable-section]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes(HTMLAttributes, {
+      'data-reusable-section': 'true',
+      class: 'reusable-section-box',
+      draggable: 'true',
+      contenteditable: 'false',
+    }), ['strong', {}, `${String(HTMLAttributes.code || '')} · ${String(HTMLAttributes.title || 'Sección reutilizable')}`]]
   },
 })
 
@@ -450,6 +477,7 @@ const editor = useEditor({
     TableHeader,
     TableCell,
     NoteBox,
+    ReusableSectionBox,
     FormulaBlock,
     BlockIdentity,
     BlockSelection,
@@ -2001,6 +2029,21 @@ function insertReusableFragment(fragment: ReusableBlockResponse) {
   }
 }
 
+function insertReusableSection(sectionItem: ReusableBlockResponse) {
+  editor.value?.chain().focus().insertContent({
+    type: 'reusableSectionBox',
+    attrs: {
+      refId: sectionItem.id,
+      code: sectionItem.code,
+      title: props.language === 'EN'
+        ? sectionItem.titleEn || sectionItem.title
+        : sectionItem.titleEs || sectionItem.title,
+    },
+  }).run()
+  markEditorDirty()
+  showReusableModal.value = false
+}
+
 function insertNotice(notice: NoticeTemplateResponse) {
   editor.value?.chain().focus().insertContent({
     type: 'noteBox',
@@ -2107,6 +2150,21 @@ function nodeFromBlock(block: EditorBlock): JSONContent[] {
       content: textContent(notice ? noticeContent(notice) : String(data.text || block.content)),
     }]
   }
+  if (block.type === 'bloque-ref') {
+    const refId = Number(block.content || data.reusableBlockId || savedJson?.attrs?.refId || 0)
+    const reusable = reusableBlocks.value.find((item) => item.id === refId)
+    return [{
+      type: 'reusableSectionBox',
+      attrs: {
+        ...identity,
+        refId,
+        code: reusable?.code || savedJson?.attrs?.code || '',
+        title: reusable
+          ? (props.language === 'EN' ? reusable.titleEn || reusable.title : reusable.titleEs || reusable.title)
+          : String(savedJson?.attrs?.title || 'Sección reutilizable'),
+      },
+    }]
+  }
   if (savedJson?.type) {
     const clonedJson = JSON.parse(JSON.stringify(savedJson)) as JSONContent
     return [{ ...clonedJson, attrs: { ...(clonedJson.attrs || {}), ...identity } }]
@@ -2209,6 +2267,16 @@ function blockFromNode(node: JSONContent): EditorBlock[] {
       return [editorBlock('nota-ref', String(refId), { type: 'notice_ref', json: node, noticeTemplateId: refId, title: node.attrs?.title, text: plainText(node) })]
     }
     return [editorBlock('nota', plainText(node), { type: 'note', json: node, title: node.attrs?.title || 'Nota', text: plainText(node) })]
+  }
+  if (node.type === 'reusableSectionBox') {
+    const refId = Number(node.attrs?.refId || 0)
+    return [editorBlock('bloque-ref', String(refId), {
+      type: 'reusable_block_ref',
+      json: node,
+      reusableBlockId: refId,
+      title: node.attrs?.title,
+      code: node.attrs?.code,
+    }, node)]
   }
   if (node.type === 'formulaBlock') {
     return [editorBlock('formula', String(node.attrs?.latex || ''), {
@@ -2617,6 +2685,15 @@ function imageAssetId(node: JSONContent) {
           Descripción opcional
           <textarea v-model="fragmentDescription" class="field" rows="3" maxlength="600" placeholder="Qué incluye y cuándo conviene reutilizarlo" />
         </label>
+        <section class="fragment-preview">
+          <strong>Vista previa del fragmento ({{ language }})</strong>
+          <ol>
+            <li v-for="block in fragmentPreviewBlocks" :key="block.id">
+              <span>{{ block.type }}</span>
+              <p>{{ block.content || 'Bloque sin texto' }}</p>
+            </li>
+          </ol>
+        </section>
         <p v-if="fragmentMessage" class="dialog-message">{{ fragmentMessage }}</p>
         <footer>
           <button type="button" class="btn btn-outline" @click="showFragmentModal = false">Cancelar</button>
@@ -2652,8 +2729,8 @@ function imageAssetId(node: JSONContent) {
       <div class="modal-card reusable-dialog">
         <header>
           <div>
-            <h3>Insertar fragmento</h3>
-            <p>Se insertará como copia independiente en esta sección.</p>
+            <h3>Insertar contenido reutilizable</h3>
+            <p>Las secciones quedan vinculadas; los fragmentos se insertan como copia editable.</p>
           </div>
           <button @click="showReusableModal = false">×</button>
         </header>
@@ -2665,16 +2742,31 @@ function imageAssetId(node: JSONContent) {
               <option value="AFTER_SELECTION" :disabled="!hasSelection">Después del último bloque seleccionado</option>
             </select>
           </label>
-          <button type="button" disabled title="Disponible en una fase posterior">Vinculado · Próximamente</button>
         </div>
         <p v-if="fragmentMessage" class="dialog-message">{{ fragmentMessage }}</p>
+        <strong class="library-subtitle">Secciones dinámicas</strong>
+        <div class="fragment-library">
+          <button
+            v-for="sectionItem in reusableBlocks.filter((item) => item.reusableType === 'SINGLE_BLOCK')"
+            :key="sectionItem.id"
+            @click="insertReusableSection(sectionItem)"
+          >
+            <strong>{{ sectionItem.titleEs || sectionItem.title }}</strong>
+            <span>{{ sectionItem.titleEn || sectionItem.description || sectionItem.code }}</span>
+            <small>VINCULADA</small>
+          </button>
+          <p v-if="!reusableBlocks.some((item) => item.reusableType === 'SINGLE_BLOCK')" class="text-muted">
+            Todavía no hay secciones reutilizables.
+          </p>
+        </div>
+        <strong class="library-subtitle">Fragmentos</strong>
         <div class="fragment-library">
           <button
             v-for="fragment in reusableBlocks.filter((item) => item.reusableType === 'FRAGMENT')"
             :key="fragment.id"
             @click="insertReusableFragment(fragment)"
           >
-            <strong>{{ fragment.title }}</strong>
+            <strong>{{ fragment.titleEs || fragment.title }}</strong>
             <span>{{ fragment.description || fragment.code }}</span>
             <small>COPIA</small>
           </button>
@@ -3128,6 +3220,7 @@ function imageAssetId(node: JSONContent) {
 .editor-shell :deep(.rich-editor-surface) {
   min-height: 220mm;
   outline: 0;
+  font-family: Arial, sans-serif;
   font-size: 12px;
   line-height: 1.42;
   position: relative;
@@ -4059,6 +4152,47 @@ function imageAssetId(node: JSONContent) {
   font-weight: 600;
 }
 
+.fragment-preview {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #f8fbfe;
+}
+
+.fragment-preview > strong {
+  color: var(--dikoin-blue-dark);
+  font-size: 12px;
+}
+
+.fragment-preview ol {
+  max-height: 240px;
+  margin: 0;
+  padding-left: 24px;
+  overflow: auto;
+}
+
+.fragment-preview li {
+  padding: 6px 0;
+}
+
+.fragment-preview span {
+  color: var(--dikoin-blue);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.fragment-preview p {
+  max-height: 44px;
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 .fragment-dialog footer,
 .move-dialog footer {
   display: flex;
@@ -4078,6 +4212,22 @@ function imageAssetId(node: JSONContent) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 10px;
+}
+
+.library-subtitle {
+  color: var(--dikoin-blue-dark);
+  font-size: 12px;
+}
+
+.editor-shell :deep(.reusable-section-box) {
+  margin: 10px 0;
+  padding: 14px 16px;
+  border: 1px solid #93c5fd;
+  border-left: 5px solid var(--dikoin-blue);
+  border-radius: var(--radius);
+  background: #eff8ff;
+  color: var(--dikoin-blue-dark);
+  cursor: grab;
 }
 
 .fragment-insert-options {

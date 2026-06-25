@@ -3,5 +3,5 @@ import ReusableContentView from '@/components/reusable/ReusableContentView.vue'
 </script>
 
 <template>
-  <ReusableContentView kind="SINGLE_BLOCK" />
+  <ReusableContentView kind="FRAGMENT" />
 </template>

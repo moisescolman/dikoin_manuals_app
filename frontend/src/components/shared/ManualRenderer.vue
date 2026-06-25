@@ -596,7 +596,16 @@ function contentPageForBlock(blockId: number) {
               <p>{{ noticeContent(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</p>
             </div>
             <div v-else-if="content(unit.block.contentJson).type === 'reusable_block_ref'" class="linked-block">
-              <strong>{{ reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.title || 'Bloque común' }}</strong>
+              <strong>
+                {{
+                  activeLanguage() === 'EN'
+                    ? reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.titleEn
+                      || reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.title
+                    : reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.titleEs
+                      || reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.title
+                    || 'Sección reutilizable'
+                }}
+              </strong>
               <div v-for="(innerBlock, innerIndex) in reusableRenderBlocks(content(unit.block.contentJson).reusableBlockId)" :key="innerIndex" class="doc-block">
                 <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
                 <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
@@ -761,6 +770,7 @@ function contentPageForBlock(blockId: number) {
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   overflow: hidden;
+  font-family: Arial, sans-serif;
 }
 
 .paper-header {

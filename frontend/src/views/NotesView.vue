@@ -204,34 +204,7 @@ async function confirmDelete() {
     <BackendError :message="error" />
     <div v-if="saved" class="success-msg">{{ saved }}</div>
 
-    <div class="notes-grid">
-      <aside class="card list">
-        <div class="list-head">
-          <div>
-            <h2>Biblioteca de notas</h2>
-            <span>{{ notes.length }} notas</span>
-          </div>
-        </div>
-        <button v-for="note in notes" :key="note.id" :class="{ active: note.id === selectedId }" @click="select(note)">
-          <div class="note-row-main">
-            <span class="mono">{{ note.code }}</span>
-            <strong>{{ note.titleEs || note.titleEn }}</strong>
-            <small>{{ note.active ? 'Activa' : 'Inactiva' }}</small>
-          </div>
-          <div class="note-language-snippets">
-            <div class="note-row-content">
-              <span>ES · {{ note.visibleTitleEs || 'Nota' }}</span>
-              <p>{{ note.contentEs }}</p>
-            </div>
-            <div class="note-row-content">
-              <span>EN · {{ note.visibleTitleEn || 'Note' }}</span>
-              <p>{{ note.contentEn || 'Sin version en ingles' }}</p>
-            </div>
-          </div>
-        </button>
-        <p v-if="!notes.length && !loading" class="text-muted empty-list">No hay notas creadas.</p>
-      </aside>
-
+    <div class="notes-layout">
       <form class="card editor" @submit.prevent="save">
         <section class="preview-panel" aria-label="Vista previa de la nota">
           <div class="panel-title">
@@ -323,6 +296,34 @@ async function confirmDelete() {
         </div>
       </form>
 
+      <section class="card list-card">
+        <div class="list-head">
+          <div>
+            <h2>Biblioteca de notas</h2>
+            <span>{{ notes.length }} notas</span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="table">
+            <thead>
+              <tr><th>Código</th><th>Título ES</th><th>Título EN</th><th>Contenido ES</th><th>Contenido EN</th><th>Categoría</th><th>Estado</th></tr>
+            </thead>
+            <tbody>
+              <tr v-if="loading && !notes.length"><td colspan="7">Cargando notas...</td></tr>
+              <tr v-else-if="!notes.length"><td colspan="7">No hay notas creadas.</td></tr>
+              <tr v-for="note in notes" :key="note.id" :class="{ selected: note.id === selectedId }" @click="select(note)">
+                <td class="mono">{{ note.code }}</td>
+                <td class="note-title">{{ note.titleEs || '—' }}</td>
+                <td>{{ note.titleEn || '—' }}</td>
+                <td class="snippet">{{ note.contentEs }}</td>
+                <td class="snippet">{{ note.contentEn || '—' }}</td>
+                <td>{{ note.productCategory || '—' }}</td>
+                <td>{{ note.active ? 'Activa' : 'Inactiva' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </section>
 </template>
@@ -664,6 +665,61 @@ label {
   border-color: var(--dikoin-red);
 }
 
+.notes-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(250px, 1fr);
+  gap: 16px;
+  overflow: hidden;
+}
+
+.editor {
+  max-height: min(610px, 62vh);
+}
+
+.list-card {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.list-card .list-head {
+  position: static;
+  flex: 0 0 auto;
+}
+
+.table-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.table-scroll tbody tr {
+  cursor: pointer;
+}
+
+.table-scroll tbody tr.selected td {
+  background: var(--dikoin-blue-lighter);
+}
+
+.note-title {
+  color: var(--dikoin-blue);
+  font-weight: 600;
+}
+
+.snippet {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-preview,
+.note-text {
+  font-family: Arial, sans-serif;
+}
+
 @media (max-width: 1100px) {
   .notes-page {
     height: auto;
@@ -672,6 +728,10 @@ label {
 
   .notes-grid {
     grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .notes-layout {
     overflow: visible;
   }
 

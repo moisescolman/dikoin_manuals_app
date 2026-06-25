@@ -349,7 +349,11 @@ export interface ReusableBlockResponse {
   id: number
   code: string
   title: string
+  titleEs?: string
+  titleEn?: string
   description?: string
+  descriptionEs?: string
+  descriptionEn?: string
   reusableType: 'SINGLE_BLOCK' | 'FRAGMENT' | 'NOTE'
   productCategory?: string
   productCodes?: string
@@ -360,9 +364,13 @@ export interface ReusableBlockResponse {
 }
 
 export interface ReusableBlockRequest {
-  code: string
-  title: string
+  code?: string
+  title?: string
+  titleEs: string
+  titleEn?: string
   description?: string
+  descriptionEs?: string
+  descriptionEn?: string
   reusableType?: 'SINGLE_BLOCK' | 'FRAGMENT' | 'NOTE'
   productCategory?: string
   productCodes?: string
