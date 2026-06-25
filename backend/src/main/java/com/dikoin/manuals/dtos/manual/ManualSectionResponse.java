@@ -11,6 +11,7 @@ public record ManualSectionResponse(
         String titleEs,
         String titleEn,
         String completionStatus,
+        boolean visible,
         List<ManualBlockResponse> blocks
 ) {
 }

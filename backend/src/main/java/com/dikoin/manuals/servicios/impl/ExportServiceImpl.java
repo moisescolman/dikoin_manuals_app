@@ -160,7 +160,7 @@ public class ExportServiceImpl implements ExportService {
     }
 
     private String pdfFilename(Manual manual, ManualVersion version, LanguageCode languageCode) {
-        return sanitizeFilename(manual.getCode()) + "_v" + sanitizeFilename(version.getVersionNumber()) + "_" + languageCode + ".pdf";
+        return sanitizeFilename(manual.getCode()) + "_v" + sanitizeFilename(version.getVersionNumber()) + "_[" + languageCode + "].pdf";
     }
 
     private String sanitizeFilename(String value) {

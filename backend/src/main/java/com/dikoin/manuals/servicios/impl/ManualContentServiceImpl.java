@@ -54,6 +54,7 @@ public class ManualContentServiceImpl implements ManualContentService {
                 .titleEs(request.titleEs())
                 .titleEn(request.titleEn())
                 .completionStatus(request.completionStatus())
+                .visible(request.visible() == null || request.visible())
                 .build();
         ManualSection saved = manualSectionRepository.save(section);
         recalculate(version);
@@ -75,6 +76,9 @@ public class ManualContentServiceImpl implements ManualContentService {
         }
         if (request.completionStatus() != null) {
             section.setCompletionStatus(request.completionStatus());
+        }
+        if (request.visible() != null) {
+            section.setVisible(request.visible());
         }
         return manualMapper.toSectionResponse(manualSectionRepository.save(section));
     }

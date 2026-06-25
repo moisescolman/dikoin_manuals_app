@@ -15,6 +15,7 @@ public record ManualSectionRequest(
         @NotBlank String titleEs,
         String titleEn,
         String completionStatus,
+        Boolean visible,
         @Valid List<ManualBlockRequest> blocks
 ) {
 }

@@ -97,6 +97,7 @@ public class ManualMapper {
                 section.getTitleEs(),
                 section.getTitleEn(),
                 section.getCompletionStatus(),
+                section.isVisible(),
                 section.getBlocks().stream()
                         .sorted(Comparator.comparing(ManualBlock::getSortOrder))
                         .map(this::toBlockResponse)

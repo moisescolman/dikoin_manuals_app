@@ -8,18 +8,15 @@ import org.springframework.stereotype.Service;
 public class ManualCodeService {
 
     public String generate(DocumentType documentType, Product product, String year, String version, String languageCode) {
-        if (documentType == null || product == null || isBlank(year) || isBlank(version) || isBlank(languageCode)) {
+        if (documentType == null || product == null || isBlank(year) || isBlank(version)) {
             return null;
         }
         return documentType.getCode().trim().toUpperCase()
                 + "-"
                 + product.getCode().trim().toUpperCase()
-                + "-"
+                + " "
                 + twoDigits(year)
-                + twoDigits(version)
-                + "["
-                + languageCode.trim().toUpperCase()
-                + "]";
+                + twoDigits(version);
     }
 
     public String twoDigits(String value) {

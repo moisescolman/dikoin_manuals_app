@@ -66,10 +66,11 @@ public class ManualServiceImpl implements ManualService {
             throw new ApiException("Ya existe un manual con el codigo " + code);
         }
 
+        String initialTitleEs = request.titleEs() == null || request.titleEs().isBlank() ? request.title() : request.titleEs();
         Manual manual = Manual.builder()
                 .code(code)
                 .title(request.title())
-                .titleEs(request.titleEs() == null || request.titleEs().isBlank() ? request.title() : request.titleEs())
+                .titleEs(initialTitleEs)
                 .titleEn(request.titleEn())
                 .category(request.category())
                 .documentType(documentType)
@@ -231,15 +232,23 @@ public class ManualServiceImpl implements ManualService {
                 .sortOrder(1)
                 .sectionNumber("1")
                 .titleEs("Introduccion")
-                .titleEn("Introduction")
+                .titleEn("Introduccion")
                 .completionStatus("PENDING")
                 .build();
+        String initialContent = "{\"type\":\"paragraph\",\"text\":\"Contenido inicial del manual.\"}";
         section.getBlocks().add(ManualBlock.builder()
                 .section(section)
                 .sortOrder(1)
                 .blockType(com.dikoin.manuals.enums.BlockType.PARAGRAPH)
-                .languageCode(initialLanguage)
-                .contentJson("{\"type\":\"paragraph\",\"text\":\"Contenido inicial del manual.\"}")
+                .languageCode(LanguageCode.ES)
+                .contentJson(initialContent)
+                .build());
+        section.getBlocks().add(ManualBlock.builder()
+                .section(section)
+                .sortOrder(1)
+                .blockType(com.dikoin.manuals.enums.BlockType.PARAGRAPH)
+                .languageCode(LanguageCode.EN)
+                .contentJson(initialContent)
                 .build());
         version.getSections().add(section);
         return manualVersionRepository.save(version);
@@ -279,6 +288,7 @@ public class ManualServiceImpl implements ManualService {
             section.setTitleEs(request.titleEs());
             section.setTitleEn(request.titleEn());
             section.setCompletionStatus(request.completionStatus());
+            section.setVisible(request.visible() == null || request.visible());
             mergeBlocks(section, request.blocks() == null ? List.of() : request.blocks());
             merged.add(section);
             requestBySection.put(section, request);
@@ -336,12 +346,56 @@ public class ManualServiceImpl implements ManualService {
             merged.add(block);
         }
 
-        section.getBlocks().removeIf(block -> !merged.contains(block));
-        for (ManualBlock block : merged) {
+        List<ManualBlock> bilingual = normalizeBilingualBlocks(section, merged);
+        section.getBlocks().removeIf(block -> !bilingual.contains(block));
+        for (ManualBlock block : bilingual) {
             if (!section.getBlocks().contains(block)) {
                 section.getBlocks().add(block);
             }
         }
+    }
+
+    private List<ManualBlock> normalizeBilingualBlocks(ManualSection section, List<ManualBlock> blocks) {
+        List<ManualBlock> spanish = blocks.stream()
+                .filter(block -> block.getLanguageCode() == LanguageCode.ES)
+                .sorted(Comparator.comparing(ManualBlock::getSortOrder))
+                .toList();
+        List<ManualBlock> english = blocks.stream()
+                .filter(block -> block.getLanguageCode() == LanguageCode.EN)
+                .sorted(Comparator.comparing(ManualBlock::getSortOrder))
+                .toList();
+        int count = Math.max(spanish.size(), english.size());
+        List<ManualBlock> normalized = new ArrayList<>(count * 2);
+        for (int index = 0; index < count; index++) {
+            ManualBlock es = index < spanish.size()
+                    ? spanish.get(index)
+                    : cloneBlock(section, english.get(index), LanguageCode.ES);
+            ManualBlock en = index < english.size()
+                    ? english.get(index)
+                    : cloneBlock(section, spanish.get(index), LanguageCode.EN);
+            en.setBlockType(es.getBlockType());
+            if (es.getBlockType() == com.dikoin.manuals.enums.BlockType.IMAGE) {
+                en.setAsset(es.getAsset());
+            }
+            es.setSortOrder(index + 1);
+            en.setSortOrder(index + 1);
+            normalized.add(es);
+            normalized.add(en);
+        }
+        return normalized;
+    }
+
+    private ManualBlock cloneBlock(ManualSection section, ManualBlock source, LanguageCode language) {
+        return ManualBlock.builder()
+                .section(section)
+                .sortOrder(source.getSortOrder())
+                .blockType(source.getBlockType())
+                .languageCode(language)
+                .contentJson(source.getContentJson())
+                .plainText(source.getPlainText())
+                .asset(source.getAsset())
+                .reusableBlock(source.getReusableBlock())
+                .build();
     }
 
     private void validateBlock(ManualBlockRequest request) {

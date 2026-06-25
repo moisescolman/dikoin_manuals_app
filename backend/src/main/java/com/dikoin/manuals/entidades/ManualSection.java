@@ -47,6 +47,10 @@ public class ManualSection {
     @Column(length = 40)
     private String completionStatus;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean visible = true;
+
     @OneToMany(mappedBy = "section", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sortOrder ASC")
     @Builder.Default

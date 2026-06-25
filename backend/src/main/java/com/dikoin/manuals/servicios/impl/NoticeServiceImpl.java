@@ -33,8 +33,8 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class NoticeServiceImpl implements NoticeService {
 
-    private static final String NOTE_CODE_PREFIX = "NOTA-";
-    private static final Pattern NOTE_CODE_PATTERN = Pattern.compile("^NOTA-(\\d+)$", Pattern.CASE_INSENSITIVE);
+    private static final String NOTE_CODE_PREFIX = "NOT-";
+    private static final Pattern NOTE_CODE_PATTERN = Pattern.compile("^NOT-(\\d+)$", Pattern.CASE_INSENSITIVE);
 
     private final NoticeTemplateRepository noticeTemplateRepository;
     private final NoticeApplicationRepository noticeApplicationRepository;
