@@ -2,6 +2,7 @@ package com.dikoin.manuals.rest;
 
 import com.dikoin.manuals.dtos.exportjob.ExportJobResponse;
 import com.dikoin.manuals.enums.LanguageCode;
+import com.dikoin.manuals.exceptions.ResourceNotFoundException;
 import com.dikoin.manuals.servicios.ExportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
@@ -12,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.MalformedURLException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 @RestController
@@ -32,7 +34,13 @@ public class ExportJobRestController {
     @GetMapping("/{id}/file")
     public ResponseEntity<Resource> file(@PathVariable Long id) throws MalformedURLException {
         Path path = exportService.resolvePdfPath(id);
+        if (path == null || !Files.exists(path) || !Files.isRegularFile(path) || !Files.isReadable(path)) {
+            throw new ResourceNotFoundException("PDF no encontrado");
+        }
         Resource resource = new UrlResource(path.toUri());
+        if (!resource.exists() || !resource.isReadable()) {
+            throw new ResourceNotFoundException("PDF no encontrado");
+        }
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + path.getFileName() + "\"")

@@ -2,6 +2,7 @@ package com.dikoin.manuals.rest;
 
 import com.dikoin.manuals.dtos.asset.AssetResponse;
 import com.dikoin.manuals.enums.AssetType;
+import com.dikoin.manuals.exceptions.ResourceNotFoundException;
 import com.dikoin.manuals.servicios.AssetStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
@@ -58,7 +59,13 @@ public class AssetRestController {
     }
 
     private ResponseEntity<Resource> resourceResponse(Path path) throws MalformedURLException {
+        if (path == null || !Files.exists(path) || !Files.isRegularFile(path) || !Files.isReadable(path)) {
+            throw new ResourceNotFoundException("Archivo no encontrado");
+        }
         Resource resource = new UrlResource(path.toUri());
+        if (!resource.exists() || !resource.isReadable()) {
+            throw new ResourceNotFoundException("Archivo no encontrado");
+        }
         String contentType;
         try {
             contentType = Files.probeContentType(path);

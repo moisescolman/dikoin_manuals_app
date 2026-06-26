@@ -1,6 +1,7 @@
 package com.dikoin.manuals.exceptions;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,11 +26,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
-        Map<String, Object> body = base(HttpStatus.BAD_REQUEST, "Datos no validos");
+        Map<String, Object> body = base(HttpStatus.BAD_REQUEST, "Datos no válidos");
         body.put("errors", ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .toList());
-        return ResponseEntity.badRequest().body(body);
+        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
     @ExceptionHandler(Exception.class)
@@ -38,7 +39,7 @@ public class GlobalExceptionHandler {
     }
 
     private ResponseEntity<Map<String, Object>> build(HttpStatus status, String message) {
-        return ResponseEntity.status(status).body(base(status, message));
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(base(status, message));
     }
 
     private Map<String, Object> base(HttpStatus status, String message) {
