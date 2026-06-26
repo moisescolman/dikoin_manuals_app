@@ -232,22 +232,16 @@ public class ManualServiceImpl implements ManualService {
                 .sortOrder(1)
                 .sectionNumber("1")
                 .titleEs("Introduccion")
-                .titleEn("Introduccion")
+                .titleEn(initialLanguage == LanguageCode.EN ? "Introduction" : null)
                 .completionStatus("PENDING")
                 .build();
-        String initialContent = "{\"type\":\"paragraph\",\"text\":\"Contenido inicial del manual.\"}";
+        String initialText = initialLanguage == LanguageCode.EN ? "Initial manual content." : "Contenido inicial del manual.";
+        String initialContent = "{\"type\":\"paragraph\",\"text\":\"" + initialText + "\"}";
         section.getBlocks().add(ManualBlock.builder()
                 .section(section)
                 .sortOrder(1)
                 .blockType(com.dikoin.manuals.enums.BlockType.PARAGRAPH)
-                .languageCode(LanguageCode.ES)
-                .contentJson(initialContent)
-                .build());
-        section.getBlocks().add(ManualBlock.builder()
-                .section(section)
-                .sortOrder(1)
-                .blockType(com.dikoin.manuals.enums.BlockType.PARAGRAPH)
-                .languageCode(LanguageCode.EN)
+                .languageCode(initialLanguage)
                 .contentJson(initialContent)
                 .build());
         version.getSections().add(section);
@@ -346,56 +340,12 @@ public class ManualServiceImpl implements ManualService {
             merged.add(block);
         }
 
-        List<ManualBlock> bilingual = normalizeBilingualBlocks(section, merged);
-        section.getBlocks().removeIf(block -> !bilingual.contains(block));
-        for (ManualBlock block : bilingual) {
+        section.getBlocks().removeIf(block -> !merged.contains(block));
+        for (ManualBlock block : merged) {
             if (!section.getBlocks().contains(block)) {
                 section.getBlocks().add(block);
             }
         }
-    }
-
-    private List<ManualBlock> normalizeBilingualBlocks(ManualSection section, List<ManualBlock> blocks) {
-        List<ManualBlock> spanish = blocks.stream()
-                .filter(block -> block.getLanguageCode() == LanguageCode.ES)
-                .sorted(Comparator.comparing(ManualBlock::getSortOrder))
-                .toList();
-        List<ManualBlock> english = blocks.stream()
-                .filter(block -> block.getLanguageCode() == LanguageCode.EN)
-                .sorted(Comparator.comparing(ManualBlock::getSortOrder))
-                .toList();
-        int count = Math.max(spanish.size(), english.size());
-        List<ManualBlock> normalized = new ArrayList<>(count * 2);
-        for (int index = 0; index < count; index++) {
-            ManualBlock es = index < spanish.size()
-                    ? spanish.get(index)
-                    : cloneBlock(section, english.get(index), LanguageCode.ES);
-            ManualBlock en = index < english.size()
-                    ? english.get(index)
-                    : cloneBlock(section, spanish.get(index), LanguageCode.EN);
-            en.setBlockType(es.getBlockType());
-            if (es.getBlockType() == com.dikoin.manuals.enums.BlockType.IMAGE) {
-                en.setAsset(es.getAsset());
-            }
-            es.setSortOrder(index + 1);
-            en.setSortOrder(index + 1);
-            normalized.add(es);
-            normalized.add(en);
-        }
-        return normalized;
-    }
-
-    private ManualBlock cloneBlock(ManualSection section, ManualBlock source, LanguageCode language) {
-        return ManualBlock.builder()
-                .section(section)
-                .sortOrder(source.getSortOrder())
-                .blockType(source.getBlockType())
-                .languageCode(language)
-                .contentJson(source.getContentJson())
-                .plainText(source.getPlainText())
-                .asset(source.getAsset())
-                .reusableBlock(source.getReusableBlock())
-                .build();
     }
 
     private void validateBlock(ManualBlockRequest request) {
