@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface ImportJobRepository extends JpaRepository<ImportJob, Long> {
     List<ImportJob> findTop10ByOrderByCreatedAtDesc();
+    List<ImportJob> findByManualVersionManualId(Long manualId);
 }

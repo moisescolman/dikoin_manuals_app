@@ -7,5 +7,6 @@ import java.util.List;
 
 public interface ManualSectionRepository extends JpaRepository<ManualSection, Long> {
     List<ManualSection> findByManualVersionIdOrderBySortOrderAsc(Long manualVersionId);
+    List<ManualSection> findByManualVersionManualId(Long manualId);
     List<ManualSection> findByParentSectionIdOrderBySortOrderAsc(Long parentSectionId);
 }

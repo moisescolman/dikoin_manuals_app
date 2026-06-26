@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
     List<ExportJob> findByManualVersionManualIdOrderByCreatedAtDesc(Long manualId);
+    List<ExportJob> findByManualVersionManualId(Long manualId);
 }

@@ -24,6 +24,11 @@ public class ManualRestController {
         return manualService.findAll(search);
     }
 
+    @GetMapping("/deleted")
+    public List<ManualSummaryResponse> findDeleted(@RequestParam(required = false) String search) {
+        return manualService.findDeleted(search);
+    }
+
     @GetMapping("/{id}")
     public ManualDetailResponse findById(@PathVariable Long id) {
         return manualService.findById(id);
@@ -66,5 +71,15 @@ public class ManualRestController {
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         manualService.delete(id);
+    }
+
+    @PostMapping("/{id}/restore")
+    public ManualDetailResponse restore(@PathVariable Long id, @Valid @RequestBody(required = false) ManualRestoreRequest request) {
+        return manualService.restore(id, request);
+    }
+
+    @DeleteMapping("/{id}/permanent")
+    public void deletePermanently(@PathVariable Long id) {
+        manualService.deletePermanently(id);
     }
 }

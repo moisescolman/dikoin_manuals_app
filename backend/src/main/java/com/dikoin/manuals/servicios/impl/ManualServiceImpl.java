@@ -33,6 +33,10 @@ public class ManualServiceImpl implements ManualService {
     private final DocumentTypeRepository documentTypeRepository;
     private final AssetRepository assetRepository;
     private final ReusableBlockRepository reusableBlockRepository;
+    private final ExportJobRepository exportJobRepository;
+    private final ImportJobRepository importJobRepository;
+    private final NoticeApplicationRepository noticeApplicationRepository;
+    private final ManualSectionRepository manualSectionRepository;
     private final ManualCodeService manualCodeService;
     private final ManualMapper manualMapper;
 
@@ -40,6 +44,16 @@ public class ManualServiceImpl implements ManualService {
     @Transactional(readOnly = true)
     public List<ManualSummaryResponse> findAll(String search) {
         List<Manual> manuals = manualRepository.searchActive(search == null || search.isBlank() ? null : search);
+
+        return manuals.stream()
+                .map(manual -> manualMapper.toSummary(manual, findActiveVersion(manual.getId())))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ManualSummaryResponse> findDeleted(String search) {
+        List<Manual> manuals = manualRepository.searchDeleted(search == null || search.isBlank() ? null : search);
 
         return manuals.stream()
                 .map(manual -> manualMapper.toSummary(manual, findActiveVersion(manual.getId())))
@@ -179,6 +193,65 @@ public class ManualServiceImpl implements ManualService {
         manualRepository.save(manual);
     }
 
+    @Override
+    @Transactional
+    public ManualDetailResponse restore(Long id, ManualRestoreRequest request) {
+        Manual manual = manualRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Manual no encontrado: " + id));
+        String nextTitle = firstNotBlank(request != null ? request.title() : null, manual.getTitle());
+        String nextTitleEs = firstNotBlank(request != null ? request.titleEs() : null, manual.getTitleEs(), nextTitle);
+        String nextTitleEn = request != null && request.titleEn() != null ? request.titleEn().trim() : manual.getTitleEn();
+
+        if (hasActiveTitleConflict(nextTitle) || hasActiveTitleConflict(nextTitleEs) || hasActiveTitleConflict(nextTitleEn)) {
+            throw new ApiException("Ya existe un manual activo con ese nombre. Renombra el manual antes de restaurarlo.");
+        }
+
+        manual.setTitle(nextTitle);
+        manual.setTitleEs(nextTitleEs);
+        manual.setTitleEn(nextTitleEn == null || nextTitleEn.isBlank() ? null : nextTitleEn);
+        manual.setDeletedAt(null);
+        manual.setEnabled(true);
+        manualRepository.save(manual);
+        return findById(id);
+    }
+
+    @Override
+    @Transactional
+    public void deletePermanently(Long id) {
+        Manual manual = manualRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Manual no encontrado: " + id));
+        if (manual.getDeletedAt() == null) {
+            throw new ApiException("Solo se pueden eliminar definitivamente manuales que estan en la papelera");
+        }
+
+        deleteNoticeApplicationsForManual(id);
+        exportJobRepository.deleteAll(exportJobRepository.findByManualVersionManualId(id));
+        importJobRepository.deleteAll(importJobRepository.findByManualVersionManualId(id));
+
+        List<ManualSection> sections = manualSectionRepository.findByManualVersionManualId(id);
+        sections.forEach(section -> section.setParentSection(null));
+        manualSectionRepository.saveAll(sections);
+        manualSectionRepository.flush();
+
+        List<Asset> assets = assetRepository.findByManualId(id);
+        assets.forEach(asset -> asset.setManual(null));
+        assetRepository.saveAll(assets);
+        assetRepository.flush();
+        manualRepository.delete(manual);
+    }
+
+    private void deleteNoticeApplicationsForManual(Long manualId) {
+        List<NoticeApplication> applications = new ArrayList<>(noticeApplicationRepository.findByManualId(manualId));
+        Set<Long> applicationIds = new HashSet<>();
+        applications.forEach(application -> applicationIds.add(application.getId()));
+        noticeApplicationRepository.findBySectionManualVersionManualId(manualId).forEach(application -> {
+            if (applicationIds.add(application.getId())) {
+                applications.add(application);
+            }
+        });
+        noticeApplicationRepository.deleteAll(applications);
+    }
+
     private Manual getManual(Long id) {
         return manualRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Manual no encontrado: " + id));
@@ -213,6 +286,19 @@ public class ManualServiceImpl implements ManualService {
 
     private String normalizeLanguage(String languageCode) {
         return languageCode == null || languageCode.isBlank() ? null : languageCode.trim().toUpperCase();
+    }
+
+    private boolean hasActiveTitleConflict(String value) {
+        return value != null && !value.isBlank() && manualRepository.existsActiveTitle(value.trim());
+    }
+
+    private String firstNotBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return "";
     }
 
     private ManualVersion createDefaultDraftVersion(Manual manual) {

@@ -9,4 +9,5 @@ public interface NoticeApplicationRepository extends JpaRepository<NoticeApplica
     List<NoticeApplication> findByManualId(Long manualId);
     List<NoticeApplication> findByProductId(Long productId);
     List<NoticeApplication> findBySectionId(Long sectionId);
+    List<NoticeApplication> findBySectionManualVersionManualId(Long manualId);
 }
