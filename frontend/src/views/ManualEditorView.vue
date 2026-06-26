@@ -325,9 +325,11 @@ function hasLanguageBlocks(language: LanguageCode) {
   return sections.value.some((section) => section.blocks.some((block) => block.languageCode === language))
 }
 
-async function saveDraft(changeNotes = 'Borrador autoguardado desde editor') {
+async function saveDraft(changeNotes = 'Borrador autoguardado desde editor', flushEditors = true) {
   if (!manual.value) return false
-  flushSectionEditors()
+  if (flushEditors) {
+    flushSectionEditors()
+  }
   const request = buildVersionRequest('DRAFT', changeNotes)
   if (!request) return false
   await store.saveVersion(manual.value.id, request)
@@ -397,31 +399,33 @@ async function showBothLanguages() {
 
 async function cloneSpanishToEnglish(force = false) {
   if (saving.value) return
+  flushSectionEditors()
+  const freshManual = manual.value?.id ? await store.fetchManual(manual.value.id) : null
+  sections.value = sectionsFromBackend(freshManual?.activeVersion?.sections || [])
+  const hasSpanish = sections.value.some((section) => section.blocks.some((block) => block.languageCode === 'ES'))
+  if (!hasSpanish) {
+    infoMessage.value = 'No hay contenido en español para clonar.'
+    return
+  }
   const hasEnglish = sections.value.some((section) => section.blocks.some((block) => block.languageCode === 'EN'))
   if (hasEnglish && !force) {
     cloneConfirmOpen.value = true
     return
   }
   cloneConfirmOpen.value = false
-  flushSectionEditors()
   sections.value = sections.value.map((section) => ({
     ...section,
     titleEn: section.titleEs,
     blocks: [
-      ...section.blocks.filter((block) => block.languageCode === 'ES'),
+      ...section.blocks.filter((block) => block.languageCode !== 'EN'),
       ...section.blocks
         .filter((block) => block.languageCode === 'ES')
-        .map((block) => ({
-          ...structuredClone(block),
-          id: randomId('block'),
-          backendId: undefined,
-          languageCode: 'EN' as const,
-        })),
+        .map(cloneSpanishBlockToEnglish),
     ],
   }))
   saving.value = true
   try {
-    await saveDraft('Versión inglesa clonada desde el contenido español')
+    await saveDraft('Versión inglesa clonada desde el contenido español', false)
     selectedLanguage.value = 'EN'
     languageMode.value = 'EN'
     saved.value = true
@@ -429,6 +433,44 @@ async function cloneSpanishToEnglish(force = false) {
   } finally {
     saving.value = false
   }
+}
+
+function cloneSpanishBlockToEnglish(block: EditorBlock): EditorBlock {
+  const id = randomId('block')
+  const cloned = structuredClone(block)
+  return {
+    ...cloned,
+    id,
+    backendId: undefined,
+    languageCode: 'EN',
+    data: cloneBlockDataForNewBlock(cloned.data, id),
+  }
+}
+
+function cloneBlockDataForNewBlock(data: EditorBlock['data'], blockId: string): EditorBlock['data'] {
+  if (!data) return undefined
+  const cloned = structuredClone(data)
+  if (cloned.json && typeof cloned.json === 'object') {
+    cloned.json = cloneJsonNodeForNewBlock(cloned.json as Record<string, unknown>, blockId, true)
+  }
+  return cloned
+}
+
+function cloneJsonNodeForNewBlock(node: Record<string, unknown>, blockId: string, root = false): Record<string, unknown> {
+  const cloned: Record<string, unknown> = { ...node }
+  if (cloned.attrs && typeof cloned.attrs === 'object' && !Array.isArray(cloned.attrs)) {
+    const attrs = { ...(cloned.attrs as Record<string, unknown>) }
+    if (root || 'blockId' in attrs) attrs.blockId = root ? blockId : randomId('block')
+    if (root || 'backendId' in attrs) attrs.backendId = null
+    cloned.attrs = attrs
+  }
+  if (Array.isArray(cloned.content)) {
+    cloned.content = cloned.content.map((child) => {
+      if (!child || typeof child !== 'object' || Array.isArray(child)) return child
+      return cloneJsonNodeForNewBlock(child as Record<string, unknown>, blockId)
+    })
+  }
+  return cloned
 }
 
 async function sendReview() {
