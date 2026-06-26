@@ -47,6 +47,7 @@ import { getAssets, uploadAsset } from '@/api/assets.api'
 import { toBackendUrl } from '@/api/http'
 import { getNotices } from '@/api/notices.api'
 import { createReusableFragment, getReusableBlocks } from '@/api/reusable-blocks.api'
+import AppModal from '@/components/shared/AppModal.vue'
 import type { EditorBlock, EditorBlockType, EditorSection } from '@/types/editor'
 import { backendBlockTypeToEditor, blockContentToJson, editorBlockTypeToBackend, parseContent, randomId } from '@/types/editor'
 import type { AssetResponse, LanguageCode, ManualBlockResponse, NoticeTemplateResponse, ReusableBlockResponse } from '@/types/api'
@@ -139,6 +140,9 @@ const showReusableModal = ref(false)
 const showEquationModal = ref(false)
 const showMoveModal = ref(false)
 const showSelectionMismatchModal = ref(false)
+const showPasteTextModal = ref(false)
+const manualPasteText = ref('')
+const editorMessage = ref('')
 const selectionMismatchCounts = ref({ current: 0, parallel: 0 })
 const fragmentName = ref('')
 const fragmentDescription = ref('')
@@ -1164,10 +1168,19 @@ async function pasteClipboard() {
   try {
     text = await navigator.clipboard.readText()
   } catch {
-    text = window.prompt('Texto a pegar', '') || ''
+    manualPasteText.value = ''
+    showPasteTextModal.value = true
+    return
   }
   if (!text) return
   editor.value.chain().focus().insertContent(textToParagraphs(text)).run()
+}
+
+function confirmManualPaste() {
+  if (!editor.value || !manualPasteText.value.trim()) return
+  editor.value.chain().focus().insertContent(textToParagraphs(manualPasteText.value)).run()
+  manualPasteText.value = ''
+  showPasteTextModal.value = false
 }
 
 function selectedText() {
@@ -2272,7 +2285,7 @@ async function insertClipboardImage(file: File) {
     insertImage(src, asset.id)
     markEditorDirty()
   } catch {
-    window.alert('No se pudo guardar la imagen pegada desde el portapapeles.')
+    editorMessage.value = 'No se pudo guardar la imagen pegada desde el portapapeles.'
   } finally {
     uploadingImage.value = false
   }
@@ -3202,6 +3215,20 @@ function imageAssetId(node: JSONContent) {
         </footer>
       </form>
     </div>
+
+    <AppModal v-if="showPasteTextModal" title="Pegar texto" description="No se pudo leer el portapapeles automáticamente. Pega el texto aquí." @close="showPasteTextModal = false">
+      <textarea v-model="manualPasteText" class="field paste-textarea" rows="6" />
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="showPasteTextModal = false">Cancelar</button>
+        <button type="button" class="btn btn-primary" :disabled="!manualPasteText.trim()" @click="confirmManualPaste">Pegar</button>
+      </template>
+    </AppModal>
+
+    <AppModal v-if="editorMessage" title="Aviso" :description="editorMessage" size="sm" @close="editorMessage = ''">
+      <template #footer>
+        <button type="button" class="btn btn-primary" @click="editorMessage = ''">Entendido</button>
+      </template>
+    </AppModal>
   </article>
 </template>
 
@@ -4705,6 +4732,11 @@ function imageAssetId(node: JSONContent) {
   background: var(--dikoin-blue-lighter);
   color: var(--dikoin-blue-dark);
   font-size: 12px;
+}
+
+.paste-textarea {
+  min-height: 150px;
+  resize: vertical;
 }
 
 .fragment-library {

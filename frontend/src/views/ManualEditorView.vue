@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Copy, Eye, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
 import { createReusableBlock } from '@/api/reusable-blocks.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
+import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useManualsStore } from '@/stores/manuals.store'
 import type { EditorBlock, EditorSection } from '@/types/editor'
@@ -35,6 +36,10 @@ const sectionsPanelCollapsed = ref(false)
 const sectionEditorRefs = ref<Array<{ flushEditorSync: () => void }>>([])
 const selectionOwnerKey = ref('')
 const blockSelectionSync = ref<BlockSelectionSync | null>(null)
+const infoMessage = ref('')
+const reusableSectionCandidate = ref<EditorSection | null>(null)
+const reusableTitle = ref('')
+const cloneConfirmOpen = ref(false)
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
@@ -151,7 +156,7 @@ function deleteSection(id: string) {
 
 function addSubsection(parent: EditorSection) {
   if (!parent.backendId) {
-    window.alert('Guarda primero la sección para poder añadirle subsecciones.')
+    infoMessage.value = 'Guarda primero la sección para poder añadirle subsecciones.'
     return
   }
   const siblings = sections.value.filter((section) => section.parentSectionId === parent.backendId)
@@ -205,8 +210,14 @@ function duplicateSection(index: number) {
 async function saveReusable(section: EditorSection) {
   flushSectionEditors()
   const currentSection = sections.value.find((item) => item.id === section.id) || section
-  const title = window.prompt('Título de la sección reutilizable', currentSection.titleEs || currentSection.titleEn || 'Sección reutilizable')
-  if (!title) return
+  reusableSectionCandidate.value = currentSection
+  reusableTitle.value = currentSection.titleEs || currentSection.titleEn || 'Sección reutilizable'
+}
+
+async function confirmSaveReusable() {
+  const currentSection = reusableSectionCandidate.value
+  const title = reusableTitle.value.trim()
+  if (!currentSection || !title) return
   const request = versionRequestFromEditor({
     versionNumber: '1',
     status: 'DRAFT',
@@ -231,6 +242,7 @@ async function saveReusable(section: EditorSection) {
     active: true,
   })
   saved.value = true
+  reusableSectionCandidate.value = null
   setTimeout(() => { saved.value = false }, 2000)
 }
 
@@ -383,10 +395,14 @@ async function showBothLanguages() {
   }
 }
 
-async function cloneSpanishToEnglish() {
+async function cloneSpanishToEnglish(force = false) {
   if (saving.value) return
   const hasEnglish = sections.value.some((section) => section.blocks.some((block) => block.languageCode === 'EN'))
-  if (hasEnglish && !window.confirm('La versión inglesa actual se reemplazará con una copia del español. ¿Continuar?')) return
+  if (hasEnglish && !force) {
+    cloneConfirmOpen.value = true
+    return
+  }
+  cloneConfirmOpen.value = false
   flushSectionEditors()
   sections.value = sections.value.map((section) => ({
     ...section,
@@ -447,7 +463,7 @@ function sectionTitle(section: EditorSection) {
         <button :class="{ active: languageMode === 'EN' }" :disabled="saving" @click="changeLanguage('EN')">EN</button>
         <button :class="{ active: languageMode === 'BOTH' }" :disabled="saving" @click="showBothLanguages"><Languages :size="13" /> Ambos idiomas</button>
       </div>
-      <button v-if="languageMode === 'EN'" class="btn btn-outline" :disabled="saving" @click="cloneSpanishToEnglish">
+      <button v-if="languageMode === 'EN'" class="btn btn-outline" :disabled="saving" @click="cloneSpanishToEnglish()">
         <Copy :size="14" /> Clonar del Español
       </button>
       <dl class="top-properties">
@@ -543,6 +559,39 @@ function sectionTitle(section: EditorSection) {
         </dl>
       </aside>
     </div>
+
+    <AppModal v-if="infoMessage" title="Acción no disponible" :description="infoMessage" size="sm" @close="infoMessage = ''">
+      <template #footer>
+        <button type="button" class="btn btn-primary" @click="infoMessage = ''">Entendido</button>
+      </template>
+    </AppModal>
+
+    <AppModal
+      v-if="reusableSectionCandidate"
+      title="Guardar como reutilizable"
+      description="Indica el título con el que se guardará en la biblioteca."
+      @close="reusableSectionCandidate = null"
+    >
+      <label class="modal-field">Título <input v-model="reusableTitle" class="field" /></label>
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="reusableSectionCandidate = null">Cancelar</button>
+        <button type="button" class="btn btn-primary" :disabled="!reusableTitle.trim()" @click="confirmSaveReusable">Guardar</button>
+      </template>
+    </AppModal>
+
+    <AppModal
+      v-if="cloneConfirmOpen"
+      title="Clonar del Español"
+      description="La versión inglesa actual se reemplazará con una copia del español."
+      size="sm"
+      @close="cloneConfirmOpen = false"
+    >
+      <p class="confirm-text">¿Continuar?</p>
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="cloneConfirmOpen = false">Cancelar</button>
+        <button type="button" class="btn btn-primary" @click="cloneSpanishToEnglish(true)">Clonar</button>
+      </template>
+    </AppModal>
   </section>
 </template>
 
@@ -853,6 +902,18 @@ dt {
   color: var(--muted-foreground);
 }
 
+.modal-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.confirm-text {
+  margin: 0;
+}
+
 @media (max-width: 1100px) {
 
   .editor-grid,
@@ -880,3 +941,5 @@ dt {
   }
 }
 </style>
+
+

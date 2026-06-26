@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ChevronDown, ChevronUp, FileImage, GripVertical, Link, List, Plus, Table, Trash2, Type } from '@lucide/vue'
 import { getNotices } from '@/api/notices.api'
 import { getReusableBlocks } from '@/api/reusable-blocks.api'
+import AppModal from '@/components/shared/AppModal.vue'
 import BlockEditor from './BlockEditor.vue'
 import type { EditorBlock, EditorBlockType, EditorSection } from '@/types/editor'
 import { randomId } from '@/types/editor'
@@ -17,6 +18,9 @@ const emit = defineEmits<{
 
 const notices = ref<NoticeTemplateResponse[]>([])
 const reusableBlocks = ref<ReusableBlockResponse[]>([])
+const tableDialogOpen = ref(false)
+const tableRows = ref(3)
+const tableCols = ref(3)
 
 onMounted(async () => {
   const [loadedNotices, loadedBlocks] = await Promise.all([
@@ -93,9 +97,14 @@ function deleteBlock(id: string) {
 }
 
 function insertTable() {
-  const rows = Number(window.prompt('Número de filas', '3') || 3)
-  const cols = Number(window.prompt('Número de columnas', '3') || 3)
-  addBlock(undefined, 'tabla', tableContent(Math.max(rows, 1), Math.max(cols, 1)))
+  tableRows.value = 3
+  tableCols.value = 3
+  tableDialogOpen.value = true
+}
+
+function confirmInsertTable() {
+  addBlock(undefined, 'tabla', tableContent(Math.max(Number(tableRows.value) || 1, 1), Math.max(Number(tableCols.value) || 1, 1)))
+  tableDialogOpen.value = false
 }
 
 function insertNotice(event: Event) {
@@ -161,6 +170,17 @@ function insertReusableBlock(event: Event) {
       />
       <button class="add-block" @click="addBlock()"><Plus :size="14" /> Añadir bloque</button>
     </div>
+
+    <AppModal v-if="tableDialogOpen" title="Insertar tabla" @close="tableDialogOpen = false">
+      <div class="table-dialog-grid">
+        <label>Filas <input v-model.number="tableRows" class="field" type="number" min="1" /></label>
+        <label>Columnas <input v-model.number="tableCols" class="field" type="number" min="1" /></label>
+      </div>
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="tableDialogOpen = false">Cancelar</button>
+        <button type="button" class="btn btn-primary" @click="confirmInsertTable">Insertar</button>
+      </template>
+    </AppModal>
   </article>
 </template>
 
@@ -180,4 +200,7 @@ function insertReusableBlock(event: Event) {
 .section-toolbar button:hover { border-color: var(--dikoin-blue); color: var(--dikoin-blue); background: var(--dikoin-blue-lighter); }
 .toolbar-select { border: 1px solid var(--border); background: #fff; padding: 6px 8px; border-radius: var(--radius); color: var(--foreground); max-width: 220px; }
 .add-block { border: 1px dashed var(--border); background: #fff; color: var(--dikoin-blue); padding: 8px 10px; border-radius: var(--radius); display: inline-flex; gap: 6px; align-items: center; }
+.table-dialog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.table-dialog-grid label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
 </style>
+

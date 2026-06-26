@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { getProductCategories } from '@/api/products.api'
 import { createReusableBlock, deleteReusableBlock, getReusableBlocks, updateReusableBlock } from '@/api/reusable-blocks.api'
 import ReusableContentPreview from '@/components/reusable/ReusableContentPreview.vue'
+import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import LanguageSegmentedControl from '@/components/shared/LanguageSegmentedControl.vue'
 import ProductCategoryMultiSelect from '@/components/shared/ProductCategoryMultiSelect.vue'
@@ -21,6 +22,7 @@ const previewLanguage = ref<LanguageCode>('ES')
 const formLanguage = ref<LanguageCode>('ES')
 const categories = ref<ProductCategoryResponse[]>([])
 const selectedCategoryCodes = ref<string[]>([])
+const deleteConfirmOpen = ref(false)
 const form = reactive({
   code: '', titleEs: '', titleEn: '', descriptionEs: '', descriptionEn: '',
   productCategory: '', productCodes: '', active: true,
@@ -149,11 +151,12 @@ function edit() {
 }
 
 async function remove() {
-  if (!selectedId.value || !window.confirm(`¿Eliminar este ${singular.value} de la biblioteca?`)) return
+  if (!selectedId.value) return
   loading.value = true
   try {
     await deleteReusableBlock(selectedId.value)
     selectedId.value = null
+    deleteConfirmOpen.value = false
     await load()
     saved.value = `${isSection.value ? 'Sección' : 'Fragmento'} eliminado de la biblioteca.`
   } catch (err) {
@@ -230,7 +233,7 @@ async function remove() {
         <div class="actions">
           <button class="btn btn-primary" :disabled="loading"><Save :size="15" /> Guardar</button>
           <button v-if="selectedId" type="button" class="btn btn-outline" @click="edit"><Edit :size="15" /> Editar</button>
-          <button v-if="selectedId" type="button" class="btn btn-danger" :disabled="loading" @click="remove"><Trash2 :size="15" /></button>
+          <button v-if="selectedId" type="button" class="btn btn-danger" :disabled="loading" @click="deleteConfirmOpen = true"><Trash2 :size="15" /></button>
         </div>
       </form>
 
@@ -245,6 +248,20 @@ async function remove() {
         <ReusableContentPreview :item="selected" :language="previewLanguage" />
       </section>
     </div>
+
+    <AppModal
+      v-if="deleteConfirmOpen"
+      :title="`Eliminar ${singular}`"
+      :description="`Se eliminará este ${singular} de la biblioteca.`"
+      size="sm"
+      @close="deleteConfirmOpen = false"
+    >
+      <p class="confirm-text">¿Confirmas la eliminación?</p>
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="deleteConfirmOpen = false">Cancelar</button>
+        <button type="button" class="btn btn-danger" :disabled="loading" @click="remove">Eliminar</button>
+      </template>
+    </AppModal>
   </section>
 </template>
 
@@ -274,6 +291,7 @@ label { display: grid; gap: 5px; color: var(--muted-foreground); font-size: 12px
 .preview-card :deep(.preview-shell) { flex: 1; min-height: 0; }
 .success-msg { padding: 10px; border: 1px solid #86efac; border-radius: var(--radius); background: var(--dikoin-green-light); color: #065f46; }
 .btn-danger { background: var(--dikoin-red); border-color: var(--dikoin-red); color: #fff; }
+.confirm-text { margin: 0; }
 @media (max-width: 1050px) {
   .library-page { height: auto; overflow: visible; }
   .content-grid { grid-template-columns: 1fr; grid-template-rows: auto; overflow: visible; }
@@ -282,3 +300,4 @@ label { display: grid; gap: 5px; color: var(--muted-foreground); font-size: 12px
   .preview-card { min-height: 620px; }
 }
 </style>
+

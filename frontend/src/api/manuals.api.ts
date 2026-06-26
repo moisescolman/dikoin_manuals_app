@@ -13,6 +13,11 @@ export async function getManuals(search?: string) {
   return data
 }
 
+export async function getDeletedManuals(search?: string) {
+  const { data } = await http.get<ManualSummaryResponse[]>('/manuals/deleted', { params: { search: search || undefined } })
+  return data
+}
+
 export async function getManual(id: number) {
   const { data } = await http.get<ManualDetailResponse>(`/manuals/${id}`)
   return data
@@ -35,6 +40,15 @@ export async function publishManualVersion(manualId: number, versionId: number, 
 
 export async function deleteManual(manualId: number) {
   await http.delete(`/manuals/${manualId}`)
+}
+
+export async function restoreManual(manualId: number, request?: { title?: string; titleEs?: string; titleEn?: string }) {
+  const { data } = await http.post<ManualDetailResponse>(`/manuals/${manualId}/restore`, request || {})
+  return data
+}
+
+export async function deleteManualPermanently(manualId: number) {
+  await http.delete(`/manuals/${manualId}/permanent`)
 }
 
 export async function setManualEnabled(manualId: number, enabled: boolean) {

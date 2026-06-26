@@ -5,7 +5,7 @@ import { Ban, Download, Edit, Eye, History, Plus, Search, Trash2 } from '@lucide
 import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
 import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
-import LangBadge from '@/components/shared/LangBadge.vue'
+import AppModal from '@/components/shared/AppModal.vue'
 import StatusBadge from '@/components/shared/StatusBadge.vue'
 import { useManualsStore } from '@/stores/manuals.store'
 import type { ManualStatus } from '@/types/api'
@@ -29,6 +29,7 @@ const bulkNoticeOpen = ref(false)
 const bulkNotice = ref({ type: 'WARNING', title: '', content: '' })
 const bulkStatus = ref<ManualStatus>('REVIEW')
 const statusMessage = ref('')
+const deleteCandidate = ref<number | null>(null)
 
 onMounted(() => store.fetchManuals(search.value))
 watch(search, (value) => {
@@ -86,9 +87,11 @@ function pdfFilename(path: string | undefined, id: number) {
   return filename || `manual-${id}.pdf`
 }
 
-async function deleteManual(id: number) {
-  if (!window.confirm('Eliminar este manual? Esta acción depende del borrado configurado en backend.')) return
+async function deleteManual(id: number | null) {
+  if (!id) return
   await store.removeManual(id)
+  deleteCandidate.value = null
+  statusMessage.value = 'Manual movido a la papelera.'
 }
 
 async function changeRowStatus(id: number, status: ManualStatus) {
@@ -237,12 +240,12 @@ function syncFiltersToRoute() {
       <table class="table">
         <thead>
           <tr>
-            <th></th><th>Código</th><th>Tipo</th><th>Producto</th><th>Título</th><th>Estado</th><th>Idiomas</th><th>Modificado</th><th>Versión</th><th>Acciones</th>
+            <th></th><th>Código</th><th>Tipo</th><th>Producto</th><th>Título</th><th>Estado</th><th>Modificado</th><th>Versión</th><th>Acciones</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="store.loading"><td colspan="10">Cargando manuales...</td></tr>
-          <tr v-else-if="!filtered.length"><td colspan="10">No hay manuales para mostrar.</td></tr>
+          <tr v-if="store.loading"><td colspan="9">Cargando manuales...</td></tr>
+          <tr v-else-if="!filtered.length"><td colspan="9">No hay manuales para mostrar.</td></tr>
           <tr v-for="manual in filtered" :key="manual.id">
             <td><input type="checkbox" :checked="selected.includes(manual.id)" @change="toggle(manual.id)" /></td>
             <td class="mono">{{ manual.code }}</td>
@@ -250,7 +253,6 @@ function syncFiltersToRoute() {
             <td>{{ manual.productCode }}</td>
             <td class="manual-title" @click="router.push({ name: 'manual-detail', params: { id: manual.id } })">{{ manual.title }}</td>
             <td><StatusBadge :status="manual.activeStatus" /></td>
-            <td><div class="langs"><LangBadge label="ES" :ready="manual.esReady" /><LangBadge label="EN" :ready="manual.enReady" /></div></td>
             <td>{{ formatDate(manual.updatedAt) }}</td>
             <td class="mono">v{{ manual.activeVersionNumber || '-' }}</td>
             <td>
@@ -269,13 +271,27 @@ function syncFiltersToRoute() {
                 <button title="Exportar PDF" :disabled="exportingIds.includes(manual.id)" @click="exportPdf(manual.id)"><Download :size="14" /></button>
                 <button title="Historial" @click="router.push({ name: 'history', params: { id: manual.id } })"><History :size="14" /></button>
                 <button title="Deshabilitar" @click="disableManualById(manual.id)"><Ban :size="14" /></button>
-                <button title="Eliminar" @click="deleteManual(manual.id)"><Trash2 :size="14" /></button>
+                <button title="Eliminar" @click="deleteCandidate = manual.id"><Trash2 :size="14" /></button>
               </div>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <AppModal
+      v-if="deleteCandidate"
+      title="Mover a papelera"
+      description="El manual dejará de aparecer en el listado principal y podrás restaurarlo desde Papelera."
+      size="sm"
+      @close="deleteCandidate = null"
+    >
+      <p class="confirm-text">¿Mover este manual a la papelera?</p>
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="deleteCandidate = null">Cancelar</button>
+        <button type="button" class="btn btn-danger" :disabled="store.loading" @click="deleteManual(deleteCandidate)">Mover</button>
+      </template>
+    </AppModal>
   </section>
 </template>
 
@@ -290,7 +306,6 @@ function syncFiltersToRoute() {
 .head-actions,
 .filters,
 .bulk,
-.langs,
 .row-actions {
   display: flex;
   align-items: center;
@@ -405,6 +420,10 @@ function syncFiltersToRoute() {
   border-radius: var(--radius);
 }
 
+.confirm-text {
+  margin: 0;
+}
+
 .suggestions {
   position: absolute;
   top: calc(100% + 5px);
@@ -434,3 +453,4 @@ function syncFiltersToRoute() {
   color: var(--muted-foreground);
 }
 </style>
+

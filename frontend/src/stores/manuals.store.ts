@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getApiError } from '@/api/http'
-import { changeManualStatus, deleteManual, getManual, getManuals, publishManualVersion, saveManualVersion, setManualEnabled } from '@/api/manuals.api'
+import { changeManualStatus, deleteManual, deleteManualPermanently, getDeletedManuals, getManual, getManuals, publishManualVersion, restoreManual, saveManualVersion, setManualEnabled } from '@/api/manuals.api'
 import type { ManualDetailResponse, ManualStatus, ManualSummaryResponse, ManualVersionRequest } from '@/types/api'
 
 export const useManualsStore = defineStore('manuals', () => {
   const manuals = ref<ManualSummaryResponse[]>([])
+  const deletedManuals = ref<ManualSummaryResponse[]>([])
   const current = ref<ManualDetailResponse | null>(null)
   const loading = ref(false)
   const error = ref('')
@@ -15,6 +16,18 @@ export const useManualsStore = defineStore('manuals', () => {
     error.value = ''
     try {
       manuals.value = await getManuals(search)
+    } catch (err) {
+      error.value = getApiError(err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchDeletedManuals(search = '') {
+    loading.value = true
+    error.value = ''
+    try {
+      deletedManuals.value = await getDeletedManuals(search)
     } catch (err) {
       error.value = getApiError(err)
     } finally {
@@ -69,6 +82,36 @@ export const useManualsStore = defineStore('manuals', () => {
     }
   }
 
+  async function restoreDeletedManual(manualId: number, request?: { title?: string; titleEs?: string; titleEn?: string }) {
+    loading.value = true
+    error.value = ''
+    try {
+      const restored = await restoreManual(manualId, request)
+      deletedManuals.value = deletedManuals.value.filter((manual) => manual.id !== manualId)
+      await fetchManuals()
+      return restored
+    } catch (err) {
+      error.value = getApiError(err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function permanentlyDeleteManual(manualId: number) {
+    loading.value = true
+    error.value = ''
+    try {
+      await deleteManualPermanently(manualId)
+      deletedManuals.value = deletedManuals.value.filter((manual) => manual.id !== manualId)
+    } catch (err) {
+      error.value = getApiError(err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function updateStatus(manualId: number, status: ManualStatus, notes?: string) {
     loading.value = true
     error.value = ''
@@ -99,5 +142,5 @@ export const useManualsStore = defineStore('manuals', () => {
     }
   }
 
-  return { manuals, current, loading, error, fetchManuals, fetchManual, saveVersion, publishVersion, removeManual, updateStatus, updateEnabled }
+  return { manuals, deletedManuals, current, loading, error, fetchManuals, fetchDeletedManuals, fetchManual, saveVersion, publishVersion, removeManual, restoreDeletedManual, permanentlyDeleteManual, updateStatus, updateEnabled }
 })

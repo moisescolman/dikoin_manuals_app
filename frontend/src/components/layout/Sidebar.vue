@@ -14,6 +14,7 @@ import {
   Package,
   Settings,
   StickyNote,
+  Trash2,
   Upload,
 } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -43,6 +44,7 @@ const nav = [
   { name: 'reusable-fragments', label: 'Fragmentos', icon: Group },
   { name: 'templates', label: 'Plantillas', icon: LayoutTemplate },
   { name: 'assets', label: 'Assets', icon: Archive },
+  { name: 'trash', label: 'Papelera', icon: Trash2 },
   { name: 'history', label: 'Historial', icon: FileClock },
   { name: 'portal', label: 'Portal cliente', icon: FileText },
   { name: 'config', label: 'Configuración', icon: Settings },

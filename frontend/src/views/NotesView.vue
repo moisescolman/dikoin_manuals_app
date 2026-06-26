@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { AlertTriangle, Plus, Save, Trash2, X } from '@lucide/vue'
 import { createNotice, deleteNotice, getNoticeUsages, getNotices, updateNotice } from '@/api/notices.api'
 import { getProductCategories } from '@/api/products.api'
+import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import LanguageSegmentedControl from '@/components/shared/LanguageSegmentedControl.vue'
 import ProductCategoryMultiSelect from '@/components/shared/ProductCategoryMultiSelect.vue'
@@ -228,9 +229,8 @@ async function requestDelete() {
       deleteUsages.value = usages
       return
     }
-    if (window.confirm('Eliminar esta nota de la biblioteca?')) {
-      await confirmDelete()
-    }
+    deleteCandidateId.value = selectedId.value
+    deleteUsages.value = []
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'No se pudo comprobar el uso de la nota'
   } finally {
@@ -390,6 +390,20 @@ async function confirmDelete() {
         </div>
       </section>
     </div>
+
+    <AppModal
+      v-if="deleteCandidateId && !deleteUsages.length"
+      title="Eliminar nota"
+      description="La nota se eliminará de la biblioteca."
+      size="sm"
+      @close="cancelDelete"
+    >
+      <p class="confirm-text">¿Eliminar esta nota de la biblioteca?</p>
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="cancelDelete">Cancelar</button>
+        <button type="button" class="btn btn-danger" :disabled="loading" @click="confirmDelete">Eliminar</button>
+      </template>
+    </AppModal>
   </section>
 </template>
 
@@ -719,6 +733,10 @@ label {
 }
 
 .warning-msg p {
+  margin: 0;
+}
+
+.confirm-text {
   margin: 0;
 }
 

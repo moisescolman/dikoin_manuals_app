@@ -19,6 +19,7 @@ import TemplatesView from '@/views/TemplatesView.vue'
 import HistoryView from '@/views/HistoryView.vue'
 import ClientPortalView from '@/views/ClientPortalView.vue'
 import ConfigView from '@/views/ConfigView.vue'
+import TrashView from '@/views/TrashView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -43,6 +44,7 @@ const router = createRouter({
         { path: 'fragmentos', name: 'reusable-fragments', component: ReusableFragmentsView },
         { path: 'fragmentos/:id/editor', name: 'reusable-fragment-editor', component: ReusableContentEditorView, props: (route) => ({ id: route.params.id, kind: 'FRAGMENT' }) },
         { path: 'assets', name: 'assets', component: AssetsView },
+        { path: 'papelera', name: 'trash', component: TrashView },
         { path: 'plantillas', name: 'templates', component: TemplatesView },
         { path: 'historial/:id?', name: 'history', component: HistoryView, props: true },
         { path: 'portal', name: 'portal', component: ClientPortalView },

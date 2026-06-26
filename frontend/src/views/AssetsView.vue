@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { Eye, Trash2, Upload } from '@lucide/vue'
 import { toBackendUrl } from '@/api/http'
+import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useAssetsStore } from '@/stores/assets.store'
 import type { AssetResponse, AssetType } from '@/types/api'
@@ -12,6 +13,7 @@ const selectedFile = ref<File | null>(null)
 const assetType = ref<AssetType>('IMAGE')
 const manualId = ref('')
 const message = ref('')
+const deleteCandidate = ref<AssetResponse | null>(null)
 
 onMounted(() => store.fetchAssets())
 
@@ -39,9 +41,10 @@ function openAsset(asset: AssetResponse) {
   window.open(toBackendUrl(asset.fileUrl), '_blank', 'noopener')
 }
 
-async function removeAsset(asset: AssetResponse) {
-  if (!window.confirm(`Eliminar ${asset.originalFilename}?`)) return
+async function removeAsset(asset: AssetResponse | null) {
+  if (!asset) return
   await store.remove(asset.id)
+  deleteCandidate.value = null
   message.value = 'Asset eliminado.'
 }
 </script>
@@ -104,13 +107,27 @@ async function removeAsset(asset: AssetResponse) {
             <td>
               <div class="row-actions">
                 <button title="Visualizar" :disabled="!canPreview(asset)" @click="openAsset(asset)"><Eye :size="15" /></button>
-                <button title="Eliminar" @click="removeAsset(asset)"><Trash2 :size="15" /></button>
+                <button title="Eliminar" @click="deleteCandidate = asset"><Trash2 :size="15" /></button>
               </div>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <AppModal
+      v-if="deleteCandidate"
+      title="Eliminar asset"
+      :description="deleteCandidate.originalFilename"
+      size="sm"
+      @close="deleteCandidate = null"
+    >
+      <p class="confirm-text">¿Eliminar este asset?</p>
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="deleteCandidate = null">Cancelar</button>
+        <button type="button" class="btn btn-danger" :disabled="store.loading" @click="removeAsset(deleteCandidate)">Eliminar</button>
+      </template>
+    </AppModal>
   </section>
 </template>
 
@@ -158,6 +175,16 @@ label {
   border: 1px solid #86efac;
   padding: 10px;
   border-radius: var(--radius);
+}
+
+.confirm-text {
+  margin: 0;
+}
+
+.btn-danger {
+  background: var(--dikoin-red);
+  border-color: var(--dikoin-red);
+  color: #fff;
 }
 
 .thumb {

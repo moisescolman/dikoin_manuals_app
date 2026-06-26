@@ -295,46 +295,103 @@ function movableBlockStyle(blockJson: string) {
   }
 }
 
+function tableStyle(blockJson: string): CSSProperties {
+  if (isWideTable(blockJson)) {
+    return {
+      ...movableBlockStyle(blockJson),
+      width: '100%',
+      maxWidth: '100%',
+    }
+  }
+  const width = readableTableWidth(tableWidth(blockJson), tableMinimumWidth(blockJson))
+  return {
+    ...movableBlockStyle(blockJson),
+    width,
+  }
+}
+
 function tableWidth(blockJson: string) {
   const parsed = content(blockJson)
   const width = parsed.json?.attrs?.width || parsed.width
-  const columnWidths = tableColumnWidths(blockJson)
-  const fallbackWidth = columnWidths.length && columnWidths.every(Boolean)
-    ? columnWidths.reduce<number>((total, columnWidth) => total + Number(columnWidth || 0), 0)
-    : undefined
-  const text = String(width || fallbackWidth || '')
-  if (!text) return undefined
+  const text = String(width || '')
+  if (!text) return '100%'
   return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
 }
 
 function tableColumnWidths(blockJson: string): Array<number | undefined> {
+  if (isWideTable(blockJson)) return []
+
   const parsed = content(blockJson)
   const tableJson = parsed.json
   if (!tableJson || !Array.isArray(tableJson.content)) return []
 
   const widths: Array<number | undefined> = []
+  const textLengths: number[] = []
   tableJson.content.forEach((row: Record<string, any>) => {
     if (!Array.isArray(row.content)) return
     let columnIndex = 0
     row.content.forEach((cell: Record<string, any>) => {
       const colspan = Math.max(1, Number(cell.attrs?.colspan || 1))
       const colwidth = Array.isArray(cell.attrs?.colwidth) ? cell.attrs.colwidth : []
+      const textLength = plainTextFromJson(cell).replace(/\s+/g, ' ').trim().length
       for (let spanIndex = 0; spanIndex < colspan; spanIndex += 1) {
         const width = Number(colwidth[spanIndex])
         if (Number.isFinite(width) && width > 0 && !widths[columnIndex]) {
           widths[columnIndex] = width
         }
+        textLengths[columnIndex] = Math.max(textLengths[columnIndex] || 0, Math.ceil(textLength / colspan))
         columnIndex += 1
       }
     })
   })
 
-  while (widths.length && !widths[widths.length - 1]) widths.pop()
+  const columnCount = Math.max(widths.length, textLengths.length)
+  for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+    if (!widths[columnIndex]) {
+      widths[columnIndex] = inferredTableColumnWidth(textLengths[columnIndex] || 0, columnCount)
+    }
+  }
   return widths
 }
 
 function tableColumnWidthStyle(width?: number) {
   return width ? { width: `${width}px` } : undefined
+}
+
+function tableColumnCount(blockJson: string) {
+  return tableCellRows(blockJson).reduce((max, row) => {
+    const count = row.reduce((total, cell) => total + cell.colspan, 0)
+    return Math.max(max, count)
+  }, 0)
+}
+
+function isWideTable(blockJson: string) {
+  return tableColumnCount(blockJson) >= 7
+}
+
+function inferredTableColumnWidth(textLength: number, columnCount: number) {
+  if (textLength <= 3) return 42
+  if (textLength <= 10) return columnCount >= 5 ? 72 : 90
+  const charWidth = columnCount >= 5 ? 5.8 : 6.8
+  const baseWidth = Math.ceil(textLength * charWidth)
+  return Math.min(columnCount >= 5 ? 170 : 260, Math.max(columnCount >= 5 ? 96 : 150, baseWidth))
+}
+
+function tableMinimumWidth(blockJson: string) {
+  const widths = tableColumnWidths(blockJson).filter((width): width is number => Boolean(width))
+  if (!widths.length) return 0
+  return Math.min(widths.reduce((total, width) => total + width, 0), 680)
+}
+
+function readableTableWidth(width: string | undefined, minimumWidth: number) {
+  if (!minimumWidth) return width || '100%'
+  const safeWidth = `min(100%, ${minimumWidth}px)`
+  if (!width) return safeWidth
+  const match = width.match(/^(\d+(?:\.\d+)?)px$/)
+  if (match && Number(match[1]) < minimumWidth) {
+    return safeWidth
+  }
+  return width
 }
 
 function imageSource(blockJson: string) {
@@ -731,7 +788,12 @@ function contentPageForBlock(blockId: number) {
             <ol v-else-if="unit.block.blockType === 'ORDERED_LIST'">
               <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
             </ol>
-            <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ ...movableBlockStyle(unit.block.contentJson), width: tableWidth(unit.block.contentJson) }">
+            <table
+              v-else-if="unit.block.blockType === 'TABLE'"
+              class="doc-table"
+              :class="{ 'doc-table-compact': isWideTable(unit.block.contentJson) }"
+              :style="tableStyle(unit.block.contentJson)"
+            >
               <colgroup v-if="tableColumnWidths(unit.block.contentJson).length">
                 <col
                   v-for="(columnWidth, columnIndex) in tableColumnWidths(unit.block.contentJson)"
@@ -777,7 +839,7 @@ function contentPageForBlock(blockId: number) {
           <span v-else>DK</span>
         </div>
         <strong v-if="headerConfig().showCompanyName">{{ templateCompany() }}</strong>
-        <span v-if="headerConfig().showManualCode">Ref.: {{ manual.code }} Â· {{ activeLanguage() }} Â· v{{ manual.activeVersion?.versionNumber }}</span>
+        <span v-if="headerConfig().showManualCode">Ref.: {{ manual.code }} · {{ activeLanguage() }} · v{{ manual.activeVersion?.versionNumber }}</span>
       </header>
       <div class="header-line"></div>
       <main class="paper-content"></main>
@@ -815,7 +877,12 @@ function contentPageForBlock(blockId: number) {
                   <ol v-else-if="unit.block.blockType === 'ORDERED_LIST'">
                     <li v-for="item in content(unit.block.contentJson).items" :key="item">{{ item }}</li>
                   </ol>
-                  <table v-else-if="unit.block.blockType === 'TABLE'" class="doc-table" :style="{ ...movableBlockStyle(unit.block.contentJson), width: tableWidth(unit.block.contentJson) }">
+                  <table
+                    v-else-if="unit.block.blockType === 'TABLE'"
+                    class="doc-table"
+                    :class="{ 'doc-table-compact': isWideTable(unit.block.contentJson) }"
+                    :style="tableStyle(unit.block.contentJson)"
+                  >
                     <colgroup v-if="tableColumnWidths(unit.block.contentJson).length">
                       <col
                         v-for="(columnWidth, columnIndex) in tableColumnWidths(unit.block.contentJson)"
@@ -876,6 +943,11 @@ function contentPageForBlock(blockId: number) {
   font-family: Arial, sans-serif;
 }
 
+.manual-page,
+.manual-page * {
+  box-sizing: border-box;
+}
+
 .paper-header {
   display: flex;
   align-items: flex-end;
@@ -931,6 +1003,9 @@ function contentPageForBlock(blockId: number) {
 
 .paper-content {
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .cover-page {
@@ -1080,12 +1155,34 @@ function contentPageForBlock(blockId: number) {
   margin: 0 0 9px;
   font-size: 12px;
   line-height: 1.42;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .doc-block p,
 .doc-block ul,
 .doc-block ol {
   margin: 0 0 8px;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.doc-block ul,
+.doc-block ol {
+  padding-left: 20px;
+}
+
+.doc-block li {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.doc-block a {
+  overflow-wrap: anywhere;
 }
 
 .doc-heading {
@@ -1125,20 +1222,32 @@ function contentPageForBlock(blockId: number) {
   font-size: 11px;
 }
 
+.doc-table-compact {
+  font-size: 9px;
+}
+
 .doc-table th {
   background: var(--dikoin-blue);
   color: #fff;
   text-align: left;
   padding: 6px;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
 }
 
 .doc-table td {
   border: 1px solid #b8cce3;
   padding: 6px;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
+}
+
+.doc-table-compact th,
+.doc-table-compact td {
+  padding: 4px;
+  line-height: 1.25;
 }
 
 .doc-table tr:nth-child(odd) td {
