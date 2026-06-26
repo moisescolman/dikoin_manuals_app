@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
 import { toBackendUrl } from '@/api/http'
 import { getAssets } from '@/api/assets.api'
 import { getNotices } from '@/api/notices.api'
@@ -46,6 +46,13 @@ interface TocEntry {
   title: string
   page?: number
   level: number
+}
+
+interface TableCellRender {
+  text: string
+  colspan: number
+  rowspan: number
+  header: boolean
 }
 
 type ContentUnit =
@@ -240,24 +247,47 @@ function tableRows(blockJson: string) {
   return []
 }
 
+function tableCellRows(blockJson: string): TableCellRender[][] {
+  const parsed = content(blockJson)
+  const tableJson = parsed.json
+  if (tableJson && Array.isArray(tableJson.content)) {
+    return tableJson.content.map((row: Record<string, any>, rowIndex: number) => {
+      if (!Array.isArray(row.content)) return []
+      return row.content.map((cell: Record<string, any>) => ({
+        text: plainTextFromJson(cell).replace(/\n+/g, ' ').trim(),
+        colspan: Math.max(1, Number(cell.attrs?.colspan || 1)),
+        rowspan: Math.max(1, Number(cell.attrs?.rowspan || 1)),
+        header: cell.type === 'tableHeader' || (rowIndex === 0 && tableHasHeader(blockJson)),
+      }))
+    })
+  }
+
+  return tableRows(blockJson).map((row: string[], rowIndex: number) => row.map((cell) => ({
+    text: cell,
+    colspan: 1,
+    rowspan: 1,
+    header: rowIndex === 0 && tableHasHeader(blockJson),
+  })))
+}
+
 function tableHasHeader(blockJson: string) {
   const parsed = content(blockJson)
   return parsed.hasHeader ?? parsed.json?.attrs?.hasHeader ?? true
 }
 
-function imageFigureStyle(blockJson: string) {
+function imageFigureStyle(blockJson: string): CSSProperties {
   const parsed = content(blockJson)
-  const align = parsed.align || parsed.json?.attrs?.align || 'inline'
-  if (align === 'center') return { display: 'block', marginLeft: 'auto', marginRight: 'auto' }
-  if (align === 'right') return { display: 'block', marginLeft: 'auto', marginRight: '0' }
+  const align = parsed.json?.attrs?.align || parsed.align || 'inline'
+  if (align === 'center') return { display: 'flex', flexDirection: 'column', alignItems: 'center' }
+  if (align === 'right') return { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }
   if (align === 'inline') return { display: 'inline-block', marginLeft: '0', marginRight: '8px', verticalAlign: 'top' }
-  return { display: 'block', marginLeft: '0', marginRight: 'auto' }
+  return { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }
 }
 
 function movableBlockStyle(blockJson: string) {
   const parsed = content(blockJson)
-  const align = parsed.align || parsed.json?.attrs?.align || 'left'
-  const width = parsed.width || parsed.json?.attrs?.width
+  const align = parsed.json?.attrs?.align || parsed.align || 'left'
+  const width = parsed.json?.attrs?.width || parsed.width
   return {
     width: typeof width === 'number' ? `${width}px` : width,
     marginLeft: align === 'center' || align === 'right' ? 'auto' : '0',
@@ -267,7 +297,7 @@ function movableBlockStyle(blockJson: string) {
 
 function tableWidth(blockJson: string) {
   const parsed = content(blockJson)
-  const width = parsed.width || parsed.json?.attrs?.width
+  const width = parsed.json?.attrs?.width || parsed.width
   const columnWidths = tableColumnWidths(blockJson)
   const fallbackWidth = columnWidths.length && columnWidths.every(Boolean)
     ? columnWidths.reduce<number>((total, columnWidth) => total + Number(columnWidth || 0), 0)
@@ -315,7 +345,7 @@ function imageSource(blockJson: string) {
 
 function imageWidth(blockJson: string) {
   const parsed = content(blockJson)
-  const width = parsed.width || parsed.json?.attrs?.width
+  const width = parsed.json?.attrs?.width || parsed.width
   if (!width) return undefined
   const text = String(width)
   return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
@@ -323,7 +353,7 @@ function imageWidth(blockJson: string) {
 
 function imageHeight(blockJson: string) {
   const parsed = content(blockJson)
-  const height = parsed.height || parsed.json?.attrs?.height
+  const height = parsed.json?.attrs?.height || parsed.height
   if (!height) return undefined
   const text = String(height)
   return /^\d+(\.\d+)?$/.test(text) ? `${text}px` : text
@@ -496,6 +526,26 @@ function schedulePagination() {
   })
 }
 
+function plainTextFromJson(node: Record<string, any>): string {
+  if (typeof node.text === 'string') return node.text
+  if (!Array.isArray(node.content)) return ''
+  return node.content.map((child: Record<string, any>) => plainTextFromJson(child)).join(node.type === 'paragraph' ? '' : '\n')
+}
+
+function keepWithNext(unit: ContentUnit) {
+  return unit.kind === 'section' || (unit.kind === 'block' && unit.block.blockType === 'HEADING')
+}
+
+function followerGroupHeight(index: number, measuredItems: HTMLElement[]) {
+  if (!keepWithNext(contentUnits.value[index])) return 0
+  let height = 0
+  for (let cursor = index + 1; cursor < contentUnits.value.length; cursor += 1) {
+    height += measuredItems[cursor]?.offsetHeight || 0
+    if (!keepWithNext(contentUnits.value[cursor])) break
+  }
+  return height
+}
+
 function paginateContent() {
   const measurement = measurementRef.value
   const page = measurePageRef.value
@@ -513,21 +563,41 @@ function paginateContent() {
 
   const pages: ContentUnit[][] = []
   let currentPage: ContentUnit[] = []
+  let currentPageHeights: number[] = []
   let currentHeight = 0
 
   measuredItems.forEach((item, index) => {
     const unit = contentUnits.value[index]
     const height = item.offsetHeight
     const startsNewSection = unit.kind === 'section'
-    const shouldBreak = currentPage.length > 0 && (currentHeight + height > maxHeight || (startsNewSection && maxHeight - currentHeight < 140))
+    const requiredFollowerHeight = followerGroupHeight(index, measuredItems)
+    const wouldLeaveTitleAlone = keepWithNext(unit)
+      && Boolean(contentUnits.value[index + 1])
+      && currentPage.length > 0
+      && currentHeight + height + requiredFollowerHeight > maxHeight
+    const shouldBreak = currentPage.length > 0 && (
+      currentHeight + height > maxHeight
+      || (startsNewSection && maxHeight - currentHeight < 140)
+      || wouldLeaveTitleAlone
+    )
 
     if (shouldBreak) {
-      pages.push(currentPage)
-      currentPage = []
-      currentHeight = 0
+      const carryUnits: ContentUnit[] = []
+      const carryHeights: number[] = []
+      while (currentPage.length && keepWithNext(currentPage[currentPage.length - 1])) {
+        carryUnits.unshift(currentPage.pop() as ContentUnit)
+        carryHeights.unshift(currentPageHeights.pop() || 0)
+      }
+      if (currentPage.length) {
+        pages.push(currentPage)
+      }
+      currentPage = carryUnits
+      currentPageHeights = carryHeights
+      currentHeight = carryHeights.reduce((total, itemHeight) => total + itemHeight, 0)
     }
 
     currentPage.push(unit)
+    currentPageHeights.push(height)
     currentHeight += height
   })
 
@@ -670,13 +740,16 @@ function contentPageForBlock(blockId: number) {
                 />
               </colgroup>
               <tbody>
-                <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
-                  <template v-if="rowIndex === 0 && tableHasHeader(unit.block.contentJson)">
-                    <th v-for="(cell, cellIndex) in row" :key="`h-${cellIndex}`">{{ cell }}</th>
-                  </template>
-                  <template v-else>
-                    <td v-for="(cell, cellIndex) in row" :key="`c-${cellIndex}`">{{ cell }}</td>
-                  </template>
+                <tr v-for="(row, rowIndex) in tableCellRows(unit.block.contentJson)" :key="rowIndex">
+                  <component
+                    :is="cell.header ? 'th' : 'td'"
+                    v-for="(cell, cellIndex) in row"
+                    :key="`${cell.header ? 'h' : 'c'}-${cellIndex}`"
+                    :colspan="cell.colspan"
+                    :rowspan="cell.rowspan"
+                  >
+                    {{ cell.text }}
+                  </component>
                 </tr>
               </tbody>
             </table>
@@ -751,13 +824,16 @@ function contentPageForBlock(blockId: number) {
                       />
                     </colgroup>
                     <tbody>
-                      <tr v-for="(row, rowIndex) in tableRows(unit.block.contentJson)" :key="rowIndex">
-                        <template v-if="rowIndex === 0 && tableHasHeader(unit.block.contentJson)">
-                          <th v-for="(cell, cellIndex) in row" :key="`mh-${cellIndex}`">{{ cell }}</th>
-                        </template>
-                        <template v-else>
-                          <td v-for="(cell, cellIndex) in row" :key="`mc-${cellIndex}`">{{ cell }}</td>
-                        </template>
+                      <tr v-for="(row, rowIndex) in tableCellRows(unit.block.contentJson)" :key="rowIndex">
+                        <component
+                          :is="cell.header ? 'th' : 'td'"
+                          v-for="(cell, cellIndex) in row"
+                          :key="`m${cell.header ? 'h' : 'c'}-${cellIndex}`"
+                          :colspan="cell.colspan"
+                          :rowspan="cell.rowspan"
+                        >
+                          {{ cell.text }}
+                        </component>
                       </tr>
                     </tbody>
                   </table>

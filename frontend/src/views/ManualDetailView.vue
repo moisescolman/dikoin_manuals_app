@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Columns2, Download, Edit, GitBranch, History } from '@lucide/vue'
+import { ArrowLeft, ArrowUp, Columns2, Download, Edit, GitBranch, History } from '@lucide/vue'
 import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
 import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
@@ -26,8 +26,22 @@ const statusNotes = ref('')
 const statusMessage = ref('')
 const changingStatus = ref(false)
 const exporting = ref(false)
+const detailPage = ref<HTMLElement | null>(null)
+const previewStart = ref<HTMLElement | null>(null)
+const showBackToTop = ref(false)
+let scrollContainer: HTMLElement | null = null
 
-onMounted(() => store.fetchManual(Number(props.id)))
+onMounted(async () => {
+  await store.fetchManual(Number(props.id))
+  await nextTick()
+  scrollContainer = detailPage.value?.closest('.main-content') as HTMLElement | null
+  scrollContainer?.addEventListener('scroll', updateBackToTop, { passive: true })
+  updateBackToTop()
+})
+
+onBeforeUnmount(() => {
+  scrollContainer?.removeEventListener('scroll', updateBackToTop)
+})
 watch(() => store.current?.activeVersion?.status, (status) => {
   selectedStatus.value = status || 'DRAFT'
 }, { immediate: true })
@@ -96,10 +110,19 @@ async function changeStatus() {
     changingStatus.value = false
   }
 }
+
+function updateBackToTop() {
+  showBackToTop.value = Boolean(scrollContainer && scrollContainer.scrollTop > 520)
+}
+
+function scrollToCover() {
+  const target = previewStart.value || detailPage.value
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 </script>
 
 <template>
-  <section class="detail-page">
+  <section ref="detailPage" class="detail-page">
     <BackendError :message="store.error" />
     <div v-if="store.loading">Cargando manual...</div>
     <template v-else-if="store.current">
@@ -159,8 +182,10 @@ async function changeStatus() {
         </button>
       </div>
 
-      <ManualLanguageCompare v-if="tab === 'Contenido' && compareMode" :manual="store.current" />
-      <ManualRenderer v-else-if="tab === 'Contenido'" :manual="store.current" :language="selectedLanguage" />
+      <div v-if="tab === 'Contenido'" ref="previewStart" class="preview-start">
+        <ManualLanguageCompare v-if="compareMode" :manual="store.current" />
+        <ManualRenderer v-else :manual="store.current" :language="selectedLanguage" />
+      </div>
       <div v-else-if="tab === 'Metadatos'" class="card info-panel">
         <p><strong>Producto:</strong> {{ store.current.productCode }} · {{ store.current.productName }}</p>
         <p><strong>Tipo documental:</strong> {{ store.current.documentTypeCode || '-' }} {{ store.current.documentTypeName || '' }}</p>
@@ -186,6 +211,9 @@ async function changeStatus() {
         <GitBranch :size="18" />
         <p>Las exportaciones PDF se generan desde el botón superior y se descargan al terminar.</p>
       </div>
+      <button v-if="tab === 'Contenido' && showBackToTop" class="back-to-cover" type="button" @click="scrollToCover">
+        <ArrowUp :size="16" /> Subir
+      </button>
     </template>
   </section>
 </template>
@@ -198,9 +226,18 @@ async function changeStatus() {
 }
 
 .detail-head {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
   align-items: flex-start;
   gap: 14px;
+  margin: -24px -24px 0;
+  padding: 14px 24px;
+  background: rgba(255, 255, 255, .96);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .08);
+  backdrop-filter: blur(8px);
 }
 
 .title-area {
@@ -305,6 +342,26 @@ async function changeStatus() {
 
 .info-panel {
   padding: 16px;
+}
+
+.preview-start {
+  scroll-margin-top: 92px;
+}
+
+.back-to-cover {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 70;
+  border: 1px solid var(--dikoin-blue);
+  border-radius: var(--radius);
+  background: var(--dikoin-blue);
+  color: #fff;
+  padding: 9px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .18);
 }
 
 .success-msg {

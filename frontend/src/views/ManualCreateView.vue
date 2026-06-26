@@ -265,12 +265,14 @@ label {
 }
 
 .cover-preview {
-  min-height: 620px;
+  width: min(100%, 420px);
+  aspect-ratio: 210 / 297;
   padding: 28px;
   display: grid;
   grid-template-rows: auto minmax(250px, 1fr) auto auto;
   gap: 24px;
   text-align: center;
+  margin: 0 auto;
 }
 
 .preview-logo {

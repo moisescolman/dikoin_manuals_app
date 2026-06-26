@@ -120,6 +120,7 @@ function parseBlockData(block: ManualBlockResponse): Record<string, unknown> | u
 }
 
 export function blockContentToJson(block: EditorBlock): string {
+  const savedAttrs = (block.data?.json as { attrs?: Record<string, unknown> } | undefined)?.attrs || {}
   if (block.type === 'nota-ref') {
     return JSON.stringify({ type: 'notice_ref', noticeTemplateId: Number(block.content) })
   }
@@ -129,11 +130,11 @@ export function blockContentToJson(block: EditorBlock): string {
       src: block.content,
       caption: block.data?.caption || '',
       assetId: block.data?.assetId,
-      width: block.data?.width,
-      height: block.data?.height,
-      align: block.data?.align || 'inline',
-      offsetX: block.data?.offsetX || 0,
-      offsetY: block.data?.offsetY || 0,
+      width: savedAttrs.width || block.data?.width,
+      height: savedAttrs.height || block.data?.height,
+      align: savedAttrs.align || block.data?.align || 'inline',
+      offsetX: savedAttrs.offsetX || block.data?.offsetX || 0,
+      offsetY: savedAttrs.offsetY || block.data?.offsetY || 0,
       json: block.data?.json,
     })
   }
@@ -143,9 +144,9 @@ export function blockContentToJson(block: EditorBlock): string {
         type: 'table',
         columns: block.data?.columns || [],
         rows: block.data?.rows || [],
-        width: block.data?.width,
+        width: savedAttrs.width || block.data?.width,
         hasHeader: block.data?.hasHeader !== false,
-        align: block.data?.align || 'left',
+        align: savedAttrs.align || block.data?.align || 'left',
         json: block.data?.json,
       })
     }
@@ -158,9 +159,9 @@ export function blockContentToJson(block: EditorBlock): string {
       type: 'table',
       columns,
       rows: rows.slice(1),
-      width: block.data?.width,
+      width: savedAttrs.width || block.data?.width,
       hasHeader: block.data?.hasHeader !== false,
-      align: block.data?.align || 'left',
+      align: savedAttrs.align || block.data?.align || 'left',
     })
   }
   if (block.type === 'formula') {

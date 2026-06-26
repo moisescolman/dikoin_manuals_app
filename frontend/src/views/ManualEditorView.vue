@@ -302,11 +302,15 @@ function buildVersionRequest(status: ManualStatus, changeNotes: string) {
     versionNumber: version.value.versionNumber,
     status,
     active: true,
-    esReady: version.value.esReady,
-    enReady: version.value.enReady,
+    esReady: version.value.esReady || hasLanguageBlocks('ES'),
+    enReady: hasLanguageBlocks('EN'),
     changeNotes,
     sections: sections.value,
   })
+}
+
+function hasLanguageBlocks(language: LanguageCode) {
+  return sections.value.some((section) => section.blocks.some((block) => block.languageCode === language))
 }
 
 async function saveDraft(changeNotes = 'Borrador autoguardado desde editor') {

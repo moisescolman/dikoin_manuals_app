@@ -34,7 +34,11 @@ import {
   Save,
   Scissors,
   Sigma,
+  TableCellsMerge,
+  TableCellsSplit,
+  TableColumnsSplit,
   Table as TableIcon,
+  TableRowsSplit,
   Trash2,
   Undo2,
   X,
@@ -1246,6 +1250,24 @@ function hoverTableSize(rows: number, cols: number) {
 function tablePickerLabel() {
   if (!tablePickerRows.value || !tablePickerCols.value) return 'Insertar tabla'
   return `${tablePickerCols.value} x ${tablePickerRows.value}`
+}
+
+function runTableEdit(action: 'row-before' | 'row-after' | 'column-before' | 'column-after' | 'delete-row' | 'delete-column' | 'merge' | 'split') {
+  const current = editor.value
+  if (!current || !current.isActive('table')) return
+  const chain = current.chain().focus()
+  if (action === 'row-before') chain.addRowBefore().run()
+  if (action === 'row-after') chain.addRowAfter().run()
+  if (action === 'column-before') chain.addColumnBefore().run()
+  if (action === 'column-after') chain.addColumnAfter().run()
+  if (action === 'delete-row') chain.deleteRow().run()
+  if (action === 'delete-column') chain.deleteColumn().run()
+  if (action === 'merge') chain.mergeCells().run()
+  if (action === 'split') chain.splitCell().run()
+  hasPendingTableSync.value = true
+  markEditorDirty()
+  refreshToolbarState()
+  requestAnimationFrame(updateBlockActionsPosition)
 }
 
 function updateTableDeletePosition() {
@@ -2704,6 +2726,22 @@ function imageAssetId(node: JSONContent) {
             <button class="tool-btn save-content" title="Guardar como contenido" @click="emit('saveReusable')"><Save :size="16" /><span>Guardar contenido</span></button>
           </div>
           <span class="group-label">Insertar</span>
+        </div>
+
+        <div class="ribbon-group table-tools">
+          <div class="ribbon-row">
+            <button class="tool-btn" title="Insertar fila arriba" :disabled="!editor?.isActive('table')" @click="runTableEdit('row-before')"><TableRowsSplit :size="16" /><span>Fila arriba</span></button>
+            <button class="tool-btn" title="Insertar fila abajo" :disabled="!editor?.isActive('table')" @click="runTableEdit('row-after')"><TableRowsSplit :size="16" /><span>Fila abajo</span></button>
+            <button class="tool-btn" title="Insertar columna izquierda" :disabled="!editor?.isActive('table')" @click="runTableEdit('column-before')"><TableColumnsSplit :size="16" /><span>Col. izq.</span></button>
+            <button class="tool-btn" title="Insertar columna derecha" :disabled="!editor?.isActive('table')" @click="runTableEdit('column-after')"><TableColumnsSplit :size="16" /><span>Col. der.</span></button>
+          </div>
+          <div class="ribbon-row">
+            <button class="tool-btn" title="Combinar celdas seleccionadas" :disabled="!editor?.isActive('table')" @click="runTableEdit('merge')"><TableCellsMerge :size="16" /><span>Combinar</span></button>
+            <button class="tool-btn" title="Separar celda combinada" :disabled="!editor?.isActive('table')" @click="runTableEdit('split')"><TableCellsSplit :size="16" /><span>Separar</span></button>
+            <button class="tool-btn danger" title="Eliminar fila" :disabled="!editor?.isActive('table')" @click="runTableEdit('delete-row')"><Trash2 :size="16" /><span>Fila</span></button>
+            <button class="tool-btn danger" title="Eliminar columna" :disabled="!editor?.isActive('table')" @click="runTableEdit('delete-column')"><Trash2 :size="16" /><span>Columna</span></button>
+          </div>
+          <span class="group-label">Tabla</span>
         </div>
 
         <div class="ribbon-group section-actions">
