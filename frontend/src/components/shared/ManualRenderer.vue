@@ -459,8 +459,8 @@ function noticeById(id: number) {
 function noticeTitle(notice?: NoticeTemplateResponse) {
   if (!notice) return 'Nota'
   return activeLanguage() === 'EN'
-    ? notice.visibleTitleEn || notice.titleEn || notice.visibleTitleEs || notice.titleEs || 'Note'
-    : notice.visibleTitleEs || notice.titleEs || 'Nota'
+    ? notice.visibleTitleEn || notice.visibleTitleEs || notice.title || 'Note'
+    : notice.visibleTitleEs || notice.title || 'Nota'
 }
 
 function noticeContent(notice?: NoticeTemplateResponse) {

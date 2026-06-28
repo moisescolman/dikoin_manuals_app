@@ -660,7 +660,7 @@ const filteredNotices = computed(() => {
   const search = noticeSearch.value.trim().toLowerCase()
   if (!search) return notices.value
   return notices.value.filter((notice) => {
-    return [notice.code, notice.titleEs, notice.visibleTitleEs, notice.contentEs, notice.titleEn, notice.contentEn]
+    return [notice.code, notice.title, notice.visibleTitleEs, notice.contentEs, notice.visibleTitleEn, notice.contentEn]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(search))
   })
@@ -2330,8 +2330,8 @@ function noticeById(id: number) {
 
 function noticeTitle(notice: NoticeTemplateResponse) {
   return props.language === 'EN'
-    ? notice.visibleTitleEn || notice.titleEn || notice.visibleTitleEs || notice.titleEs || 'Nota'
-    : notice.visibleTitleEs || notice.titleEs || 'Nota'
+    ? notice.visibleTitleEn || notice.visibleTitleEs || notice.title || 'Nota'
+    : notice.visibleTitleEs || notice.title || 'Nota'
 }
 
 function noticeContent(notice: NoticeTemplateResponse) {
@@ -3013,7 +3013,7 @@ function imageAssetId(node: JSONContent) {
         <input v-model="noticeSearch" class="field" placeholder="Buscar nota..." />
         <div class="notice-list">
           <button v-for="notice in filteredNotices" :key="notice.id" @click="insertNotice(notice)">
-            <strong>{{ notice.code }} · {{ notice.titleEs }}</strong>
+            <strong>{{ notice.code }} · {{ notice.title }}</strong>
             <span>{{ notice.contentEs }}</span>
           </button>
         </div>

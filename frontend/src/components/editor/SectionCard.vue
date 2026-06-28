@@ -147,7 +147,7 @@ function insertReusableBlock(event: Event) {
         <select class="toolbar-select" @change="insertNotice">
           <option value="">Insertar nota</option>
           <option v-for="notice in notices" :key="notice.id" :value="notice.id">
-            {{ notice.code }} - {{ notice.titleEs }}
+            {{ notice.code }} - {{ notice.title }}
           </option>
         </select>
         <select class="toolbar-select" @change="insertReusableBlock">

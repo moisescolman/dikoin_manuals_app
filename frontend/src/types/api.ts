@@ -309,8 +309,7 @@ export interface NoticeTemplateResponse {
   id: number
   code: string
   type: NoticeType
-  titleEs: string
-  titleEn?: string
+  title: string
   visibleTitleEs?: string
   visibleTitleEn?: string
   productCategory?: string
@@ -325,8 +324,7 @@ export interface NoticeTemplateResponse {
 export interface NoticeTemplateRequest {
   code?: string
   type: NoticeType
-  titleEs: string
-  titleEn?: string
+  title: string
   visibleTitleEs?: string
   visibleTitleEn?: string
   productCategory?: string

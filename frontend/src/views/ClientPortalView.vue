@@ -27,7 +27,12 @@ onMounted(() => store.fetchManuals())
 
     <div class="filters card">
       <Search :size="14" />
-      <input v-model="search" placeholder="Buscar manual publicado..." @keydown.enter="store.fetchManuals(search)" />
+      <input
+        v-model="search"
+        aria-label="Buscar manual publicado"
+        placeholder="Buscar manual publicado..."
+        @keydown.enter="store.fetchManuals(search)"
+      />
       <button class="btn btn-outline" @click="store.fetchManuals(search)">Buscar</button>
     </div>
 
