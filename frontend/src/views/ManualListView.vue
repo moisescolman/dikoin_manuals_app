@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Ban, Download, Edit, Eye, History, Plus, Search, Trash2 } from '@lucide/vue'
+import { Ban, Download, Edit, Eye, History, Plus, Search, Trash2, FileText } from '@lucide/vue'
 import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
 import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
@@ -268,7 +268,7 @@ function syncFiltersToRoute() {
                 <button class="lang-action" title="Ver español" @click="router.push({ name: 'manual-detail', params: { id: manual.id }, query: { lang: 'ES' } })">ES</button>
                 <button class="lang-action" title="Ver inglés" @click="router.push({ name: 'manual-detail', params: { id: manual.id }, query: { lang: 'EN' } })">EN</button>
                 <button title="Editar" @click="router.push({ name: 'manual-editor', params: { id: manual.id } })"><Edit :size="14" /></button>
-                <button title="Exportar PDF" :disabled="exportingIds.includes(manual.id)" @click="exportPdf(manual.id)"><Download :size="14" /></button>
+                <button title="Exportar PDF" :disabled="exportingIds.includes(manual.id)" @click="exportPdf(manual.id)"><FileText :size="14" /></button>
                 <button title="Historial" @click="router.push({ name: 'history', params: { id: manual.id } })"><History :size="14" /></button>
                 <button title="Deshabilitar" @click="disableManualById(manual.id)"><Ban :size="14" /></button>
                 <button title="Eliminar" @click="deleteCandidate = manual.id"><Trash2 :size="14" /></button>

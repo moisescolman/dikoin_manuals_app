@@ -4,6 +4,7 @@ import type { Directive } from 'vue'
 import {
   BarChart2,
   Calculator,
+  Blocks,
   FileImage,
   GripVertical,
   Info,
@@ -34,6 +35,7 @@ const labels: Record<EditorBlockType, string> = {
   advertencia: 'Advertencia',
   nota: 'Nota',
   'nota-ref': 'Nota de biblioteca',
+  'fragmento-ref': 'Fragmento reutilizable',
   imagen: 'Imagen',
   enlace: 'Enlace',
   formula: 'Fórmula',
@@ -64,6 +66,7 @@ const icon = computed(() => {
     advertencia: Info,
     nota: Info,
     'nota-ref': Info,
+    'fragmento-ref': Blocks,
     imagen: FileImage,
     enlace: Link,
     formula: Calculator,

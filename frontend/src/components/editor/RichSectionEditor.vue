@@ -51,12 +51,19 @@ import { createReusableFragment, getReusableFragments } from '@/api/reusable-fra
 import AppModal from '@/components/shared/AppModal.vue'
 import type { EditorBlock, EditorBlockType, EditorSection } from '@/types/editor'
 import { backendBlockTypeToEditor, blockContentToJson, editorBlockTypeToBackend, parseContent, randomId } from '@/types/editor'
-import type { AssetResponse, LanguageCode, ManualBlockResponse, NoticeTemplateResponse, ReusableBlockResponse } from '@/types/api'
+import type { AssetResponse, LanguageCode, ManualBlockResponse, NoticeTemplateResponse, ReusableBlockResponse, ReusableFragmentResponse } from '@/types/api'
+
+type ReusableFragmentLike = (ReusableBlockResponse | ReusableFragmentResponse) & {
+  titleEs?: string
+  titleEn?: string
+}
 
 type NoteMode = 'new' | 'library'
 type EditorRegistryRecord = { editor: Editor; root: () => HTMLElement | null; markDirty: () => void }
 type MovableBlockKind = 'note' | 'table' | 'image' | 'formula'
 type MovableBlockRange = { from: number; to: number; kind: MovableBlockKind }
+type LinkableBoxKind = 'note' | 'fragment'
+type LinkableBoxRange = { from: number; to: number; linked: boolean; kind: LinkableBoxKind }
 type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w'
 type SectionTarget = { id: string; number?: string; title: string }
 type BlockSelectionSync = {
@@ -115,8 +122,8 @@ const tableDeletePosition = ref<{ visible: boolean; top: number; left: number }>
 const blockActionsPosition = ref<{ visible: boolean; top: number; left: number; kind: MovableBlockKind | null }>({ visible: false, top: 0, left: 0, kind: null })
 const blockResizeOverlay = ref<{ visible: boolean; top: number; left: number; width: number; height: number; kind: MovableBlockKind | null }>({ visible: false, top: 0, left: 0, width: 0, height: 0, kind: null })
 const blockActionRange = ref<MovableBlockRange | null>(null)
-const noteActionsPosition = ref<{ visible: boolean; top: number; left: number; linked: boolean }>({ visible: false, top: 0, left: 0, linked: false })
-const noteActionRange = ref<{ from: number; to: number; linked: boolean } | null>(null)
+const noteActionsPosition = ref<{ visible: boolean; top: number; left: number; linked: boolean; kind: LinkableBoxKind }>({ visible: false, top: 0, left: 0, linked: false, kind: 'note' })
+const noteActionRange = ref<LinkableBoxRange | null>(null)
 const noteDragPreview = ref<{ visible: boolean; top: number; left: number; title: string; text: string; linked: boolean }>({ visible: false, top: 0, left: 0, title: '', text: '', linked: false })
 const blockDragPreview = ref<{ visible: boolean; top: number; left: number; title: string; text: string; kind: MovableBlockKind | null }>({ visible: false, top: 0, left: 0, title: '', text: '', kind: null })
 const toolbarStateTick = ref(0)
@@ -253,6 +260,35 @@ const ReusableSectionBox = Node.create({
   },
 })
 
+const ReusableFragmentBox = Node.create({
+  name: 'reusableFragmentBox',
+  group: 'block',
+  content: 'block+',
+  defining: true,
+  isolating: true,
+  selectable: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      refId: { default: null },
+      title: { default: 'Fragmento reutilizable' },
+      code: { default: '' },
+    }
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-reusable-fragment]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes(HTMLAttributes, {
+      'data-reusable-fragment': 'true',
+      ...(HTMLAttributes.refId ? { 'data-reusable-fragment-ref': String(HTMLAttributes.refId) } : {}),
+      class: 'reusable-fragment-box linked-reusable-fragment-box',
+      draggable: 'true',
+      contenteditable: 'false',
+    }), ['div', { class: 'reusable-fragment-content' }, 0]]
+  },
+})
+
 const FormulaBlock = Node.create({
   name: 'formulaBlock',
   group: 'block',
@@ -298,7 +334,7 @@ const BlockIdentity = Extension.create({
   name: 'blockIdentity',
   addGlobalAttributes() {
     return [{
-      types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'table', 'image', 'noteBox', 'formulaBlock', 'reusableSectionBox'],
+      types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'table', 'image', 'noteBox', 'formulaBlock', 'reusableSectionBox', 'reusableFragmentBox'],
       attributes: {
         blockId: {
           default: null,
@@ -538,6 +574,7 @@ const editor = useEditor({
     TableCell,
     NoteBox,
     ReusableSectionBox,
+    ReusableFragmentBox,
     FormulaBlock,
     BlockIdentity,
     BlockSelection,
@@ -915,7 +952,7 @@ async function saveSelectedFragment() {
   fragmentSaving.value = true
   fragmentMessage.value = ''
   try {
-    await createReusableFragment({
+    const fragment = await createReusableFragment({
       name: fragmentName.value.trim(),
       description: fragmentDescription.value.trim() || undefined,
       sourceSectionId: props.section.backendId,
@@ -932,6 +969,7 @@ async function saveSelectedFragment() {
     })
     fragmentMessage.value = 'Fragmento guardado'
     reusableBlocks.value = await loadReusableLibrary()
+    replaceSelectedBlocksWithFragment(fragment)
     clearBlockSelection()
     setTimeout(() => {
       showFragmentModal.value = false
@@ -1364,8 +1402,8 @@ function updateNoteDeletePosition() {
 function handleSectionClick(event: MouseEvent) {
   activateEditor()
   const target = event.target instanceof Element ? event.target : null
-  const note = target?.closest('[data-note-box]') as HTMLElement | null
-  if (!note) {
+  const linkableBox = target?.closest('[data-note-box],[data-reusable-fragment]') as HTMLElement | null
+  if (!linkableBox) {
     clearActiveNoteElement()
     const blockElement = movableBlockElementFromTarget(target)
     if (!blockElement) {
@@ -1379,8 +1417,8 @@ function handleSectionClick(event: MouseEvent) {
   }
   clearActiveBlockElement()
   hideBlockActions()
-  activateNoteElement(note)
-  showNoteActionsForElement(note, noteInfoFromElement(note))
+  activateNoteElement(linkableBox)
+  showNoteActionsForElement(linkableBox, noteInfoFromElement(linkableBox))
 }
 
 function handleSectionMouseDown(event: MouseEvent) {
@@ -1412,7 +1450,7 @@ function handleSectionMouseDown(event: MouseEvent) {
   }
 
   const handle = target?.closest('[data-note-drag-handle]')
-  const note = target?.closest('[data-note-box]') as HTMLElement | null
+  const note = target?.closest('[data-note-box],[data-reusable-fragment]') as HTMLElement | null
   if (!handle || !note) return
   const info = noteInfoFromElement(note)
   const noteJson = activeNoteJson(info)
@@ -1459,7 +1497,7 @@ function handleSectionMouseMove(event: MouseEvent) {
   updateBlockSelectionHover(event)
   const target = event.target instanceof Element ? event.target : null
   if (!target || target.closest('.note-actions-float') || target.closest('.block-actions-float')) return
-  const note = target.closest('[data-note-box]')
+  const note = target.closest('[data-note-box],[data-reusable-fragment]')
   if (!note) {
     const blockElement = movableBlockElementFromTarget(target)
     if (blockElement) {
@@ -1624,6 +1662,7 @@ function showNoteActionsForElement(note: HTMLElement, info = noteInfoFromElement
     top: noteRect.top - wrapperRect.top + wrapper.scrollTop - 14,
     left: noteRect.right - wrapperRect.left + wrapper.scrollLeft - actionsWidth - 8,
     linked: info.linked,
+    kind: info.kind,
   }
   noteActionRange.value = info
 }
@@ -1719,7 +1758,20 @@ function unlinkActiveNote() {
   if (!current || !activeNote || !activeNote.linked) return
 
   const node = current.state.doc.nodeAt(activeNote.from)
-  if (!node || node.type.name !== 'noteBox') return
+  if (!node || !isLinkableBoxNode(node.type.name)) return
+
+  if (node.type.name === 'reusableFragmentBox') {
+    const json = node.toJSON() as JSONContent
+    const nodes = cloneFragmentContentNodes(json.content || [])
+    if (!nodes.length) {
+      editorMessage.value = 'No se pudo desvincular el fragmento.'
+      return
+    }
+    current.chain().focus().insertContentAt({ from: activeNote.from, to: activeNote.to }, nodes).run()
+    hideNoteActions()
+    editorDirty.value = true
+    return
+  }
 
   const title = String(node.attrs.title || 'Nota')
   const text = node.textContent || ''
@@ -1874,7 +1926,7 @@ function activeNoteJson(range = noteActionRange.value || activeNoteInfo()) {
   const current = editor.value
   if (!current || !range) return null
   const node = current.state.doc.nodeAt(range.from)
-  return node?.type.name === 'noteBox' ? node.toJSON() as JSONContent : null
+  return node && isLinkableBoxNode(node.type.name) ? node.toJSON() as JSONContent : null
 }
 
 function activeBlockJson(range = blockActionRange.value) {
@@ -1886,6 +1938,9 @@ function activeBlockJson(range = blockActionRange.value) {
 }
 
 function noteJsonText(noteJson: JSONContent) {
+  if (noteJson.type === 'reusableFragmentBox') {
+    return plainText(noteJson) || String(noteJson.attrs?.title || noteJson.attrs?.code || 'Fragmento reutilizable')
+  }
   return plainText(noteJson) || String(noteJson.attrs?.title || 'Nota')
 }
 
@@ -1955,11 +2010,12 @@ function activeNoteInfo() {
   const { $from } = current.state.selection
   for (let depth = $from.depth; depth > 0; depth--) {
     const node = $from.node(depth)
-    if (node.type.name === 'noteBox') {
+    if (isLinkableBoxNode(node.type.name)) {
       return {
         from: $from.before(depth),
         to: $from.after(depth),
         linked: Boolean(node.attrs.refId),
+        kind: linkableBoxKind(node.type.name),
       }
     }
   }
@@ -1980,23 +2036,33 @@ function noteInfoAtPos(pos: number) {
   const $pos = current.state.doc.resolve(safePos)
   for (let depth = $pos.depth; depth > 0; depth--) {
     const node = $pos.node(depth)
-    if (node.type.name === 'noteBox') {
+    if (isLinkableBoxNode(node.type.name)) {
       return {
         from: $pos.before(depth),
         to: $pos.after(depth),
         linked: Boolean(node.attrs.refId),
+        kind: linkableBoxKind(node.type.name),
       }
     }
   }
   const nodeAtPos = current.state.doc.nodeAt(safePos)
-  if (nodeAtPos?.type.name === 'noteBox') {
+  if (nodeAtPos && isLinkableBoxNode(nodeAtPos.type.name)) {
     return {
       from: safePos,
       to: safePos + nodeAtPos.nodeSize,
       linked: Boolean(nodeAtPos.attrs.refId),
+      kind: linkableBoxKind(nodeAtPos.type.name),
     }
   }
   return null
+}
+
+function isLinkableBoxNode(typeName: string) {
+  return typeName === 'noteBox' || typeName === 'reusableFragmentBox'
+}
+
+function linkableBoxKind(typeName: string): LinkableBoxKind {
+  return typeName === 'reusableFragmentBox' ? 'fragment' : 'note'
 }
 
 function blockInfoFromElement(element: HTMLElement, kind: MovableBlockKind): MovableBlockRange | null {
@@ -2166,68 +2232,136 @@ function insertContentBlock() {
 }
 
 function insertReusableFragment(fragment: ReusableBlockResponse) {
-  if (!editor.value) return
+  insertReusableFragmentReference(fragment)
+}
+
+function insertReusableFragmentReference(fragment: ReusableFragmentLike) {
+  const current = editor.value
+  if (!current) return
+  const fragmentNode = reusableFragmentNode(fragment)
+  const doc: JSONContent = structuredClone(current.getJSON())
+  const content: JSONContent[] = [...(doc.content || [])]
+  if (fragmentInsertPosition.value === 'AFTER_SELECTION' && hasSelection.value) {
+    const lastSelectedIndex = content.reduce(
+      (last, node, index) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')) ? index : last,
+      -1,
+    )
+    content.splice(lastSelectedIndex + 1, 0, fragmentNode)
+  } else {
+    content.push(fragmentNode)
+  }
+  doc.content = content
+  current.commands.setContent(doc)
+  markEditorDirty()
+  clearBlockSelection()
+  showReusableModal.value = false
+  fragmentMessage.value = ''
+}
+
+function replaceSelectedBlocksWithFragment(fragment: ReusableFragmentLike) {
+  const current = editor.value
+  if (!current || !hasSelection.value) return
+  const fragmentNode = reusableFragmentNode(fragment)
+  const doc: JSONContent = structuredClone(current.getJSON())
+  const content = doc.content || []
+  const firstSelectedIndex = content.findIndex((node) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')))
+  if (firstSelectedIndex < 0) return
+  doc.content = content.flatMap((node, index) => {
+    const selected = selectedBlockIds.value.includes(String(node.attrs?.blockId || ''))
+    if (!selected) return [node]
+    return index === firstSelectedIndex ? [fragmentNode] : []
+  })
+  current.commands.setContent(doc)
+  markEditorDirty()
+}
+
+function reusableFragmentNode(fragment: ReusableFragmentLike): JSONContent {
+  const content = reusableFragmentContent(fragment)
+  return {
+    type: 'reusableFragmentBox',
+    attrs: {
+      blockId: randomId('block'),
+      backendId: null,
+      refId: fragment.id,
+      code: fragment.code || '',
+      title: fragment.titleEs || fragment.title || 'Fragmento reutilizable',
+    },
+    content: content.length ? content : [{
+      type: 'paragraph',
+      attrs: { blockId: randomId('block'), backendId: null },
+      content: textContent('Fragmento no disponible.'),
+    }],
+  }
+}
+
+function reusableFragmentNodes(fragmentId: number): JSONContent[] {
+  const fragment = reusableBlocks.value.find((item) => item.reusableType === 'FRAGMENT' && item.id === fragmentId)
+  return reusableFragmentContent(fragment)
+}
+
+function reusableFragmentContent(fragment?: ReusableFragmentLike): JSONContent[] {
+  if (!fragment) return []
+  return reusableFragmentContentFromJson(fragment.contentJson)
+}
+
+function reusableFragmentContentFromJson(contentJson?: string): JSONContent[] {
+  if (!contentJson) return []
   try {
-    const parsed = JSON.parse(fragment.contentJson)
+    const parsed = JSON.parse(contentJson)
     const snapshots = Array.isArray(parsed.blocks) ? parsed.blocks : []
-    const blocks: EditorBlock[] = snapshots
+    return snapshots
       .filter((snapshot: Record<string, unknown>) => !snapshot.languageCode || snapshot.languageCode === props.language)
-      .map((snapshot: Record<string, unknown>, index: number) => {
-        const contentJson = typeof snapshot.contentJson === 'string'
-          ? snapshot.contentJson
-          : JSON.stringify(snapshot.contentJson || {})
-        const response: ManualBlockResponse = {
-          id: 0,
-          sortOrder: Number(snapshot.sortOrder || index + 1),
-          blockType: snapshot.blockType as ManualBlockResponse['blockType'],
-          languageCode: (snapshot.languageCode || props.language) as LanguageCode,
-          contentJson,
-          plainText: typeof snapshot.plainText === 'string' ? snapshot.plainText : undefined,
-          assetId: typeof snapshot.assetId === 'number' ? snapshot.assetId : undefined,
-          reusableFragmentId: fragment.id,
-        }
-        let data: Record<string, unknown> = {}
-        try {
-          data = JSON.parse(contentJson)
-        } catch {
-          data = {}
-        }
-        return {
-          id: randomId('block'),
-          type: backendBlockTypeToEditor(response.blockType),
-          content: parseContent(response),
-          languageCode: response.languageCode,
-          data: {
-            ...data,
-            assetId: response.assetId,
-            reusableFragmentId: fragment.id,
-          },
-        } satisfies EditorBlock
-      })
-    if (!blocks.length) {
-      fragmentMessage.value = 'El fragmento no contiene bloques para este idioma'
-      return
-    }
-    const insertedNodes = blocks.flatMap((block) => nodeFromBlock(block))
-    const doc: JSONContent = structuredClone(editor.value.getJSON())
-    const content: JSONContent[] = [...(doc.content || [])]
-    if (fragmentInsertPosition.value === 'AFTER_SELECTION' && hasSelection.value) {
-      const lastSelectedIndex = content.reduce(
-        (last, node, index) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')) ? index : last,
-        -1,
-      )
-      content.splice(lastSelectedIndex + 1, 0, ...insertedNodes)
-    } else {
-      content.push(...insertedNodes)
-    }
-    doc.content = content
-    editor.value.commands.setContent(doc)
-    markEditorDirty()
-    clearBlockSelection()
-    showReusableModal.value = false
-    fragmentMessage.value = ''
+      .map((snapshot: Record<string, unknown>, index: number) => reusableSnapshotBlock(snapshot, index))
+      .flatMap((block: EditorBlock) => nodeFromBlock(block))
   } catch {
-    fragmentMessage.value = 'El contenido del fragmento no es válido'
+    return []
+  }
+}
+
+function cloneFragmentContentNodes(nodes: JSONContent[]): JSONContent[] {
+  return nodes.map((node) => cloneFragmentContentNode(node, true))
+}
+
+function cloneFragmentContentNode(node: JSONContent, root = false): JSONContent {
+  const cloned = structuredClone(node)
+  cloned.attrs = {
+    ...(cloned.attrs || {}),
+    ...(root ? { blockId: randomId('block'), backendId: null } : {}),
+  }
+  if (Array.isArray(cloned.content)) {
+    cloned.content = cloned.content.map((child) => cloneFragmentContentNode(child))
+  }
+  return cloned
+}
+
+function reusableSnapshotBlock(snapshot: Record<string, unknown>, index: number): EditorBlock {
+  const contentJson = typeof snapshot.contentJson === 'string'
+    ? snapshot.contentJson
+    : JSON.stringify(snapshot.contentJson || {})
+  const response: ManualBlockResponse = {
+    id: 0,
+    sortOrder: Number(snapshot.sortOrder || index + 1),
+    blockType: snapshot.blockType as ManualBlockResponse['blockType'],
+    languageCode: (snapshot.languageCode || props.language) as LanguageCode,
+    contentJson,
+    plainText: typeof snapshot.plainText === 'string' ? snapshot.plainText : undefined,
+    assetId: typeof snapshot.assetId === 'number' ? snapshot.assetId : undefined,
+  }
+  let data: Record<string, unknown> = {}
+  try {
+    data = JSON.parse(contentJson)
+  } catch {
+    data = {}
+  }
+  return {
+    id: randomId('block'),
+    type: backendBlockTypeToEditor(response.blockType),
+    content: parseContent(response),
+    languageCode: response.languageCode,
+    data: {
+      ...data,
+      assetId: response.assetId,
+    },
   }
 }
 
@@ -2371,7 +2505,7 @@ function noticeContent(notice: NoticeTemplateResponse) {
 }
 
 function refreshLinkedNotesFromLibrary() {
-  if (!editor.value || editorDirty.value || !visibleBlocks().some((block) => block.type === 'nota-ref')) return
+  if (!editor.value || editorDirty.value || !visibleBlocks().some((block) => block.type === 'nota-ref' || block.type === 'fragmento-ref')) return
   syncingFromProps.value = true
   editor.value.commands.setContent(docFromBlocks(visibleBlocks()))
   queueMicrotask(() => {
@@ -2421,6 +2555,20 @@ function nodeFromBlock(block: EditorBlock): JSONContent[] {
           : String(savedJson?.attrs?.title || 'Sección reutilizable'),
       },
     }]
+  }
+  if (block.type === 'fragmento-ref') {
+    const refId = Number(block.content || data.reusableFragmentId || savedJson?.attrs?.refId || 0)
+    const fragment = reusableBlocks.value.find((item) => item.reusableType === 'FRAGMENT' && item.id === refId)
+    return [reusableFragmentNode({
+      id: refId,
+      code: fragment?.code || String(savedJson?.attrs?.code || ''),
+      title: fragment?.title || String(savedJson?.attrs?.title || 'Fragmento reutilizable'),
+      titleEs: fragment?.titleEs,
+      titleEn: fragment?.titleEn,
+      contentJson: fragment?.contentJson || '',
+      active: fragment?.active ?? true,
+      reusableType: 'FRAGMENT',
+    } as ReusableBlockResponse)]
   }
   if (savedJson?.type) {
     const clonedJson = JSON.parse(JSON.stringify(savedJson)) as JSONContent
@@ -2572,6 +2720,16 @@ function blockFromNode(node: JSONContent): EditorBlock[] {
       type: 'reusable_block_ref',
       json: node,
       reusableBlockId: refId,
+      title: node.attrs?.title,
+      code: node.attrs?.code,
+    }, node)]
+  }
+  if (node.type === 'reusableFragmentBox') {
+    const refId = Number(node.attrs?.refId || 0)
+    return [editorBlock('fragmento-ref', String(refId), {
+      type: 'reusable_fragment_ref',
+      json: node,
+      reusableFragmentId: refId,
       title: node.attrs?.title,
       code: node.attrs?.code,
     }, node)]
@@ -2917,8 +3075,8 @@ function imageAssetId(node: JSONContent) {
       >
         <button
           class="note-action-drag"
-          title="Arrastrar nota"
-          aria-label="Arrastrar nota"
+          :title="noteActionsPosition.kind === 'fragment' ? 'Arrastrar fragmento' : 'Arrastrar nota'"
+          :aria-label="noteActionsPosition.kind === 'fragment' ? 'Arrastrar fragmento' : 'Arrastrar nota'"
           @mousedown.stop.prevent="startActiveNoteDrag"
           @click.stop
         >
@@ -2927,8 +3085,8 @@ function imageAssetId(node: JSONContent) {
         <button
           v-if="noteActionsPosition.linked"
           class="note-action-unlink"
-          title="Desvincular nota"
-          aria-label="Desvincular nota"
+          :title="noteActionsPosition.kind === 'fragment' ? 'Desvincular fragmento' : 'Desvincular nota'"
+          :aria-label="noteActionsPosition.kind === 'fragment' ? 'Desvincular fragmento' : 'Desvincular nota'"
           @mousedown.prevent
           @click.stop="unlinkActiveNote"
         >
@@ -2936,8 +3094,8 @@ function imageAssetId(node: JSONContent) {
         </button>
         <button
           class="note-action-copy"
-          title="Copiar nota"
-          aria-label="Copiar nota"
+          :title="noteActionsPosition.kind === 'fragment' ? 'Copiar fragmento' : 'Copiar nota'"
+          :aria-label="noteActionsPosition.kind === 'fragment' ? 'Copiar fragmento' : 'Copiar nota'"
           @mousedown.prevent
           @click.stop="copyActiveNote"
         >
@@ -2945,8 +3103,8 @@ function imageAssetId(node: JSONContent) {
         </button>
         <button
           class="note-action-cut"
-          title="Cortar nota"
-          aria-label="Cortar nota"
+          :title="noteActionsPosition.kind === 'fragment' ? 'Cortar fragmento' : 'Cortar nota'"
+          :aria-label="noteActionsPosition.kind === 'fragment' ? 'Cortar fragmento' : 'Cortar nota'"
           @mousedown.prevent
           @click.stop="cutActiveNote"
         >
@@ -2954,8 +3112,8 @@ function imageAssetId(node: JSONContent) {
         </button>
         <button
           class="note-action-delete"
-          title="Eliminar nota"
-          aria-label="Eliminar nota"
+          :title="noteActionsPosition.kind === 'fragment' ? 'Eliminar fragmento' : 'Eliminar nota'"
+          :aria-label="noteActionsPosition.kind === 'fragment' ? 'Eliminar fragmento' : 'Eliminar nota'"
           @mousedown.prevent
           @click.stop="deleteActiveNote"
         >
@@ -4062,6 +4220,49 @@ function imageAssetId(node: JSONContent) {
   pointer-events: none;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 17H7A5 5 0 0 1 7 7h2'/%3E%3Cpath d='M15 7h2a5 5 0 1 1 0 10h-2'/%3E%3Cline x1='8' x2='16' y1='12' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 17H7A5 5 0 0 1 7 7h2'/%3E%3Cpath d='M15 7h2a5 5 0 1 1 0 10h-2'/%3E%3Cline x1='8' x2='16' y1='12' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.editor-shell :deep(.linked-reusable-fragment-box) {
+  position: relative;
+  margin: 10px -22px;
+  padding: 12px 62px 12px 18px;
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid var(--dikoin-blue);
+  border-radius: var(--radius);
+  background: #eff8ff;
+  color: inherit;
+  box-shadow: 0 8px 18px rgba(0, 124, 184, .07);
+  cursor: default;
+  user-select: none;
+}
+
+.editor-shell :deep(.linked-reusable-fragment-box:hover),
+.editor-shell :deep(.linked-reusable-fragment-box.ProseMirror-selectednode),
+.editor-shell :deep(.linked-reusable-fragment-box.note-box-active) {
+  border-color: #7dd3fc;
+  box-shadow: 0 0 0 2px rgba(0, 124, 184, .16), 0 10px 22px rgba(0, 124, 184, .1);
+}
+
+.editor-shell :deep(.linked-reusable-fragment-box::after) {
+  content: "";
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  background: var(--dikoin-blue);
+  opacity: .58;
+  pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 17H7A5 5 0 0 1 7 7h2'/%3E%3Cpath d='M15 7h2a5 5 0 1 1 0 10h-2'/%3E%3Cline x1='8' x2='16' y1='12' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 17H7A5 5 0 0 1 7 7h2'/%3E%3Cpath d='M15 7h2a5 5 0 1 1 0 10h-2'/%3E%3Cline x1='8' x2='16' y1='12' y2='12'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.editor-shell :deep(.reusable-fragment-content > *:first-child) {
+  margin-top: 0;
+}
+
+.editor-shell :deep(.reusable-fragment-content > *:last-child) {
+  margin-bottom: 0;
 }
 
 .editor-shell :deep(.note-box::before) {

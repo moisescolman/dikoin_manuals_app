@@ -10,6 +10,7 @@ export type EditorBlockType =
   | 'advertencia'
   | 'nota'
   | 'nota-ref'
+  | 'fragmento-ref'
   | 'imagen'
   | 'enlace'
   | 'formula'
@@ -73,6 +74,7 @@ export function editorBlockTypeToBackend(type: EditorBlockType): BlockType {
     advertencia: 'WARNING',
     nota: 'NOTE',
     'nota-ref': 'NOTE',
+    'fragmento-ref': 'PARAGRAPH',
     imagen: 'IMAGE',
     enlace: 'PARAGRAPH',
     formula: 'FORMULA',
@@ -103,6 +105,9 @@ export function parseContent(block: ManualBlockResponse): string {
     if (parsed.type === 'reusable_block_ref') {
       return String(parsed.reusableBlockId ?? '')
     }
+    if (parsed.type === 'reusable_fragment_ref') {
+      return String(parsed.reusableFragmentId ?? '')
+    }
     return parsed.text ?? parsed.latex ?? parsed.src ?? parsed.title ?? block.contentJson
   } catch {
     return block.contentJson
@@ -127,6 +132,9 @@ export function blockContentToJson(block: EditorBlock): string {
   const savedAttrs = (block.data?.json as { attrs?: Record<string, unknown> } | undefined)?.attrs || {}
   if (block.type === 'nota-ref') {
     return JSON.stringify({ type: 'notice_ref', noticeTemplateId: Number(block.content) })
+  }
+  if (block.type === 'fragmento-ref') {
+    return JSON.stringify({ type: 'reusable_fragment_ref', reusableFragmentId: Number(block.content) })
   }
   if (block.type === 'imagen') {
     return JSON.stringify({
@@ -291,6 +299,7 @@ function contentTypeFromJson(contentJson: string): EditorBlockType | null {
     const parsed = JSON.parse(contentJson)
     if (parsed.type === 'notice_ref') return 'nota-ref'
     if (parsed.type === 'reusable_block_ref') return 'bloque-ref'
+    if (parsed.type === 'reusable_fragment_ref') return 'fragmento-ref'
   } catch {
     return null
   }

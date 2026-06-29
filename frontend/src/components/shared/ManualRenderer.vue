@@ -4,8 +4,9 @@ import { toBackendUrl } from '@/api/http'
 import { getAssets } from '@/api/assets.api'
 import { getNotices } from '@/api/notices.api'
 import { getReusableBlocks } from '@/api/reusable-blocks.api'
+import { getReusableFragments } from '@/api/reusable-fragments.api'
 import { getActiveTemplate } from '@/api/templates.api'
-import type { AssetResponse, BlockType, LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualSectionResponse, NoticeTemplateResponse, ReusableBlockResponse, TemplateResponse } from '@/types/api'
+import type { AssetResponse, BlockType, LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualSectionResponse, NoticeTemplateResponse, ReusableBlockResponse, ReusableFragmentResponse, TemplateResponse } from '@/types/api'
 
 const props = withDefaults(defineProps<{ manual: ManualDetailResponse; language?: LanguageCode; minPages?: number }>(), {
   minPages: 0,
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 }>()
 const notices = ref<NoticeTemplateResponse[]>([])
 const reusableBlocks = ref<ReusableBlockResponse[]>([])
+const reusableFragments = ref<ReusableFragmentResponse[]>([])
 const productImages = ref<AssetResponse[]>([])
 const activeTemplate = ref<TemplateResponse | null>(null)
 const measurementRef = ref<HTMLElement | null>(null)
@@ -163,12 +165,14 @@ const totalPages = computed(() => 2 + contentPages.value.length)
 const blankPages = computed(() => Math.max(0, props.minPages - totalPages.value))
 
 onMounted(async () => {
-  const [loadedNotices, loadedBlocks] = await Promise.all([
+  const [loadedNotices, loadedBlocks, loadedFragments] = await Promise.all([
     getNotices(),
     getReusableBlocks(),
+    getReusableFragments(),
   ])
   notices.value = loadedNotices
   reusableBlocks.value = loadedBlocks
+  reusableFragments.value = loadedFragments
   try {
     productImages.value = await getAssets({ manualId: props.manual.id, assetType: 'PRODUCT_IMAGE' })
     renderedProductImageSrc.value = await loadProductImageDataUrl()
@@ -474,11 +478,24 @@ function reusableBlockById(id: number) {
   return reusableBlocks.value.find((block) => block.id === id)
 }
 
+function reusableFragmentById(id: number) {
+  return reusableFragments.value.find((fragment) => fragment.id === id)
+}
+
 function reusableRenderBlocks(id: number) {
   const reusable = reusableBlockById(id)
-  if (!reusable) return []
+  return reusableBlocksFromContent(reusable?.contentJson)
+}
+
+function reusableFragmentRenderBlocks(id: number) {
+  const fragment = reusableFragmentById(id)
+  return reusableBlocksFromContent(fragment?.contentJson)
+}
+
+function reusableBlocksFromContent(contentJson?: string) {
+  if (!contentJson) return []
   try {
-    const parsed = JSON.parse(reusable.contentJson)
+    const parsed = JSON.parse(contentJson)
     return Array.isArray(parsed.blocks)
       ? parsed.blocks.filter((block: RenderBlock) => block.languageCode === activeLanguage())
       : []
@@ -776,6 +793,27 @@ function contentPageForBlock(blockId: number) {
                 <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
               </div>
             </div>
+            <div v-else-if="content(unit.block.contentJson).type === 'reusable_fragment_ref'">
+              <div v-for="(innerBlock, innerIndex) in reusableFragmentRenderBlocks(content(unit.block.contentJson).reusableFragmentId)" :key="innerIndex" class="doc-block">
+                <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
+                <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
+                <ul v-else-if="innerBlock.blockType === 'UNORDERED_LIST'">
+                  <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
+                </ul>
+                <ol v-else-if="innerBlock.blockType === 'ORDERED_LIST'">
+                  <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
+                </ol>
+                <div v-else-if="innerBlock.blockType === 'NOTE'" class="note">
+                  <strong>{{ content(innerBlock.contentJson).title || 'Nota' }}</strong>
+                  <p>{{ content(innerBlock.contentJson).text }}</p>
+                </div>
+                <figure v-else-if="innerBlock.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(innerBlock.contentJson)">
+                  <img v-if="imageSource(innerBlock.contentJson)" :src="imageSource(innerBlock.contentJson)" :style="{ width: imageWidth(innerBlock.contentJson), height: imageHeight(innerBlock.contentJson) }" alt="" />
+                  <figcaption v-if="content(innerBlock.contentJson).caption">{{ content(innerBlock.contentJson).caption }}</figcaption>
+                </figure>
+                <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
+              </div>
+            </div>
             <component :is="headingTag(unit.block)" v-else-if="unit.block.blockType === 'HEADING'" :class="headingClass(unit.block)">
               <span class="heading-number">{{ headingNumber(unit.block) }}</span>
               <span>{{ headingText(unit.block) }}</span>
@@ -865,6 +903,29 @@ function contentPageForBlock(blockId: number) {
                   <div v-if="content(unit.block.contentJson).type === 'notice_ref'" class="linked-note">
                     <strong>{{ noticeTitle(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</strong>
                     <p>{{ noticeContent(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</p>
+                  </div>
+                  <div v-else-if="content(unit.block.contentJson).type === 'reusable_block_ref'" class="linked-block">
+                    <strong>{{ reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.title || 'Sección reutilizable' }}</strong>
+                    <div v-for="(innerBlock, innerIndex) in reusableRenderBlocks(content(unit.block.contentJson).reusableBlockId)" :key="innerIndex" class="doc-block">
+                      <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
+                      <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
+                      <figure v-else-if="innerBlock.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(innerBlock.contentJson)">
+                        <img v-if="imageSource(innerBlock.contentJson)" :src="imageSource(innerBlock.contentJson)" :style="{ width: imageWidth(innerBlock.contentJson), height: imageHeight(innerBlock.contentJson) }" alt="" />
+                        <figcaption v-if="content(innerBlock.contentJson).caption">{{ content(innerBlock.contentJson).caption }}</figcaption>
+                      </figure>
+                      <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
+                    </div>
+                  </div>
+                  <div v-else-if="content(unit.block.contentJson).type === 'reusable_fragment_ref'">
+                    <div v-for="(innerBlock, innerIndex) in reusableFragmentRenderBlocks(content(unit.block.contentJson).reusableFragmentId)" :key="innerIndex" class="doc-block">
+                      <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
+                      <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
+                      <figure v-else-if="innerBlock.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(innerBlock.contentJson)">
+                        <img v-if="imageSource(innerBlock.contentJson)" :src="imageSource(innerBlock.contentJson)" :style="{ width: imageWidth(innerBlock.contentJson), height: imageHeight(innerBlock.contentJson) }" alt="" />
+                        <figcaption v-if="content(innerBlock.contentJson).caption">{{ content(innerBlock.contentJson).caption }}</figcaption>
+                      </figure>
+                      <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
+                    </div>
                   </div>
                   <component :is="headingTag(unit.block)" v-else-if="unit.block.blockType === 'HEADING'" :class="headingClass(unit.block)">
                     <span class="heading-number">{{ headingNumber(unit.block) }}</span>

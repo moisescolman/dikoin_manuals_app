@@ -73,6 +73,7 @@ function addBlock(afterId?: string, type: EditorBlockType = 'parrafo', content?:
     advertencia: 'Advertencia importante.',
     nota: 'Nota informativa.',
     'nota-ref': '',
+    'fragmento-ref': '',
     imagen: '/api/v1/assets/{id}/file',
     enlace: 'Texto del enlace|https://',
     formula: 'P = ρ · g · H · Q',
