@@ -11,6 +11,7 @@ public record ManualBlockResponse(
         String contentJson,
         String plainText,
         Long assetId,
-        Long reusableBlockId
+        Long reusableBlockId,
+        Long reusableFragmentId
 ) {
 }

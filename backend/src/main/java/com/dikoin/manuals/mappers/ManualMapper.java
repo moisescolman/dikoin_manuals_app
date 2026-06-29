@@ -114,7 +114,8 @@ public class ManualMapper {
                 block.getContentJson(),
                 block.getPlainText(),
                 block.getAsset() != null ? block.getAsset().getId() : null,
-                block.getReusableBlock() != null ? block.getReusableBlock().getId() : null
+                block.getReusableBlock() != null ? block.getReusableBlock().getId() : null,
+                block.getReusableFragment() != null ? block.getReusableFragment().getId() : null
         );
     }
 }

@@ -33,6 +33,7 @@ public class ManualServiceImpl implements ManualService {
     private final DocumentTypeRepository documentTypeRepository;
     private final AssetRepository assetRepository;
     private final ReusableBlockRepository reusableBlockRepository;
+    private final ReusableFragmentRepository reusableFragmentRepository;
     private final ExportJobRepository exportJobRepository;
     private final ImportJobRepository importJobRepository;
     private final NoticeApplicationRepository noticeApplicationRepository;
@@ -423,6 +424,8 @@ public class ManualServiceImpl implements ManualService {
                     .orElseThrow(() -> new ResourceNotFoundException("Asset no encontrado: " + request.assetId())));
             block.setReusableBlock(request.reusableBlockId() == null ? null : reusableBlockRepository.findById(request.reusableBlockId())
                     .orElseThrow(() -> new ResourceNotFoundException("Bloque reutilizable no encontrado: " + request.reusableBlockId())));
+            block.setReusableFragment(request.reusableFragmentId() == null ? null : reusableFragmentRepository.findById(request.reusableFragmentId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Fragmento no encontrado: " + request.reusableFragmentId())));
             merged.add(block);
         }
 

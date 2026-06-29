@@ -8,8 +8,7 @@ import jakarta.validation.constraints.Size;
 public record NoticeTemplateRequest(
         @Size(max = 80) String code,
         @NotNull NoticeType type,
-        @NotBlank String titleEs,
-        String titleEn,
+        @NotBlank String title,
         String visibleTitleEs,
         String visibleTitleEn,
         String productCategory,

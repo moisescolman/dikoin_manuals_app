@@ -51,6 +51,10 @@ public class ManualBlock {
     @JoinColumn(name = "reusable_block_id")
     private ReusableBlock reusableBlock;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reusable_fragment_id")
+    private ReusableFragment reusableFragment;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

@@ -19,9 +19,10 @@ public class ReusableBlockRestController {
     @GetMapping
     public List<ReusableBlockResponse> findAll(
             @RequestParam(defaultValue = "false") boolean includeInactive,
-            @RequestParam(required = false) ReusableType type
+            @RequestParam(required = false) ReusableType type,
+            @RequestParam(required = false) String search
     ) {
-        return reusableBlockService.findAll(includeInactive, type);
+        return reusableBlockService.findAll(includeInactive, type, search);
     }
 
     @GetMapping("/{id}")
@@ -32,19 +33,6 @@ public class ReusableBlockRestController {
     @PostMapping
     public ReusableBlockResponse create(@Valid @RequestBody ReusableBlockRequest request) {
         return reusableBlockService.create(request);
-    }
-
-    @PostMapping("/fragments")
-    public ReusableBlockResponse createFragment(@Valid @RequestBody CreateReusableFragmentRequest request) {
-        return reusableBlockService.createFragment(request);
-    }
-
-    @PostMapping("/{id}/insert")
-    public ReusableFragmentInsertResponse insertFragment(
-            @PathVariable Long id,
-            @Valid @RequestBody InsertReusableFragmentRequest request
-    ) {
-        return reusableBlockService.insertFragment(id, request);
     }
 
     @PutMapping("/{id}")

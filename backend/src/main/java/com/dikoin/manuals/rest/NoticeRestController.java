@@ -21,8 +21,11 @@ public class NoticeRestController {
     private final NoticeService noticeService;
 
     @GetMapping
-    public List<NoticeTemplateResponse> findAll(@RequestParam(required = false) NoticeType type) {
-        return noticeService.findAll(type);
+    public List<NoticeTemplateResponse> findAll(
+            @RequestParam(required = false) NoticeType type,
+            @RequestParam(required = false) String search
+    ) {
+        return noticeService.findAll(type, search);
     }
 
     @PostMapping

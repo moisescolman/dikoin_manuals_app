@@ -4,6 +4,7 @@ import com.dikoin.manuals.dtos.reusableblock.*;
 import com.dikoin.manuals.entidades.Asset;
 import com.dikoin.manuals.entidades.ManualBlock;
 import com.dikoin.manuals.entidades.ManualSection;
+import com.dikoin.manuals.entidades.Product;
 import com.dikoin.manuals.entidades.ReusableBlock;
 import com.dikoin.manuals.enums.BlockType;
 import com.dikoin.manuals.enums.LanguageCode;
@@ -14,6 +15,7 @@ import com.dikoin.manuals.mappers.ReusableBlockMapper;
 import com.dikoin.manuals.repositorios.ManualBlockRepository;
 import com.dikoin.manuals.repositorios.ManualSectionRepository;
 import com.dikoin.manuals.repositorios.AssetRepository;
+import com.dikoin.manuals.repositorios.ProductRepository;
 import com.dikoin.manuals.repositorios.ReusableBlockRepository;
 import com.dikoin.manuals.servicios.ReusableBlockService;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.text.Normalizer;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -42,22 +47,29 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
     private final ManualBlockRepository manualBlockRepository;
     private final ManualSectionRepository manualSectionRepository;
     private final AssetRepository assetRepository;
+    private final ProductRepository productRepository;
     private final ReusableBlockMapper reusableBlockMapper;
     private final com.dikoin.manuals.mappers.ManualMapper manualMapper;
     private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(readOnly = true)
-    public List<ReusableBlockResponse> findAll(boolean includeInactive, ReusableType type) {
+    public List<ReusableBlockResponse> findAll(boolean includeInactive, ReusableType type, String search) {
+        if (type == ReusableType.FRAGMENT) {
+            return List.of();
+        }
+        ReusableType resolvedType = type == null ? ReusableType.SINGLE_BLOCK : type;
         List<ReusableBlock> blocks;
-        if (type == null) {
-            blocks = includeInactive
-                    ? reusableBlockRepository.findAllByOrderByUpdatedAtDesc()
-                    : reusableBlockRepository.findByActiveTrueOrderByUpdatedAtDesc();
-        } else {
-            blocks = includeInactive
-                    ? reusableBlockRepository.findByReusableTypeOrderByUpdatedAtDesc(type)
-                    : reusableBlockRepository.findByReusableTypeAndActiveTrueOrderByUpdatedAtDesc(type);
+        blocks = includeInactive
+                ? reusableBlockRepository.findByReusableTypeOrderByUpdatedAtDesc(resolvedType)
+                : reusableBlockRepository.findByReusableTypeAndActiveTrueOrderByUpdatedAtDesc(resolvedType);
+        String query = normalize(search);
+        if (query != null) {
+            Map<String, Product> productsByCode = productRepository.findAllWithTaxonomy().stream()
+                    .collect(Collectors.toMap(product -> product.getCode().toUpperCase(), product -> product, (a, b) -> a));
+            blocks = blocks.stream()
+                    .filter(block -> matches(block, query, productsByCode))
+                    .toList();
         }
         return blocks.stream().map(reusableBlockMapper::toResponse).toList();
     }
@@ -72,6 +84,9 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
     @Transactional
     public ReusableBlockResponse create(ReusableBlockRequest request) {
         ReusableType type = request.reusableType() == null ? ReusableType.SINGLE_BLOCK : request.reusableType();
+        if (type == ReusableType.FRAGMENT) {
+            throw new ApiException("Use /reusable-fragments para crear fragmentos");
+        }
         String code = request.code() == null || request.code().isBlank()
                 ? nextCode(type)
                 : request.code().trim();
@@ -197,6 +212,9 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
     }
 
     private void applyRequest(ReusableBlockRequest request, ReusableBlock block, String code) {
+        if (request.reusableType() == ReusableType.FRAGMENT) {
+            throw new ApiException("Use /reusable-fragments para editar fragmentos");
+        }
         String titleEs = firstNotBlank(request.titleEs(), request.title(), block.getTitleEs(), block.getTitle());
         String titleEn = firstNotBlank(request.titleEn(), block.getTitleEn(), titleEs);
         if (titleEs == null) {
@@ -285,6 +303,63 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
             }
         }
         return null;
+    }
+
+    private boolean matches(ReusableBlock block, String query, Map<String, Product> productsByCode) {
+        String text = String.join(" ",
+                value(block.getCode()),
+                value(block.getTitle()),
+                value(block.getTitleEs()),
+                value(block.getTitleEn()),
+                value(block.getDescription()),
+                value(block.getDescriptionEs()),
+                value(block.getDescriptionEn()),
+                value(block.getProductCategory()),
+                value(block.getProductCodes()),
+                value(block.getContentJson()),
+                productNames(block.getProductCodes(), productsByCode),
+                usageText(block.getId(), productsByCode)
+        );
+        return normalize(text).contains(query);
+    }
+
+    private String usageText(Long blockId, Map<String, Product> productsByCode) {
+        return findUsages(blockId).stream()
+                .map(usage -> String.join(" ",
+                        value(usage.manualCode()),
+                        value(usage.manualTitle()),
+                        value(usage.productCode()),
+                        productName(usage.productCode(), productsByCode),
+                        value(usage.sectionTitle())
+                ))
+                .collect(Collectors.joining(" "));
+    }
+
+    private String productNames(String productCodes, Map<String, Product> productsByCode) {
+        if (productCodes == null) return "";
+        return Arrays.stream(productCodes.split("[|,;]"))
+                .map(String::trim)
+                .map(code -> productName(code, productsByCode))
+                .collect(Collectors.joining(" "));
+    }
+
+    private String productName(String productCode, Map<String, Product> productsByCode) {
+        if (productCode == null) return "";
+        Product product = productsByCode.get(productCode.toUpperCase());
+        if (product == null) return "";
+        return String.join(" ", value(product.getName()), value(product.getNameEs()), value(product.getNameEn()));
+    }
+
+    private String value(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String normalize(String value) {
+        if (value == null || value.isBlank()) return null;
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase()
+                .trim();
     }
 
     private String nextCode(ReusableType type) {

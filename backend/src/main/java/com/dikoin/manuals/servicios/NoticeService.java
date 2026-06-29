@@ -10,7 +10,7 @@ import com.dikoin.manuals.enums.NoticeType;
 import java.util.List;
 
 public interface NoticeService {
-    List<NoticeTemplateResponse> findAll(NoticeType type);
+    List<NoticeTemplateResponse> findAll(NoticeType type, String search);
     NoticeTemplateResponse create(NoticeTemplateRequest request);
     NoticeTemplateResponse update(Long id, NoticeTemplateRequest request);
     List<NoticeUsageResponse> findUsages(Long id);

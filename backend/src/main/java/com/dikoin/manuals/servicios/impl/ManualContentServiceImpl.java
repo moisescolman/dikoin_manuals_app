@@ -6,6 +6,7 @@ import com.dikoin.manuals.entidades.ManualBlock;
 import com.dikoin.manuals.entidades.ManualSection;
 import com.dikoin.manuals.entidades.ManualVersion;
 import com.dikoin.manuals.entidades.ReusableBlock;
+import com.dikoin.manuals.entidades.ReusableFragment;
 import com.dikoin.manuals.enums.BlockType;
 import com.dikoin.manuals.exceptions.ApiException;
 import com.dikoin.manuals.exceptions.ResourceNotFoundException;
@@ -27,6 +28,7 @@ public class ManualContentServiceImpl implements ManualContentService {
     private final ManualBlockRepository manualBlockRepository;
     private final AssetRepository assetRepository;
     private final ReusableBlockRepository reusableBlockRepository;
+    private final ReusableFragmentRepository reusableFragmentRepository;
     private final ManualMapper manualMapper;
 
     @Override
@@ -181,6 +183,7 @@ public class ManualContentServiceImpl implements ManualContentService {
                 .plainText(source.getPlainText())
                 .asset(source.getAsset())
                 .reusableBlock(source.getReusableBlock())
+                .reusableFragment(source.getReusableFragment())
                 .build();
         return manualMapper.toBlockResponse(manualBlockRepository.save(copy));
     }
@@ -231,6 +234,7 @@ public class ManualContentServiceImpl implements ManualContentService {
         block.setPlainText(request.plainText());
         block.setAsset(findAsset(request.assetId()));
         block.setReusableBlock(findReusableBlock(request.reusableBlockId()));
+        block.setReusableFragment(findReusableFragment(request.reusableFragmentId()));
     }
 
     private void validateBlock(BlockType type, String contentJson) {
@@ -248,6 +252,11 @@ public class ManualContentServiceImpl implements ManualContentService {
     private ReusableBlock findReusableBlock(Long id) {
         return id == null ? null : reusableBlockRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bloque reutilizable no encontrado: " + id));
+    }
+
+    private ReusableFragment findReusableFragment(Long id) {
+        return id == null ? null : reusableFragmentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Fragmento no encontrado: " + id));
     }
 
     private int resolveInsertionOrder(Long sectionId, Long insertAfterBlockId) {

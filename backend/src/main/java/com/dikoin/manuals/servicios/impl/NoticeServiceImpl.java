@@ -21,13 +21,16 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -47,10 +50,18 @@ public class NoticeServiceImpl implements NoticeService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<NoticeTemplateResponse> findAll(NoticeType type) {
+    public List<NoticeTemplateResponse> findAll(NoticeType type, String search) {
         List<NoticeTemplate> notices = type == null
                 ? noticeTemplateRepository.findByActiveTrueOrderByUpdatedAtDesc()
                 : noticeTemplateRepository.findByTypeAndActiveTrueOrderByUpdatedAtDesc(type);
+        String query = normalize(search);
+        if (query != null) {
+            Map<String, Product> productsByCode = productRepository.findAllWithTaxonomy().stream()
+                    .collect(Collectors.toMap(product -> product.getCode().toUpperCase(), product -> product, (a, b) -> a));
+            notices = notices.stream()
+                    .filter(notice -> matches(notice, query, productsByCode))
+                    .toList();
+        }
         return notices.stream().map(noticeMapper::toTemplateResponse).toList();
     }
 
@@ -147,8 +158,7 @@ public class NoticeServiceImpl implements NoticeService {
         return noticeTemplateRepository.save(NoticeTemplate.builder()
                 .code(code)
                 .type(request.type())
-                .titleEs(request.titleEs())
-                .titleEn(request.titleEn())
+                .title(request.title())
                 .visibleTitleEs(resolveVisibleTitle(request.visibleTitleEs()))
                 .visibleTitleEn(request.visibleTitleEn())
                 .productCategory(request.productCategory())
@@ -161,8 +171,7 @@ public class NoticeServiceImpl implements NoticeService {
 
     private void applyRequest(NoticeTemplateRequest request, NoticeTemplate notice) {
         notice.setType(request.type());
-        notice.setTitleEs(request.titleEs());
-        notice.setTitleEn(request.titleEn());
+        notice.setTitle(request.title());
         notice.setVisibleTitleEs(resolveVisibleTitle(request.visibleTitleEs()));
         notice.setVisibleTitleEn(request.visibleTitleEn());
         notice.setProductCategory(request.productCategory());
@@ -175,6 +184,53 @@ public class NoticeServiceImpl implements NoticeService {
     private NoticeTemplate findNotice(Long id) {
         return noticeTemplateRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Aviso no encontrado: " + id));
+    }
+
+    private boolean matches(NoticeTemplate notice, String query, Map<String, Product> productsByCode) {
+        String text = String.join(" ",
+                value(notice.getCode()),
+                value(notice.getTitle()),
+                value(notice.getVisibleTitleEs()),
+                value(notice.getVisibleTitleEn()),
+                value(notice.getProductCategory()),
+                value(notice.getProductCodes()),
+                value(notice.getContentEs()),
+                value(notice.getContentEn()),
+                productNames(notice.getProductCodes(), productsByCode),
+                usageText(notice.getId(), productsByCode)
+        );
+        return normalize(text).contains(query);
+    }
+
+    private String usageText(Long noticeId, Map<String, Product> productsByCode) {
+        return findUsages(noticeId).stream()
+                .map(usage -> String.join(" ",
+                        value(usage.manualCode()),
+                        value(usage.manualTitle()),
+                        value(usage.productCode()),
+                        productName(usage.productCode(), productsByCode),
+                        value(usage.sectionTitle())
+                ))
+                .collect(Collectors.joining(" "));
+    }
+
+    private String productNames(String productCodes, Map<String, Product> productsByCode) {
+        if (productCodes == null) return "";
+        return Arrays.stream(productCodes.split("[|,;]"))
+                .map(String::trim)
+                .map(code -> productName(code, productsByCode))
+                .collect(Collectors.joining(" "));
+    }
+
+    private String productName(String productCode, Map<String, Product> productsByCode) {
+        if (productCode == null) return "";
+        Product product = productsByCode.get(productCode.toUpperCase());
+        if (product == null) return "";
+        return String.join(" ", value(product.getName()), value(product.getNameEs()), value(product.getNameEn()));
+    }
+
+    private String value(String value) {
+        return value == null ? "" : value;
     }
 
     private String noteSnapshotJson(NoticeTemplate notice) {
@@ -233,6 +289,14 @@ public class NoticeServiceImpl implements NoticeService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private String normalize(String value) {
+        if (value == null || value.isBlank()) return null;
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase()
+                .trim();
     }
 
     private Manual findManual(Long id) {

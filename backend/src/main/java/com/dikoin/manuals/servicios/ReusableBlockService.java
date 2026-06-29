@@ -6,7 +6,7 @@ import com.dikoin.manuals.enums.ReusableType;
 import java.util.List;
 
 public interface ReusableBlockService {
-    List<ReusableBlockResponse> findAll(boolean includeInactive, ReusableType type);
+    List<ReusableBlockResponse> findAll(boolean includeInactive, ReusableType type, String search);
     ReusableBlockResponse findById(Long id);
     ReusableBlockResponse create(ReusableBlockRequest request);
     ReusableBlockResponse createFragment(CreateReusableFragmentRequest request);
