@@ -79,6 +79,7 @@ const props = defineProps<{
   selected: boolean
   activeToolbar?: boolean
   manualId?: number
+  refreshKey?: number
   sectionTargets?: SectionTarget[]
   selectionOwnerKey?: string
   selectionSync?: BlockSelectionSync | null
@@ -675,15 +676,19 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (headingNumberFrame) {
+    cancelAnimationFrame(headingNumberFrame)
+    headingNumberFrame = 0
+  }
   unregisterEditorInstance()
   flushEditorSync()
   editor.value?.destroy()
 })
 
 watch(
-  () => [props.section.id, props.language],
+  () => [props.section.id, props.language, props.refreshKey],
   () => {
-    if (!editor.value) return
+    if (!editor.value || editor.value.isDestroyed) return
     selectedBlockIds.value = []
     syncingFromProps.value = true
     editor.value.commands.setContent(docFromBlocks(visibleBlocks()))
@@ -706,7 +711,7 @@ function updateBlockSelectionHover(event?: MouseEvent) {
     }
     return
   }
-  const root = editor.value?.view.dom
+  const root = editorDom()
   if (!root) return
   let activeBlockId = ''
 
@@ -1101,7 +1106,7 @@ function scheduleHeadingNumbers() {
 }
 
 function updateHeadingNumbers() {
-  const root = editor.value?.view.dom
+  const root = editorDom()
   if (!root) return
   let h1 = 0
   let h2 = 0
@@ -1127,6 +1132,16 @@ function updateHeadingNumbers() {
     h3++
     heading.dataset.headingNumber = `${sectionPrefix}.${h1}.${h2}.${h3}`
   })
+}
+
+function editorDom() {
+  const current = editor.value
+  if (!current || current.isDestroyed) return null
+  try {
+    return current.view?.dom || null
+  } catch {
+    return null
+  }
 }
 
 function undo() {

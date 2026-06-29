@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, toRaw, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Copy, Eye, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
 import { createReusableBlock } from '@/api/reusable-blocks.api'
@@ -40,6 +40,7 @@ const infoMessage = ref('')
 const reusableSectionCandidate = ref<EditorSection | null>(null)
 const reusableTitle = ref('')
 const cloneConfirmOpen = ref(false)
+const editorContentVersion = ref(0)
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
@@ -189,7 +190,7 @@ function duplicateSection(index: number) {
   const source = sections.value[index]
   if (!source) return
   const duplicated: EditorSection = {
-    ...structuredClone(source),
+    ...clonePlain(source),
     id: randomId('section'),
     backendId: undefined,
     titleEs: `${source.titleEs} copia`,
@@ -400,8 +401,6 @@ async function showBothLanguages() {
 async function cloneSpanishToEnglish(force = false) {
   if (saving.value) return
   flushSectionEditors()
-  const freshManual = manual.value?.id ? await store.fetchManual(manual.value.id) : null
-  sections.value = sectionsFromBackend(freshManual?.activeVersion?.sections || [])
   const hasSpanish = sections.value.some((section) => section.blocks.some((block) => block.languageCode === 'ES'))
   if (!hasSpanish) {
     infoMessage.value = 'No hay contenido en español para clonar.'
@@ -423,9 +422,11 @@ async function cloneSpanishToEnglish(force = false) {
         .map(cloneSpanishBlockToEnglish),
     ],
   }))
+  editorContentVersion.value += 1
   saving.value = true
   try {
     await saveDraft('Versión inglesa clonada desde el contenido español', false)
+    editorContentVersion.value += 1
     selectedLanguage.value = 'EN'
     languageMode.value = 'EN'
     saved.value = true
@@ -437,7 +438,7 @@ async function cloneSpanishToEnglish(force = false) {
 
 function cloneSpanishBlockToEnglish(block: EditorBlock): EditorBlock {
   const id = randomId('block')
-  const cloned = structuredClone(block)
+  const cloned = clonePlain(block)
   return {
     ...cloned,
     id,
@@ -449,11 +450,15 @@ function cloneSpanishBlockToEnglish(block: EditorBlock): EditorBlock {
 
 function cloneBlockDataForNewBlock(data: EditorBlock['data'], blockId: string): EditorBlock['data'] {
   if (!data) return undefined
-  const cloned = structuredClone(data)
+  const cloned = clonePlain(data)
   if (cloned.json && typeof cloned.json === 'object') {
     cloned.json = cloneJsonNodeForNewBlock(cloned.json as Record<string, unknown>, blockId, true)
   }
   return cloned
+}
+
+function clonePlain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(toRaw(value))) as T
 }
 
 function cloneJsonNodeForNewBlock(node: Record<string, unknown>, blockId: string, root = false): Record<string, unknown> {
@@ -570,6 +575,7 @@ function sectionTitle(section: EditorSection) {
               :selected="selectedSectionId === section.id"
               :active-toolbar="activeEditorKey === editorKey(section.id, lang)"
               :language="lang"
+              :refresh-key="editorContentVersion"
               :manual-id="manual?.id"
               :section-targets="sectionTargets"
               :selection-sync="blockSelectionSync"
