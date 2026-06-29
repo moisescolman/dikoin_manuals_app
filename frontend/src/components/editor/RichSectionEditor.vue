@@ -3201,6 +3201,7 @@ function imageAssetId(node: JSONContent) {
       </div>
     </div>
 
+    <Teleport to="body">
     <div v-if="showImageModal" class="modal-backdrop" @click.self="showImageModal = false">
       <div class="modal-card image-modal">
         <header>
@@ -3486,6 +3487,7 @@ function imageAssetId(node: JSONContent) {
         </footer>
       </form>
     </div>
+    </Teleport>
 
     <AppModal v-if="showPasteTextModal" title="Pegar texto" description="No se pudo leer el portapapeles automáticamente. Pega el texto aquí." @close="showPasteTextModal = false">
       <textarea v-model="manualPasteText" class="field paste-textarea" rows="6" />
@@ -4677,7 +4679,7 @@ function imageAssetId(node: JSONContent) {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 1200;
   background: rgba(15, 23, 42, .35);
   display: grid;
   place-items: center;
@@ -5085,7 +5087,7 @@ function imageAssetId(node: JSONContent) {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: end;
-  gap: 10px;
+  gap: 500px;
 }
 
 .fragment-insert-options label {
@@ -5139,7 +5141,7 @@ function imageAssetId(node: JSONContent) {
 }
 
 .equation-backdrop {
-  z-index: 320;
+  z-index: 1200;
 }
 
 .equation-dialog {
