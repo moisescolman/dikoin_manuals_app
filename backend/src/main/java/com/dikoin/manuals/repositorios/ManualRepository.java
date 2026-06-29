@@ -13,6 +13,9 @@ public interface ManualRepository extends JpaRepository<Manual, Long> {
     Optional<Manual> findByIdAndDeletedAtIsNull(Long id);
     boolean existsByCodeIgnoreCase(String code);
     long countByDeletedAtIsNull();
+    List<Manual> findByProductId(Long productId);
+    List<Manual> findByProductIdAndDeletedAtIsNull(Long productId);
+    List<Manual> findByProductIdAndDeletedAtIsNullAndEnabledTrue(Long productId);
 
     @Query("""
             select m from Manual m

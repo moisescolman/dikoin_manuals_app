@@ -20,6 +20,9 @@ public record ProductResponse(
         String description,
         String descriptionEs,
         String descriptionEn,
+        Long productImageAssetId,
+        String productImageUrl,
+        String productImageThumbnailUrl,
         boolean active,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

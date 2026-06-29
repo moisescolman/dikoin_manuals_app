@@ -2,12 +2,14 @@ package com.dikoin.manuals.servicios.impl;
 
 import com.dikoin.manuals.dtos.manual.*;
 import com.dikoin.manuals.entidades.*;
+import com.dikoin.manuals.enums.AssetType;
 import com.dikoin.manuals.enums.LanguageCode;
 import com.dikoin.manuals.enums.ManualStatus;
 import com.dikoin.manuals.exceptions.ApiException;
 import com.dikoin.manuals.exceptions.ResourceNotFoundException;
 import com.dikoin.manuals.mappers.ManualMapper;
 import com.dikoin.manuals.repositorios.*;
+import com.dikoin.manuals.servicios.AssetStorageService;
 import com.dikoin.manuals.servicios.ManualCodeService;
 import com.dikoin.manuals.servicios.ManualService;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +40,7 @@ public class ManualServiceImpl implements ManualService {
     private final ImportJobRepository importJobRepository;
     private final NoticeApplicationRepository noticeApplicationRepository;
     private final ManualSectionRepository manualSectionRepository;
+    private final AssetStorageService assetStorageService;
     private final ManualCodeService manualCodeService;
     private final ManualMapper manualMapper;
 
@@ -98,6 +101,7 @@ public class ManualServiceImpl implements ManualService {
 
         Manual saved = manualRepository.save(manual);
         createDefaultDraftVersion(saved);
+        copyProductImageToManual(saved);
         return findById(saved.getId());
     }
 
@@ -160,7 +164,10 @@ public class ManualServiceImpl implements ManualService {
     @Override
     @Transactional
     public ManualVersionResponse publishVersion(Long manualId, Long versionId, PublishVersionRequest request) {
-        getManual(manualId);
+        Manual manual = getManual(manualId);
+        if (!manual.isEnabled()) {
+            throw new ApiException("No se puede publicar un manual dado de baja");
+        }
         ManualVersion version = manualVersionRepository.findById(versionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Version no encontrada: " + versionId));
 
@@ -333,6 +340,14 @@ public class ManualServiceImpl implements ManualService {
                 .build());
         version.getSections().add(section);
         return manualVersionRepository.save(version);
+    }
+
+    private void copyProductImageToManual(Manual manual) {
+        Asset productImage = manual.getProduct().getProductImageAsset();
+        if (productImage == null) {
+            return;
+        }
+        assetStorageService.copyAssetToManual(productImage, manual, AssetType.PRODUCT_IMAGE);
     }
 
     private LanguageCode parseLanguage(String languageCode) {

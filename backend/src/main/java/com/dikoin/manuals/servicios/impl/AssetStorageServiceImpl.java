@@ -95,6 +95,33 @@ public class AssetStorageServiceImpl implements AssetStorageService {
     }
 
     @Override
+    @Transactional
+    public AssetResponse copyAssetToManual(Asset source, Manual manual, AssetType assetType) {
+        if (source == null || manual == null) {
+            throw new ApiException("No se pudo copiar el asset");
+        }
+        String folder = switch (assetType) {
+            case PRODUCT_IMAGE -> "assets/manuals/" + safeName(manual.getCode()) + "/product";
+            default -> "assets/manuals/" + safeName(manual.getCode());
+        };
+        Path copiedFile = copyStoredFile(source.getStoragePath(), folder, source.getOriginalFilename());
+        String copiedThumbnail = source.getThumbnailPath() == null
+                ? null
+                : toRelative(copyStoredFile(source.getThumbnailPath(), "thumbnails", Path.of(source.getThumbnailPath()).getFileName().toString()));
+        Asset copy = Asset.builder()
+                .originalFilename(source.getOriginalFilename())
+                .storedFilename(copiedFile.getFileName().toString())
+                .mimeType(source.getMimeType())
+                .fileSize(fileSize(copiedFile, source.getFileSize()))
+                .storagePath(toRelative(copiedFile))
+                .thumbnailPath(copiedThumbnail)
+                .assetType(assetType)
+                .manual(manual)
+                .build();
+        return assetMapper.toResponse(assetRepository.save(copy));
+    }
+
+    @Override
     public Path storeRawFile(MultipartFile file, String folder) {
         try {
             Path targetFolder = basePath().resolve(folder).normalize();
@@ -140,7 +167,7 @@ public class AssetStorageServiceImpl implements AssetStorageService {
     public List<AssetResponse> findAll(Long manualId, AssetType assetType) {
         List<Asset> assets;
         if (manualId != null && assetType != null) {
-            assets = assetRepository.findByManualIdAndAssetType(manualId, assetType);
+            assets = assetRepository.findByManualIdAndAssetTypeOrderByCreatedAtDesc(manualId, assetType);
         } else if (manualId != null) {
             assets = assetRepository.findByManualId(manualId);
         } else if (assetType != null) {
@@ -331,6 +358,30 @@ public class AssetStorageServiceImpl implements AssetStorageService {
         try {
             Files.deleteIfExists(resolve(relativePath));
         } catch (IOException ignored) {
+        }
+    }
+
+    private Path copyStoredFile(String sourceRelativePath, String folder, String originalFilename) {
+        try {
+            Path source = resolve(sourceRelativePath);
+            if (!Files.exists(source) || !Files.isRegularFile(source)) {
+                throw new ResourceNotFoundException("Archivo no encontrado");
+            }
+            Path targetFolder = basePath().resolve(folder).normalize();
+            Files.createDirectories(targetFolder);
+            Path destination = targetFolder.resolve(uniqueFilename(originalFilename));
+            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+            return destination;
+        } catch (IOException ex) {
+            throw new ApiException("No se pudo copiar el archivo", ex);
+        }
+    }
+
+    private Long fileSize(Path path, Long fallback) {
+        try {
+            return Files.size(path);
+        } catch (IOException ex) {
+            return fallback;
         }
     }
 

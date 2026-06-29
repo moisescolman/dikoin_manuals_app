@@ -5,5 +5,6 @@ public enum ManualStatus {
     REVIEW,
     APPROVED,
     PUBLISHED,
-    ARCHIVED
+    ARCHIVED,
+    DEACTIVATED
 }

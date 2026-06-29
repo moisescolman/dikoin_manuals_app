@@ -66,6 +66,10 @@ public class Product {
     @Column(name = "description_en", length = 600)
     private String descriptionEn;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_image_asset_id")
+    private Asset productImageAsset;
+
     @Column(nullable = false)
     private boolean active;
 

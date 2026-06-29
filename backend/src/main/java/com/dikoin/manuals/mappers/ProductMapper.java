@@ -6,6 +6,7 @@ import com.dikoin.manuals.dtos.product.ProductResponse;
 import com.dikoin.manuals.entidades.Product;
 import com.dikoin.manuals.entidades.ProductCategory;
 import com.dikoin.manuals.entidades.ProductFamily;
+import com.dikoin.manuals.entidades.Asset;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
@@ -30,6 +31,7 @@ public class ProductMapper {
                 : categories.stream()
                     .map(category -> category.code() + " - " + category.nameEs())
                     .collect(Collectors.joining(" | "));
+        Asset image = product.getProductImageAsset();
 
         return new ProductResponse(
                 product.getId(),
@@ -48,6 +50,9 @@ public class ProductMapper {
                 firstText(product.getDescription(), product.getDescriptionEs()),
                 firstText(product.getDescriptionEs(), product.getDescription()),
                 product.getDescriptionEn(),
+                image != null ? image.getId() : null,
+                image != null ? "/api/v1/assets/" + image.getId() + "/file" : null,
+                image != null && image.getThumbnailPath() != null ? "/api/v1/assets/" + image.getId() + "/thumbnail" : null,
                 product.isActive(),
                 product.getCreatedAt(),
                 product.getUpdatedAt()

@@ -1,13 +1,17 @@
 package com.dikoin.manuals.rest;
 
+import com.dikoin.manuals.dtos.product.ProductCategoryResponse;
+import com.dikoin.manuals.dtos.product.ProductApplyImageRequest;
+import com.dikoin.manuals.dtos.product.ProductDeactivateRequest;
+import com.dikoin.manuals.dtos.product.ProductDeleteImpactResponse;
+import com.dikoin.manuals.dtos.product.ProductFamilyResponse;
 import com.dikoin.manuals.dtos.product.ProductRequest;
 import com.dikoin.manuals.dtos.product.ProductResponse;
-import com.dikoin.manuals.dtos.product.ProductCategoryResponse;
-import com.dikoin.manuals.dtos.product.ProductFamilyResponse;
 import com.dikoin.manuals.servicios.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -48,8 +52,28 @@ public class ProductRestController {
         return productService.update(id, request);
     }
 
+    @GetMapping("/{id}/delete-impact")
+    public ProductDeleteImpactResponse deleteImpact(@PathVariable Long id) {
+        return productService.deleteImpact(id);
+    }
+
+    @PostMapping("/{id}/image")
+    public ProductResponse uploadImage(@PathVariable Long id, @RequestParam MultipartFile file) {
+        return productService.uploadImage(id, file);
+    }
+
+    @DeleteMapping("/{id}/image")
+    public ProductResponse removeImage(@PathVariable Long id) {
+        return productService.removeImage(id);
+    }
+
+    @PostMapping("/{id}/image/apply")
+    public ProductDeleteImpactResponse applyImageToManuals(@PathVariable Long id, @RequestBody ProductApplyImageRequest request) {
+        return productService.applyImageToManuals(id, request);
+    }
+
     @DeleteMapping("/{id}")
-    public void delete(@PathVariable Long id) {
-        productService.delete(id);
+    public void delete(@PathVariable Long id, @RequestBody(required = false) ProductDeactivateRequest request) {
+        productService.delete(id, request == null ? new ProductDeactivateRequest(List.of()) : request);
     }
 }
