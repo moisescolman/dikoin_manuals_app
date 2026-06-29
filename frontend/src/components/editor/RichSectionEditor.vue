@@ -19,7 +19,7 @@ import {
   ClipboardPaste,
   Copy,
   FileImage,
-  FileText,
+  Image as ImageIcon,
   GripVertical,
   Heading,
   List,
@@ -28,7 +28,6 @@ import {
   Link2Off,
   Library,
   MoveRight,
-  NotebookPen,
   PanelTopClose,
   Redo2,
   Save,
@@ -42,6 +41,9 @@ import {
   Trash2,
   Undo2,
   X,
+  StickyNote,
+  SquareDashedText,
+  Group,
 } from '@lucide/vue'
 import { getAssets, uploadAsset } from '@/api/assets.api'
 import { toBackendUrl } from '@/api/http'
@@ -145,7 +147,8 @@ const blockSelectionMode = ref(false)
 const selectedBlockIds = ref<string[]>([])
 const hoveredBlockId = ref('')
 const showFragmentModal = ref(false)
-const showReusableModal = ref(false)
+const showFragmentInsertModal = ref(false)
+const showSectionInsertModal = ref(false)
 const showEquationModal = ref(false)
 const showMoveModal = ref(false)
 const showSelectionMismatchModal = ref(false)
@@ -158,6 +161,8 @@ const fragmentDescription = ref('')
 const fragmentSaving = ref(false)
 const fragmentMessage = ref('')
 const fragmentInsertPosition = ref<'END' | 'AFTER_SELECTION'>('END')
+const fragmentInsertSearch = ref('')
+const sectionInsertSearch = ref('')
 const fragmentPreviewBlocks = computed(() => selectedFragmentBlocks())
 const moveTargetSectionId = ref('')
 const equationTextarea = ref<HTMLTextAreaElement | null>(null)
@@ -705,6 +710,21 @@ const filteredNotices = computed(() => {
   })
 })
 
+const reusableSections = computed(() => reusableBlocks.value.filter((item) => item.reusableType === 'SINGLE_BLOCK'))
+const reusableFragments = computed(() => reusableBlocks.value.filter((item) => item.reusableType === 'FRAGMENT'))
+
+const filteredReusableFragments = computed(() => {
+  const search = fragmentInsertSearch.value.trim().toLowerCase()
+  if (!search) return reusableFragments.value
+  return reusableFragments.value.filter((fragment) => reusableItemMatches(fragment, search))
+})
+
+const filteredReusableSections = computed(() => {
+  const search = sectionInsertSearch.value.trim().toLowerCase()
+  if (!search) return reusableSections.value
+  return reusableSections.value.filter((sectionItem) => reusableItemMatches(sectionItem, search))
+})
+
 onMounted(async () => {
   registerEditorInstance()
   await loadModalData()
@@ -738,6 +758,12 @@ watch(
 
 function visibleBlocks() {
   return props.section.blocks.filter((block) => block.languageCode === props.language)
+}
+
+function reusableItemMatches(item: ReusableBlockResponse, search: string) {
+  return [item.code, item.title, item.titleEs, item.titleEn, item.description]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(search))
 }
 
 function updateBlockSelectionHover(event?: MouseEvent) {
@@ -2224,10 +2250,21 @@ function confirmEquation() {
   showEquationModal.value = false
 }
 
-function insertContentBlock() {
+function openFragmentInsertModal() {
   fragmentInsertPosition.value = hasSelection.value ? 'AFTER_SELECTION' : 'END'
   fragmentMessage.value = ''
-  showReusableModal.value = true
+  fragmentInsertSearch.value = ''
+  showFragmentInsertModal.value = true
+  showSectionInsertModal.value = false
+  loadModalData()
+}
+
+function openSectionInsertModal() {
+  fragmentInsertPosition.value = hasSelection.value ? 'AFTER_SELECTION' : 'END'
+  fragmentMessage.value = ''
+  sectionInsertSearch.value = ''
+  showSectionInsertModal.value = true
+  showFragmentInsertModal.value = false
   loadModalData()
 }
 
@@ -2254,7 +2291,8 @@ function insertReusableFragmentReference(fragment: ReusableFragmentLike) {
   current.commands.setContent(doc)
   markEditorDirty()
   clearBlockSelection()
-  showReusableModal.value = false
+  showFragmentInsertModal.value = false
+  fragmentInsertSearch.value = ''
   fragmentMessage.value = ''
 }
 
@@ -2372,18 +2410,41 @@ function blockKindLabel(kind: MovableBlockKind | null) {
 }
 
 function insertReusableSection(sectionItem: ReusableBlockResponse) {
-  editor.value?.chain().focus().insertContent({
+  const current = editor.value
+  if (!current) return
+  const sectionNode = reusableSectionNode(sectionItem)
+  const doc: JSONContent = structuredClone(current.getJSON())
+  const content: JSONContent[] = [...(doc.content || [])]
+  if (fragmentInsertPosition.value === 'AFTER_SELECTION' && hasSelection.value) {
+    const lastSelectedIndex = content.reduce(
+      (last, node, index) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')) ? index : last,
+      -1,
+    )
+    content.splice(lastSelectedIndex + 1, 0, sectionNode)
+  } else {
+    content.push(sectionNode)
+  }
+  doc.content = content
+  current.commands.setContent(doc)
+  markEditorDirty()
+  clearBlockSelection()
+  showSectionInsertModal.value = false
+  sectionInsertSearch.value = ''
+}
+
+function reusableSectionNode(sectionItem: ReusableBlockResponse): JSONContent {
+  return {
     type: 'reusableSectionBox',
     attrs: {
+      blockId: randomId('block'),
+      backendId: null,
       refId: sectionItem.id,
       code: sectionItem.code,
       title: props.language === 'EN'
         ? sectionItem.titleEn || sectionItem.title
         : sectionItem.titleEs || sectionItem.title,
     },
-  }).run()
-  markEditorDirty()
-  showReusableModal.value = false
+  }
 }
 
 function insertNotice(notice: NoticeTemplateResponse) {
@@ -2914,17 +2975,17 @@ function imageAssetId(node: JSONContent) {
                 <button class="custom-table" @click="openCustomTableModal"><TableIcon :size="13" /> Insertar tabla...</button>
               </div>
             </div>
-            <button class="tool-btn" title="Imagen" @click="openImageModal"><FileImage :size="16" /><span>Imagen</span></button>
+            <button class="tool-btn" title="Imagen" @click="openImageModal"><ImageIcon :size="16" /><span>Imagen</span></button>
             <div class="toolbar-menu">
-              <button class="tool-btn" title="Nota" @click="toggleNoteMenu"><NotebookPen :size="16" /><span>Nota</span></button>
+              <button class="tool-btn" title="Nota" @click="toggleNoteMenu"><StickyNote :size="16" /><span>Nota</span></button>
               <div v-if="showNoteMenu" class="submenu">
                 <button @click="openNoticeMenu('new')">Nota nueva</button>
                 <button @click="openNoticeMenu('library')">Elegir nota</button>
               </div>
             </div>
             <button class="tool-btn" title="Ecuación" @click="insertEquation"><Sigma :size="16" /><span>Ecuación</span></button>
-            <button class="tool-btn" title="Contenido" @click="insertContentBlock"><FileText :size="16" /><span>Contenido</span></button>
-            <button class="tool-btn save-content" title="Guardar como contenido" @click="emit('saveReusable')"><Save :size="16" /><span>Guardar contenido</span></button>
+            <button class="tool-btn" title="Insertar fragmento" @click="openFragmentInsertModal"><Group :size="16" /><span>Fragmento</span></button>
+            <button class="tool-btn save-content" title="Insertar sección" @click="openSectionInsertModal"><SquareDashedText :size="16" /><span>Sección</span></button>
           </div>
           <span class="group-label">Insertar</span>
         </div>
@@ -3288,14 +3349,14 @@ function imageAssetId(node: JSONContent) {
       </form>
     </div>
 
-    <div v-if="showReusableModal" class="modal-backdrop" @click.self="showReusableModal = false">
+    <div v-if="showFragmentInsertModal" class="modal-backdrop" @click.self="showFragmentInsertModal = false">
       <div class="modal-card reusable-dialog">
         <header>
           <div>
-            <h3>Insertar contenido reutilizable</h3>
-            <p>Las secciones quedan vinculadas; los fragmentos se insertan como copia editable.</p>
+            <h3>Insertar fragmento</h3>
+            <p>Los fragmentos se insertan vinculados y se pueden desvincular desde el editor.</p>
           </div>
-          <button @click="showReusableModal = false">×</button>
+          <button @click="showFragmentInsertModal = false">×</button>
         </header>
         <div class="fragment-insert-options">
           <label>
@@ -3307,10 +3368,47 @@ function imageAssetId(node: JSONContent) {
           </label>
         </div>
         <p v-if="fragmentMessage" class="dialog-message">{{ fragmentMessage }}</p>
-        <strong class="library-subtitle">Secciones dinámicas</strong>
-        <div class="fragment-library">
+        <input v-model="fragmentInsertSearch" class="field" placeholder="Buscar fragmento..." />
+        <div class="notice-list">
           <button
-            v-for="sectionItem in reusableBlocks.filter((item) => item.reusableType === 'SINGLE_BLOCK')"
+            v-for="fragment in filteredReusableFragments"
+            :key="fragment.id"
+            @click="insertReusableFragment(fragment)"
+          >
+            <strong>{{ fragment.titleEs || fragment.title }}</strong>
+            <span>{{ fragment.description || fragment.code }}</span>
+            <small>VINCULADO</small>
+          </button>
+          <p v-if="!filteredReusableFragments.length" class="text-muted">
+            No hay fragmentos reutilizables que coincidan.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showSectionInsertModal" class="modal-backdrop" @click.self="showSectionInsertModal = false">
+      <div class="modal-card reusable-dialog">
+        <header>
+          <div>
+            <h3>Insertar sección</h3>
+            <p>Las secciones reutilizables se insertan vinculadas.</p>
+          </div>
+          <button @click="showSectionInsertModal = false">×</button>
+        </header>
+        <div class="fragment-insert-options">
+          <label>
+            Posición
+            <select v-model="fragmentInsertPosition" class="field">
+              <option value="END">Al final de la sección</option>
+              <option value="AFTER_SELECTION" :disabled="!hasSelection">Después del último bloque seleccionado</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="fragmentMessage" class="dialog-message">{{ fragmentMessage }}</p>
+        <input v-model="sectionInsertSearch" class="field" placeholder="Buscar sección..." />
+        <div class="notice-list">
+          <button
+            v-for="sectionItem in filteredReusableSections"
             :key="sectionItem.id"
             @click="insertReusableSection(sectionItem)"
           >
@@ -3318,23 +3416,8 @@ function imageAssetId(node: JSONContent) {
             <span>{{ sectionItem.titleEn || sectionItem.description || sectionItem.code }}</span>
             <small>VINCULADA</small>
           </button>
-          <p v-if="!reusableBlocks.some((item) => item.reusableType === 'SINGLE_BLOCK')" class="text-muted">
-            Todavía no hay secciones reutilizables.
-          </p>
-        </div>
-        <strong class="library-subtitle">Fragmentos</strong>
-        <div class="fragment-library">
-          <button
-            v-for="fragment in reusableBlocks.filter((item) => item.reusableType === 'FRAGMENT')"
-            :key="fragment.id"
-            @click="insertReusableFragment(fragment)"
-          >
-            <strong>{{ fragment.titleEs || fragment.title }}</strong>
-            <span>{{ fragment.description || fragment.code }}</span>
-            <small>COPIA</small>
-          </button>
-          <p v-if="!reusableBlocks.some((item) => item.reusableType === 'FRAGMENT')" class="text-muted">
-            Todavía no hay fragmentos reutilizables.
+          <p v-if="!filteredReusableSections.length" class="text-muted">
+            No hay secciones reutilizables que coincidan.
           </p>
         </div>
       </div>
@@ -4785,6 +4868,12 @@ function imageAssetId(node: JSONContent) {
   line-height: 1.35;
   max-height: 48px;
   overflow: hidden;
+}
+
+.notice-list small {
+  color: var(--dikoin-blue);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .fragment-dialog,
