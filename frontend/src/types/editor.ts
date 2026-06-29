@@ -110,12 +110,16 @@ export function parseContent(block: ManualBlockResponse): string {
 }
 
 function parseBlockData(block: ManualBlockResponse): Record<string, unknown> | undefined {
+  const linkData: Record<string, unknown> = {
+    ...(typeof block.reusableBlockId === 'number' ? { reusableBlockId: block.reusableBlockId } : {}),
+    ...(typeof block.reusableFragmentId === 'number' ? { reusableFragmentId: block.reusableFragmentId } : {}),
+  }
   try {
     const parsed = JSON.parse(block.contentJson)
-    if (!parsed || typeof parsed !== 'object') return undefined
-    return parsed as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object') return Object.keys(linkData).length ? linkData : undefined
+    return { ...(parsed as Record<string, unknown>), ...linkData }
   } catch {
-    return undefined
+    return Object.keys(linkData).length ? linkData : undefined
   }
 }
 
@@ -268,6 +272,7 @@ export function versionRequestFromEditor(params: {
         plainText: block.content,
         assetId: typeof block.data?.assetId === 'number' ? block.data.assetId : undefined,
         reusableBlockId: typeof block.data?.reusableBlockId === 'number' ? block.data.reusableBlockId : undefined,
+        reusableFragmentId: typeof block.data?.reusableFragmentId === 'number' ? block.data.reusableFragmentId : undefined,
       })),
     })),
   }

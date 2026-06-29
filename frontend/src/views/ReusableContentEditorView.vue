@@ -3,15 +3,17 @@ import { computed, onMounted, ref } from 'vue'
 import { ArrowLeft, Save } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 import { getReusableBlock, updateReusableBlock } from '@/api/reusable-blocks.api'
+import { getReusableFragment, updateReusableFragment } from '@/api/reusable-fragments.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import type { EditorSection } from '@/types/editor'
 import { randomId, sectionsFromBackend, versionRequestFromEditor } from '@/types/editor'
-import type { LanguageCode, ReusableBlockResponse } from '@/types/api'
+import type { LanguageCode, ReusableBlockResponse, ReusableFragmentResponse } from '@/types/api'
 
 const props = defineProps<{ id: string; kind: 'SINGLE_BLOCK' | 'FRAGMENT' }>()
 const router = useRouter()
-const item = ref<ReusableBlockResponse>()
+type ReusableEditorItem = ReusableBlockResponse | ReusableFragmentResponse
+const item = ref<ReusableEditorItem>()
 const section = ref<EditorSection>(emptySection())
 const language = ref<LanguageCode>('ES')
 const saving = ref(false)
@@ -26,8 +28,10 @@ onMounted(load)
 
 async function load() {
   try {
-    item.value = await getReusableBlock(Number(props.id))
-    if (item.value.reusableType !== props.kind) {
+    item.value = props.kind === 'FRAGMENT'
+      ? { ...(await getReusableFragment(Number(props.id))), reusableType: 'FRAGMENT' as const }
+      : await getReusableBlock(Number(props.id))
+    if ('reusableType' in item.value && item.value.reusableType !== props.kind) {
       throw new Error('El contenido solicitado no pertenece a esta biblioteca.')
     }
     section.value = fromContent(item.value)
@@ -43,7 +47,7 @@ function emptySection(): EditorSection {
   }
 }
 
-function fromContent(value: ReusableBlockResponse) {
+function fromContent(value: ReusableEditorItem) {
   try {
     const parsed = JSON.parse(value.contentJson)
     const loaded = sectionsFromBackend([{
@@ -51,8 +55,8 @@ function fromContent(value: ReusableBlockResponse) {
       sortOrder: 1,
       sectionNumber: '1',
       level: 1,
-      titleEs: value.titleEs || value.title || parsed.titleEs,
-      titleEn: value.titleEn || parsed.titleEn || value.titleEs || value.title,
+      titleEs: 'titleEs' in value ? value.titleEs || value.title || parsed.titleEs : value.title || parsed.titleEs,
+      titleEn: 'titleEn' in value ? value.titleEn || parsed.titleEn || value.titleEs || value.title : parsed.titleEn || value.title,
       completionStatus: 'READY',
       visible: true,
       blocks: (Array.isArray(parsed.blocks) ? parsed.blocks : []).map((block: any, index: number) => ({
@@ -120,25 +124,36 @@ async function save() {
     const request = versionRequestFromEditor({
       versionNumber: '1', status: 'DRAFT', active: true, esReady: true, enReady: true, sections: [section.value],
     })
-    item.value = await updateReusableBlock(item.value.id, {
-      code: item.value.code,
-      title: item.value.titleEs || item.value.title,
-      titleEs: item.value.titleEs || item.value.title,
-      titleEn: item.value.titleEn,
-      description: item.value.descriptionEs || item.value.description,
-      descriptionEs: item.value.descriptionEs || item.value.description,
-      descriptionEn: item.value.descriptionEn,
-      reusableType: props.kind,
-      productCategory: item.value.productCategory,
-      productCodes: item.value.productCodes,
-      contentJson: JSON.stringify({
-        type: props.kind === 'FRAGMENT' ? 'FRAGMENT' : 'SECTION',
-        titleEs: section.value.titleEs,
-        titleEn: section.value.titleEn,
-        blocks: request.sections[0].blocks,
-      }),
-      active: item.value.active,
+    const contentJson = JSON.stringify({
+      type: props.kind === 'FRAGMENT' ? 'FRAGMENT' : 'SECTION',
+      titleEs: section.value.titleEs,
+      titleEn: section.value.titleEn,
+      blocks: request.sections[0].blocks,
     })
+    item.value = props.kind === 'FRAGMENT'
+      ? { ...(await updateReusableFragment(item.value.id, {
+        code: item.value.code,
+        title: item.value.title,
+        description: item.value.description,
+        productCategory: item.value.productCategory,
+        productCodes: item.value.productCodes,
+        contentJson,
+        active: item.value.active,
+      })), reusableType: 'FRAGMENT' as const }
+      : await updateReusableBlock(item.value.id, {
+        code: item.value.code,
+        title: ('titleEs' in item.value ? item.value.titleEs : undefined) || item.value.title,
+        titleEs: 'titleEs' in item.value ? item.value.titleEs || item.value.title : item.value.title,
+        titleEn: 'titleEn' in item.value ? item.value.titleEn : undefined,
+        description: 'descriptionEs' in item.value ? item.value.descriptionEs || item.value.description : item.value.description,
+        descriptionEs: 'descriptionEs' in item.value ? item.value.descriptionEs || item.value.description : item.value.description,
+        descriptionEn: 'descriptionEn' in item.value ? item.value.descriptionEn : undefined,
+        reusableType: props.kind,
+        productCategory: item.value.productCategory,
+        productCodes: item.value.productCodes,
+        contentJson,
+        active: item.value.active,
+      })
     saved.value = true
     window.setTimeout(() => { saved.value = false }, 1800)
   } catch (err) {
@@ -162,7 +177,7 @@ function changeLanguage(value: LanguageCode) {
       <button class="btn btn-outline" @click="router.push({ name: backRoute })"><ArrowLeft :size="14" /> Volver</button>
       <div class="title">
         <h1>{{ item?.code || 'Editor' }}</h1>
-        <span>{{ item?.titleEs || item?.title }}</span>
+        <span>{{ item?.title }}</span>
       </div>
       <div class="lang-switch">
         <button :class="{ active: language === 'ES' }" @click="changeLanguage('ES')">ES</button>

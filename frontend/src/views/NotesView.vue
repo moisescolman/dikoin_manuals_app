@@ -25,6 +25,7 @@ const searchUsageCache = ref<Record<number, NoticeUsageResponse[]>>({})
 const loadingSearchUsages = ref(false)
 const searchUsagesLoaded = ref(false)
 let searchUsagesPromise: Promise<void> | null = null
+let searchTimer: number | undefined
 
 const editOpen = ref(false)
 const usagesOpen = ref(false)
@@ -62,8 +63,7 @@ const noteSearchResults = computed(() => {
   const query = normalizeSearch(searchQuery.value)
   if (!query) return notes.value.map((note) => ({ note, match: '' }))
   return notes.value
-    .map((note) => ({ note, match: searchMatch(note, query) }))
-    .filter((result) => result.match)
+    .map((note) => ({ note, match: searchMatch(note, query) || 'Resultado de búsqueda' }))
 })
 const filteredNotes = computed(() => noteSearchResults.value.map((result) => result.note))
 const searchSuggestions = computed(() => noteSearchResults.value.slice(0, 6))
@@ -74,9 +74,8 @@ const notesCountLabel = computed(() => {
 
 onMounted(initialize)
 watch(searchQuery, (value) => {
-  if (value.trim().length >= 2) {
-    void ensureSearchUsages()
-  }
+  window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => { void load() }, value.trim() ? 250 : 0)
 })
 
 async function initialize() {
@@ -98,7 +97,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    notes.value = await getNotices('NOTE')
+    notes.value = await getNotices('NOTE', searchQuery.value)
     if (selectedId.value && !notes.value.some((note) => note.id === selectedId.value)) {
       selectedId.value = null
     }

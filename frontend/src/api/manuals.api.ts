@@ -94,6 +94,7 @@ export async function changeManualStatus(manualId: number, status: ManualStatus,
         plainText: block.plainText,
         assetId: block.assetId,
         reusableBlockId: block.reusableBlockId,
+        reusableFragmentId: block.reusableFragmentId,
       })),
     })),
   })

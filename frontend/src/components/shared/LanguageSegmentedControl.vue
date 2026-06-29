@@ -12,23 +12,9 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="language-group" role="group" :aria-label="ariaLabel || 'Seleccionar idioma'">
-    <button
-      type="button"
-      :class="{ active: modelValue === 'ES' }"
-      :aria-pressed="modelValue === 'ES'"
-      @click="emit('update:modelValue', 'ES')"
-    >
-      ES
-    </button>
-    <button
-      type="button"
-      :class="{ active: modelValue === 'EN' }"
-      :aria-pressed="modelValue === 'EN'"
-      @click="emit('update:modelValue', 'EN')"
-    >
-      EN
-    </button>
+  <div class="lang-switch">
+    <button :class="{ active: modelValue === 'ES' }" @click="emit('update:modelValue', 'ES')">ES</button>
+    <button :class="{ active: modelValue === 'EN' }" @click="emit('update:modelValue', 'EN')">EN</button>
   </div>
 </template>
 
@@ -59,5 +45,26 @@ const emit = defineEmits<{
   background: var(--dikoin-blue);
   color: #fff;
   box-shadow: 0 1px 3px rgba(15, 23, 42, .18);
+}
+
+.lang-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #fff;
+}
+
+.lang-switch button {
+  border: 0;
+  background: #fff;
+  padding: 8px 11px;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.lang-switch button.active {
+  background: var(--dikoin-blue);
+  color: #fff;
 }
 </style>

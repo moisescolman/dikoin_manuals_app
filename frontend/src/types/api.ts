@@ -195,6 +195,7 @@ export interface ManualBlockResponse {
   plainText?: string
   assetId?: number
   reusableBlockId?: number
+  reusableFragmentId?: number
 }
 
 export interface ManualCreateRequest {
@@ -242,6 +243,7 @@ export interface ManualBlockRequest {
   plainText?: string
   assetId?: number
   reusableBlockId?: number
+  reusableFragmentId?: number
 }
 
 export interface AssetResponse {
@@ -363,6 +365,30 @@ export interface ReusableBlockResponse {
   updatedAt?: string
 }
 
+export interface ReusableFragmentResponse {
+  id: number
+  code: string
+  title: string
+  description?: string
+  productCategory?: string
+  productCodes?: string
+  contentJson: string
+  active: boolean
+  createdAt?: string
+  updatedAt?: string
+  reusableType?: 'FRAGMENT'
+}
+
+export interface ReusableFragmentRequest {
+  code?: string
+  title: string
+  description?: string
+  productCategory?: string
+  productCodes?: string
+  contentJson: string
+  active: boolean
+}
+
 export interface ReusableBlockRequest {
   code?: string
   title?: string
@@ -403,9 +429,11 @@ export interface InsertReusableFragmentRequest {
 }
 
 export interface ReusableFragmentInsertResponse {
-  reusableBlockId: number
+  reusableBlockId?: number
+  reusableFragmentId?: number
   targetSectionId: number
   blocks: ManualBlockResponse[]
+  insertedBlocks?: ManualBlockResponse[]
 }
 
 export interface OrderItemRequest {
@@ -439,3 +467,5 @@ export interface ReusableBlockUsageResponse {
   sectionTitle?: string
   blockId?: number
 }
+
+export type ReusableFragmentUsageResponse = ReusableBlockUsageResponse

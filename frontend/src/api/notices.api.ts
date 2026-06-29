@@ -1,8 +1,8 @@
 import { http } from './http'
 import type { NoticeTemplateRequest, NoticeTemplateResponse, NoticeType, NoticeUsageResponse } from '@/types/api'
 
-export async function getNotices(type?: NoticeType) {
-  const { data } = await http.get<NoticeTemplateResponse[]>('/notices', { params: { type } })
+export async function getNotices(type?: NoticeType, search?: string) {
+  const { data } = await http.get<NoticeTemplateResponse[]>('/notices', { params: { type, search: search || undefined } })
   return data
 }
 

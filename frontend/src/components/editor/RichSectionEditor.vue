@@ -46,7 +46,8 @@ import {
 import { getAssets, uploadAsset } from '@/api/assets.api'
 import { toBackendUrl } from '@/api/http'
 import { getNotices } from '@/api/notices.api'
-import { createReusableFragment, getReusableBlocks } from '@/api/reusable-blocks.api'
+import { getReusableBlocks } from '@/api/reusable-blocks.api'
+import { createReusableFragment, getReusableFragments } from '@/api/reusable-fragments.api'
 import AppModal from '@/components/shared/AppModal.vue'
 import type { EditorBlock, EditorBlockType, EditorSection } from '@/types/editor'
 import { backendBlockTypeToEditor, blockContentToJson, editorBlockTypeToBackend, parseContent, randomId } from '@/types/editor'
@@ -925,7 +926,7 @@ async function saveSelectedFragment() {
       isReusable: true,
     })
     fragmentMessage.value = 'Fragmento guardado'
-    reusableBlocks.value = await getReusableBlocks()
+    reusableBlocks.value = await loadReusableLibrary()
     clearBlockSelection()
     setTimeout(() => {
       showFragmentModal.value = false
@@ -2168,7 +2169,7 @@ function insertReusableFragment(fragment: ReusableBlockResponse) {
           contentJson,
           plainText: typeof snapshot.plainText === 'string' ? snapshot.plainText : undefined,
           assetId: typeof snapshot.assetId === 'number' ? snapshot.assetId : undefined,
-          reusableBlockId: fragment.id,
+          reusableFragmentId: fragment.id,
         }
         let data: Record<string, unknown> = {}
         try {
@@ -2184,7 +2185,7 @@ function insertReusableFragment(fragment: ReusableBlockResponse) {
           data: {
             ...data,
             assetId: response.assetId,
-            reusableBlockId: fragment.id,
+            reusableFragmentId: fragment.id,
           },
         } satisfies EditorBlock
       })
@@ -2312,7 +2313,7 @@ async function loadModalData() {
     const [loadedAssets, loadedNotices, loadedReusableBlocks] = await Promise.all([
       getAssets(props.manualId ? { manualId: props.manualId } : undefined),
       getNotices('NOTE'),
-      getReusableBlocks(),
+      loadReusableLibrary(),
     ])
     assets.value = loadedAssets.filter((asset) => ['IMAGE', 'EXTRACTED_IMAGE', 'PRODUCT_IMAGE'].includes(asset.assetType))
     notices.value = loadedNotices
@@ -2322,6 +2323,20 @@ async function loadModalData() {
     notices.value = []
     reusableBlocks.value = []
   }
+}
+
+async function loadReusableLibrary() {
+  const [sections, fragments] = await Promise.all([
+    getReusableBlocks(false, 'SINGLE_BLOCK'),
+    getReusableFragments(),
+  ])
+  return [
+    ...sections,
+    ...fragments.map((fragment) => ({
+      ...fragment,
+      reusableType: 'FRAGMENT' as const,
+    })),
+  ] as ReusableBlockResponse[]
 }
 
 function noticeById(id: number) {

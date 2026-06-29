@@ -11,8 +11,9 @@ import type {
 export async function getReusableBlocks(
   includeInactive = false,
   type?: ReusableBlockResponse['reusableType'],
+  search?: string,
 ) {
-  const { data } = await http.get<ReusableBlockResponse[]>('/reusable-blocks', { params: { includeInactive, type } })
+  const { data } = await http.get<ReusableBlockResponse[]>('/reusable-blocks', { params: { includeInactive, type, search: search || undefined } })
   return data
 }
 
