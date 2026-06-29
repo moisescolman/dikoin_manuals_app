@@ -1,5 +1,5 @@
 export type BackendRole = 'ADMIN' | 'TECNICO' | 'REVISOR' | 'CLIENTE'
-export type ManualStatus = 'DRAFT' | 'REVIEW' | 'APPROVED' | 'PUBLISHED' | 'ARCHIVED'
+export type ManualStatus = 'DRAFT' | 'REVIEW' | 'APPROVED' | 'PUBLISHED' | 'ARCHIVED' | 'DEACTIVATED'
 export type LanguageCode = 'ES' | 'EN'
 export type BlockType =
   | 'HEADING'
@@ -64,9 +64,19 @@ export interface ProductResponse {
   description?: string
   descriptionEs?: string
   descriptionEn?: string
+  productImageAssetId?: number
+  productImageUrl?: string
+  productImageThumbnailUrl?: string
   active: boolean
   createdAt?: string
   updatedAt?: string
+}
+
+export interface ProductDeleteImpactResponse {
+  productId: number
+  hasManualHistory: boolean
+  relatedManuals: ManualSummaryResponse[]
+  activeManuals: ManualSummaryResponse[]
 }
 
 export interface ProductFamilyResponse {

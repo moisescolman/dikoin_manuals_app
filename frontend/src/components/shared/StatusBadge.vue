@@ -34,4 +34,9 @@ defineProps<{ status?: ManualStatus }>()
   background: #e5e7eb;
   color: #4b5563;
 }
+
+.status-deactivated {
+  background: #fee2e2;
+  color: #991b1b;
+}
 </style>

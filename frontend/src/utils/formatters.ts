@@ -7,6 +7,7 @@ export function statusLabel(status?: ManualStatus) {
     APPROVED: 'Aprobado',
     PUBLISHED: 'Publicado',
     ARCHIVED: 'Archivado',
+    DEACTIVATED: 'Dado de baja',
   }
   return status ? map[status] : 'Sin versión'
 }
@@ -18,6 +19,7 @@ export function statusClass(status?: ManualStatus) {
     APPROVED: 'status-approved',
     PUBLISHED: 'status-published',
     ARCHIVED: 'status-archived',
+    DEACTIVATED: 'status-deactivated',
   }
   return status ? map[status] : 'status-archived'
 }

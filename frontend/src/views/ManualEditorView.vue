@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Copy, Eye, GripVertical, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
+import { ArrowLeft, ChevronDown, ChevronRight, Copy, Eye, GripVertical, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
 import { createReusableBlock } from '@/api/reusable-blocks.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import AppModal from '@/components/shared/AppModal.vue'
@@ -46,6 +46,7 @@ const indexDropHeading = ref<{ sectionId: string; blockId: string } | null>(null
 const indexPanelWidth = ref(280)
 const resizingIndexPanel = ref(false)
 const sectionsPanelCollapsed = ref(false)
+const expandedIndexSectionIds = ref<string[]>([])
 const sectionEditorRefs = ref<Array<{ flushEditorSync: () => void }>>([])
 const selectionOwnerKey = ref('')
 const blockSelectionSync = ref<BlockSelectionSync | null>(null)
@@ -323,6 +324,16 @@ function openSectionFromIndex(section: EditorSection) {
   section.collapsed = false
   selectedSectionId.value = section.id
   activateEditor(section.id, indexLanguage.value)
+}
+
+function isIndexSectionExpanded(sectionId: string) {
+  return expandedIndexSectionIds.value.includes(sectionId)
+}
+
+function toggleIndexSection(sectionId: string) {
+  expandedIndexSectionIds.value = isIndexSectionExpanded(sectionId)
+    ? expandedIndexSectionIds.value.filter((id) => id !== sectionId)
+    : [...expandedIndexSectionIds.value, sectionId]
 }
 
 function indexHeadings(section: EditorSection): IndexHeading[] {
@@ -767,6 +778,7 @@ function sectionTitle(section: EditorSection) {
             class="index-section-card"
             :class="{
               selected: selectedSectionId === section.id,
+              collapsed: !isIndexSectionExpanded(section.id),
               dragging: indexDraggingSectionId === section.id,
               'drop-target': indexDropSectionId === section.id && indexDraggingSectionId !== section.id,
             }"
@@ -778,12 +790,22 @@ function sectionTitle(section: EditorSection) {
             @drop.prevent="dropIndexSection(section.id)"
           >
             <header class="index-section-header" @click="openSectionFromIndex(section)">
+              <button
+                type="button"
+                class="index-section-collapse"
+                :aria-label="isIndexSectionExpanded(section.id) ? 'Contraer seccion' : 'Expandir seccion'"
+                :title="isIndexSectionExpanded(section.id) ? 'Contraer' : 'Expandir'"
+                @click.stop="toggleIndexSection(section.id)"
+              >
+                <ChevronDown v-if="isIndexSectionExpanded(section.id)" :size="15" />
+                <ChevronRight v-else :size="15" />
+              </button>
               <GripVertical class="index-drag-icon" :size="15" />
               <span class="index-section-number">{{ section.sectionNumber || section.sortOrder }}</span>
               <strong>{{ sectionTitle(section) }}</strong>
               <small>Nivel {{ section.level || 1 }}</small>
             </header>
-            <div v-if="indexHeadings(section).length" class="index-heading-list">
+            <div v-if="isIndexSectionExpanded(section.id) && indexHeadings(section).length" class="index-heading-list">
               <button
                 v-for="heading in indexHeadings(section)"
                 :key="heading.blockId"
@@ -1186,12 +1208,33 @@ function sectionTitle(section: EditorSection) {
   transform: translateY(-1px);
 }
 
+.index-section-card.collapsed {
+  gap: 0;
+}
+
 .index-section-header {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto auto minmax(0, 1fr);
   gap: 7px;
   align-items: center;
   cursor: pointer;
+}
+
+.index-section-collapse {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--dikoin-blue);
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.index-section-collapse:hover {
+  background: var(--dikoin-blue-lighter);
+  border-color: #9ecde8;
 }
 
 .index-drag-icon {
@@ -1219,7 +1262,7 @@ function sectionTitle(section: EditorSection) {
 }
 
 .index-section-header small {
-  grid-column: 3;
+  grid-column: 4;
   color: var(--muted-foreground);
   font-size: 10px;
   font-weight: 700;

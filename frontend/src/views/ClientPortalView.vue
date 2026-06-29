@@ -11,7 +11,7 @@ const router = useRouter()
 const store = useManualsStore()
 const search = ref('')
 
-const visibleManuals = computed(() => store.manuals.filter((manual) => manual.activeStatus === 'PUBLISHED'))
+const visibleManuals = computed(() => store.manuals.filter((manual) => manual.enabled !== false && manual.activeStatus === 'PUBLISHED'))
 
 onMounted(() => store.fetchManuals())
 </script>

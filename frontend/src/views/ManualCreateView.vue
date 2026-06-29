@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, ImageUp, Save } from '@lucide/vue'
+import { ArrowLeft, ImageOff, Save } from '@lucide/vue'
 import { getDocumentTypes } from '@/api/document-types.api'
-import { getApiError } from '@/api/http'
+import { getApiError, toBackendUrl } from '@/api/http'
 import { createManual } from '@/api/manuals.api'
-import { uploadAsset } from '@/api/assets.api'
 import BackendError from '@/components/shared/BackendError.vue'
 import { useProductsStore } from '@/stores/products.store'
 import type { DocumentTypeResponse, LanguageCode } from '@/types/api'
@@ -21,8 +20,6 @@ const languageCode = ref<LanguageCode>('ES')
 const titleEs = ref('')
 const titleEn = ref('')
 const category = ref('')
-const productImage = ref<File | null>(null)
-const productImagePreview = ref('')
 const loading = ref(false)
 const error = ref('')
 
@@ -54,13 +51,6 @@ async function loadDocumentTypes() {
   }
 }
 
-function pickProductImage(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0] || null
-  productImage.value = file
-  if (productImagePreview.value) URL.revokeObjectURL(productImagePreview.value)
-  productImagePreview.value = file ? URL.createObjectURL(file) : ''
-}
-
 async function submit() {
   if (!canCreate.value) return
   loading.value = true
@@ -78,10 +68,6 @@ async function submit() {
       languageCode: languageCode.value,
     })
 
-    if (productImage.value) {
-      await uploadAsset({ file: productImage.value, assetType: 'PRODUCT_IMAGE', manualId: manual.id })
-    }
-
     router.push({ name: 'manual-editor', params: { id: manual.id }, query: { lang: languageCode.value } })
   } catch (err) {
     error.value = getApiError(err)
@@ -95,6 +81,10 @@ function twoDigits(value: string) {
   if (digits.length === 1) return `0${digits}`
   if (digits.length > 2) return digits.slice(-2)
   return digits
+}
+
+function selectedProductImageSrc() {
+  return toBackendUrl(selectedProduct.value?.productImageThumbnailUrl || selectedProduct.value?.productImageUrl)
 }
 </script>
 
@@ -160,12 +150,6 @@ function twoDigits(value: string) {
         </div>
         <label>Categoria <input v-model="category" class="field" :placeholder="selectedDocumentType?.name || 'Categoria del manual'" /></label>
 
-        <label class="image-upload">
-          <input type="file" accept="image/*" @change="pickProductImage" />
-          <ImageUp :size="18" />
-          <span>{{ productImage?.name || 'Subir imagen del producto' }}</span>
-        </label>
-
         <button class="btn btn-primary" :disabled="!canCreate || loading">
           <Save :size="15" /> {{ loading ? 'Creando...' : 'Crear manual y abrir editor' }}
         </button>
@@ -174,8 +158,8 @@ function twoDigits(value: string) {
       <aside class="card cover-preview">
         <div class="preview-logo">DIKOIN</div>
         <div class="preview-product">
-          <img v-if="productImagePreview" :src="productImagePreview" alt="Producto" />
-          <span v-else>Imagen del producto</span>
+          <img v-if="selectedProductImageSrc()" :src="selectedProductImageSrc()" alt="Producto" />
+          <span v-else><ImageOff :size="22" /> Sin imagen de producto</span>
         </div>
         <div class="preview-title">
           <h2>{{ titleEs || 'Nombre del producto' }}</h2>
@@ -248,22 +232,6 @@ label {
   font-weight: 600;
 }
 
-.image-upload {
-  border: 1px dashed var(--border);
-  background: var(--input-background);
-  padding: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--dikoin-blue);
-  cursor: pointer;
-}
-
-.image-upload input {
-  display: none;
-}
-
 .cover-preview {
   width: min(100%, 420px);
   aspect-ratio: 210 / 297;
@@ -288,6 +256,12 @@ label {
   color: var(--muted-foreground);
   border: 1px dashed var(--border);
   background: #fff;
+}
+
+.preview-product span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .preview-product img {

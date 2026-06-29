@@ -127,7 +127,7 @@ function closeSuggestionsLater() {
 }
 
 function statusFromQuery(value: unknown): StatusFilter {
-  return ['DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED'].includes(String(value))
+  return ['DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED', 'DEACTIVATED'].includes(String(value))
     ? String(value) as ManualStatus
     : 'ALL'
 }
@@ -198,6 +198,7 @@ function syncFiltersToRoute() {
         <option value="APPROVED">Aprobado</option>
         <option value="PUBLISHED">Publicado</option>
         <option value="ARCHIVED">Archivado</option>
+        <option value="DEACTIVATED">Dado de baja</option>
       </select>
       <select v-model="langFilter" class="field">
         <option value="ALL">Todos los idiomas</option>
@@ -216,6 +217,7 @@ function syncFiltersToRoute() {
         <option value="APPROVED">Aprobado</option>
         <option value="PUBLISHED">Publicado</option>
         <option value="ARCHIVED">Archivado</option>
+        <option value="DEACTIVATED">Dado de baja</option>
       </select>
       <button class="btn btn-outline" @click="changeSelectedStatus">Aplicar estado</button>
       <button class="btn btn-outline" @click="bulkNoticeOpen = !bulkNoticeOpen">Agregar aviso/nota</button>
@@ -263,6 +265,7 @@ function syncFiltersToRoute() {
                   <option value="APPROVED">Aprobado</option>
                   <option value="PUBLISHED">Publicado</option>
                   <option value="ARCHIVED">Archivado</option>
+                  <option value="DEACTIVATED">Dado de baja</option>
                 </select>
                 <button title="Ver" @click="router.push({ name: 'manual-detail', params: { id: manual.id } })"><Eye :size="14" /></button>
                 <button class="lang-action" title="Ver español" @click="router.push({ name: 'manual-detail', params: { id: manual.id }, query: { lang: 'ES' } })">ES</button>

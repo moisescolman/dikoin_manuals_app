@@ -169,6 +169,7 @@ function scrollToCover() {
           <option value="APPROVED">Aprobado</option>
           <option value="PUBLISHED">Publicado</option>
           <option value="ARCHIVED">Archivado</option>
+          <option value="DEACTIVATED">Dado de baja</option>
         </select>
         <input v-model="statusNotes" class="field" placeholder="Notas del cambio, opcional" />
         <button class="btn btn-primary" :disabled="changingStatus" @click="changeStatus">
