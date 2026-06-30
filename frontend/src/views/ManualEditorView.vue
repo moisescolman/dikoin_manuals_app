@@ -9,7 +9,7 @@ import BackendError from '@/components/shared/BackendError.vue'
 import { useManualsStore } from '@/stores/manuals.store'
 import type { EditorBlock, EditorSection } from '@/types/editor'
 import { randomId, sectionsFromBackend, versionRequestFromEditor } from '@/types/editor'
-import type { LanguageCode, ManualStatus } from '@/types/api'
+import type { LanguageCode, ManualBlockResponse, ManualStatus, ReusableBlockResponse } from '@/types/api'
 
 type BlockSelectionSync = {
   sectionId: string
@@ -98,6 +98,97 @@ function addSection() {
     collapsed: false,
     blocks: [],
   })
+}
+
+function insertReusableSection(payload: { sectionItem: ReusableBlockResponse; cloneSpanishToEnglish: boolean; afterSectionId: string }) {
+  flushSectionEditors()
+  const anchorIndex = sections.value.findIndex((section) => section.id === payload.afterSectionId)
+  const anchor = sections.value[anchorIndex]
+  const reusableSection = editorSectionFromReusable(payload.sectionItem, payload.cloneSpanishToEnglish, anchor)
+  const insertAt = insertionIndexAfterSection(anchorIndex)
+  const copy = [...sections.value]
+  copy.splice(insertAt, 0, reusableSection)
+  sections.value = renumberSections(copy)
+  activateEditor(reusableSection.id, selectedLanguage.value)
+  editorContentVersion.value += 1
+}
+
+function editorSectionFromReusable(sectionItem: ReusableBlockResponse, cloneSpanishToEnglish: boolean, anchor?: EditorSection): EditorSection {
+  const parsed = parseReusableSectionContent(sectionItem)
+  const snapshots = Array.isArray(parsed.blocks) ? parsed.blocks : []
+  const normalizedBlocks = normalizeReusableBlocks(snapshots)
+  const esBlocks = normalizedBlocks.filter((block) => block.languageCode === 'ES')
+  const enBlocks = normalizedBlocks.filter((block) => block.languageCode === 'EN')
+  const blocks = cloneSpanishToEnglish
+    ? [...esBlocks, ...cloneReusableSnapshotsToEnglish(esBlocks)]
+    : [...esBlocks, ...enBlocks]
+  const loaded = sectionsFromBackend([{
+    id: 0,
+    sortOrder: 1,
+    sectionNumber: '1',
+    parentSectionId: anchor?.parentSectionId,
+    level: anchor?.level || 1,
+    titleEs: String(parsed.titleEs || sectionItem.titleEs || sectionItem.title || 'Seccion reutilizable'),
+    titleEn: String(parsed.titleEn || sectionItem.titleEn || (cloneSpanishToEnglish ? parsed.titleEs || sectionItem.titleEs || sectionItem.title : '') || ''),
+    completionStatus: 'DRAFT',
+    visible: true,
+    blocks,
+  }])[0]
+  return {
+    ...loaded,
+    id: randomId('section'),
+    backendId: undefined,
+    parentSectionId: anchor?.parentSectionId,
+    level: anchor?.level || 1,
+    status: 'DRAFT',
+    collapsed: false,
+    blocks: loaded.blocks.map((block) => ({
+      ...block,
+      id: randomId('block'),
+      backendId: undefined,
+    })),
+  }
+}
+
+function parseReusableSectionContent(sectionItem: ReusableBlockResponse): Record<string, any> {
+  try {
+    return JSON.parse(sectionItem.contentJson || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function normalizeReusableBlocks(blocks: any[]): ManualBlockResponse[] {
+  return blocks.map((block, index) => ({
+    id: 0,
+    sortOrder: Number(block.sortOrder || index + 1),
+    blockType: block.blockType || 'PARAGRAPH',
+    languageCode: block.languageCode === 'EN' ? 'EN' : 'ES',
+    contentJson: typeof block.contentJson === 'string' ? block.contentJson : JSON.stringify(block.contentJson || {}),
+    plainText: block.plainText,
+    assetId: typeof block.assetId === 'number' ? block.assetId : undefined,
+    reusableBlockId: typeof block.reusableBlockId === 'number' ? block.reusableBlockId : undefined,
+    reusableFragmentId: typeof block.reusableFragmentId === 'number' ? block.reusableFragmentId : undefined,
+  } as ManualBlockResponse))
+}
+
+function cloneReusableSnapshotsToEnglish(blocks: ManualBlockResponse[]): ManualBlockResponse[] {
+  return blocks.map((block) => ({
+    ...block,
+    id: 0,
+    languageCode: 'EN',
+  }))
+}
+
+function insertionIndexAfterSection(anchorIndex: number) {
+  if (anchorIndex < 0) return sections.value.length
+  const anchor = sections.value[anchorIndex]
+  const prefix = `${anchor.sectionNumber || anchor.sortOrder}.`
+  let insertAt = anchorIndex + 1
+  while (insertAt < sections.value.length && String(sections.value[insertAt].sectionNumber || '').startsWith(prefix)) {
+    insertAt++
+  }
+  return insertAt
 }
 
 function editorKey(sectionId: string, language: LanguageCode) {
@@ -857,6 +948,7 @@ function sectionTitle(section: EditorSection) {
               :section-targets="sectionTargets"
               :selection-sync="blockSelectionSync"
               @update="updateSectionForLanguage($event, lang)"
+              @insert-reusable-section="insertReusableSection"
               @delete="deleteSection(section.id)"
               @duplicate="duplicateSection(index)"
               @add-subsection="addSubsection(section)"

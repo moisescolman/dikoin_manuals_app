@@ -103,6 +103,7 @@ const emit = defineEmits<{
   saveReusable: []
   addSubsection: []
   moveBlocks: [payload: { sourceSectionId: string; targetSectionId: string; blocks: EditorBlock[] }]
+  insertReusableSection: [payload: { sectionItem: ReusableBlockResponse; cloneSpanishToEnglish: boolean; afterSectionId: string }]
   selectionChange: [key: string, active: boolean, indexes: number[]]
   selectionModeChange: [payload: BlockSelectionSync]
   saveSection: []
@@ -149,6 +150,7 @@ const hoveredBlockId = ref('')
 const showFragmentModal = ref(false)
 const showFragmentInsertModal = ref(false)
 const showSectionInsertModal = ref(false)
+const showSectionLanguageWarningModal = ref(false)
 const showEquationModal = ref(false)
 const showMoveModal = ref(false)
 const showSelectionMismatchModal = ref(false)
@@ -163,6 +165,7 @@ const fragmentMessage = ref('')
 const fragmentInsertPosition = ref<'END' | 'AFTER_SELECTION'>('END')
 const fragmentInsertSearch = ref('')
 const sectionInsertSearch = ref('')
+const pendingReusableSectionInsert = ref<ReusableBlockResponse | null>(null)
 const fragmentPreviewBlocks = computed(() => selectedFragmentBlocks())
 const moveTargetSectionId = ref('')
 const equationTextarea = ref<HTMLTextAreaElement | null>(null)
@@ -2410,40 +2413,57 @@ function blockKindLabel(kind: MovableBlockKind | null) {
 }
 
 function insertReusableSection(sectionItem: ReusableBlockResponse) {
-  const current = editor.value
-  if (!current) return
-  const sectionNode = reusableSectionNode(sectionItem)
-  const doc: JSONContent = structuredClone(current.getJSON())
-  const content: JSONContent[] = [...(doc.content || [])]
-  if (fragmentInsertPosition.value === 'AFTER_SELECTION' && hasSelection.value) {
-    const lastSelectedIndex = content.reduce(
-      (last, node, index) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')) ? index : last,
-      -1,
-    )
-    content.splice(lastSelectedIndex + 1, 0, sectionNode)
-  } else {
-    content.push(sectionNode)
+  if (reusableSectionNeedsEnglishFallback(sectionItem)) {
+    pendingReusableSectionInsert.value = sectionItem
+    showSectionLanguageWarningModal.value = true
+    return
   }
-  doc.content = content
-  current.commands.setContent(doc)
-  markEditorDirty()
-  clearBlockSelection()
+  emitReusableSectionInsert(sectionItem, false)
+}
+
+function confirmReusableSectionWithSpanishClone() {
+  const sectionItem = pendingReusableSectionInsert.value
+  if (!sectionItem) return
+  emitReusableSectionInsert(sectionItem, true)
+  pendingReusableSectionInsert.value = null
+  showSectionLanguageWarningModal.value = false
+}
+
+function cancelReusableSectionInsertWarning() {
+  pendingReusableSectionInsert.value = null
+  showSectionLanguageWarningModal.value = false
+}
+
+function emitReusableSectionInsert(sectionItem: ReusableBlockResponse, cloneSpanishToEnglish: boolean) {
+  flushEditorSync()
+  emit('insertReusableSection', {
+    sectionItem,
+    cloneSpanishToEnglish,
+    afterSectionId: props.section.id,
+  })
   showSectionInsertModal.value = false
   sectionInsertSearch.value = ''
 }
 
-function reusableSectionNode(sectionItem: ReusableBlockResponse): JSONContent {
+function reusableSectionNeedsEnglishFallback(sectionItem: ReusableBlockResponse) {
+  const counts = reusableSectionLanguageCounts(sectionItem)
+  return counts.es > 0 && (counts.en === 0 || counts.en !== counts.es)
+}
+
+function reusableSectionLanguageCounts(sectionItem: ReusableBlockResponse) {
+  const blocks = reusableSectionContentSnapshots(sectionItem)
   return {
-    type: 'reusableSectionBox',
-    attrs: {
-      blockId: randomId('block'),
-      backendId: null,
-      refId: sectionItem.id,
-      code: sectionItem.code,
-      title: props.language === 'EN'
-        ? sectionItem.titleEn || sectionItem.title
-        : sectionItem.titleEs || sectionItem.title,
-    },
+    es: blocks.filter((block) => block.languageCode === 'ES').length,
+    en: blocks.filter((block) => block.languageCode === 'EN').length,
+  }
+}
+
+function reusableSectionContentSnapshots(sectionItem: ReusableBlockResponse): Record<string, unknown>[] {
+  try {
+    const parsed = JSON.parse(sectionItem.contentJson || '{}')
+    return Array.isArray(parsed.blocks) ? parsed.blocks : []
+  } catch {
+    return []
   }
 }
 
@@ -3392,19 +3412,11 @@ function imageAssetId(node: JSONContent) {
         <header>
           <div>
             <h3>Insertar sección</h3>
-            <p>Las secciones reutilizables se insertan vinculadas.</p>
+            <p>Se creara una nueva seccion del manual con el contenido guardado.</p>
           </div>
           <button @click="showSectionInsertModal = false">×</button>
         </header>
-        <div class="fragment-insert-options">
-          <label>
-            Posición
-            <select v-model="fragmentInsertPosition" class="field">
-              <option value="END">Al final de la sección</option>
-              <option value="AFTER_SELECTION" :disabled="!hasSelection">Después del último bloque seleccionado</option>
-            </select>
-          </label>
-        </div>
+        <p class="dialog-message">Se insertara despues de la seccion actual y aparecera en el indice lateral.</p>
         <p v-if="fragmentMessage" class="dialog-message">{{ fragmentMessage }}</p>
         <input v-model="sectionInsertSearch" class="field" placeholder="Buscar sección..." />
         <div class="notice-list">
@@ -3415,13 +3427,33 @@ function imageAssetId(node: JSONContent) {
           >
             <strong>{{ sectionItem.titleEs || sectionItem.title }}</strong>
             <span>{{ sectionItem.titleEn || sectionItem.description || sectionItem.code }}</span>
-            <small>VINCULADA</small>
+            <small>SECCION</small>
           </button>
           <p v-if="!filteredReusableSections.length" class="text-muted">
             No hay secciones reutilizables que coincidan.
           </p>
         </div>
       </div>
+    </div>
+
+    <div v-if="showSectionLanguageWarningModal" class="modal-backdrop" @click.self="cancelReusableSectionInsertWarning">
+      <section class="modal-card selection-warning-dialog">
+        <header>
+          <div>
+            <h3>La versi&oacute;n inglesa no coincide</h3>
+            <p>La seccion reutilizable no tiene contenido EN o no tiene la misma cantidad de bloques que ES.</p>
+          </div>
+          <button type="button" class="modal-close" @click="cancelReusableSectionInsertWarning">×</button>
+        </header>
+        <p>
+          Puedes insertar la seccion y crear la version inglesa como clon temporal del contenido espanol.
+          El cambio quedara pendiente hasta que guardes.
+        </p>
+        <footer>
+          <button type="button" class="btn btn-outline" @click="cancelReusableSectionInsertWarning">Cancelar</button>
+          <button type="button" class="btn btn-primary" @click="confirmReusableSectionWithSpanishClone">Usar clon temporal ES</button>
+        </footer>
+      </section>
     </div>
 
     <div v-if="showEquationModal" class="modal-backdrop equation-backdrop" @click.self="showEquationModal = false">
