@@ -20,11 +20,14 @@ import {
   Copy,
   FileImage,
   Image as ImageIcon,
+  Eye,
+  EyeOff,
   GripVertical,
   Heading,
   List,
   ListChecks,
   ListOrdered,
+  Link2,
   Link2Off,
   Library,
   MoveRight,
@@ -151,6 +154,7 @@ const showFragmentModal = ref(false)
 const showFragmentInsertModal = ref(false)
 const showSectionInsertModal = ref(false)
 const showSectionLanguageWarningModal = ref(false)
+const showUnlinkSectionModal = ref(false)
 const showEquationModal = ref(false)
 const showMoveModal = ref(false)
 const showSelectionMismatchModal = ref(false)
@@ -564,7 +568,10 @@ const ResizableTable = Table.extend({
   },
 })
 
+const isLinkedSection = computed(() => Boolean(props.section.linkedReusableSectionId))
+
 const editor = useEditor({
+  editable: !isLinkedSection.value,
   extensions: [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
@@ -743,6 +750,15 @@ onBeforeUnmount(() => {
   unregisterEditorInstance()
   flushEditorSync()
   editor.value?.destroy()
+})
+
+watch(isLinkedSection, (linked) => {
+  editor.value?.setEditable(!linked)
+  if (linked) {
+    hideBlockActions()
+    hideNoteActions()
+    clearBlockSelection(false)
+  }
 })
 
 watch(
@@ -1039,12 +1055,23 @@ function patch(value: Partial<EditorSection>) {
   emit('update', { ...props.section, ...value })
 }
 
+function confirmUnlinkSection() {
+  patch({ linkedReusableSectionId: undefined })
+  showUnlinkSectionModal.value = false
+  editor.value?.setEditable(true)
+}
+
 function patchTitle(value: string) {
   patch(props.language === 'EN' ? { titleEn: value } : { titleEs: value })
 }
 
 function syncEditorToSection() {
   if (!editor.value || syncingFromProps.value) return
+  if (isLinkedSection.value) {
+    hasPendingTableSync.value = false
+    editorDirty.value = false
+    return
+  }
   hasPendingTableSync.value = false
   editorDirty.value = false
   patch({ blocks: mergeLanguageBlocks(blocksFromDoc(editor.value.getJSON())) })
@@ -2889,35 +2916,44 @@ function imageAssetId(node: JSONContent) {
 </script>
 
 <template>
-  <article class="rich-section" :class="{ selected, hidden: !section.visible }" @click="selectSection">
+  <article class="rich-section" :class="{ selected, hidden: !section.visible, linked: isLinkedSection }" @click="selectSection">
     <header class="section-bar">
       <button class="drag-handle" draggable="true" title="Arrastrar sección" @click.stop @mousedown.stop>
         <GripVertical class="drag-dots" :size="17" />
       </button>
       <span class="section-number">{{ section.sectionNumber || section.sortOrder }}.</span>
+      <button
+        v-if="isLinkedSection"
+        class="section-link-button"
+        title="Seccion vinculada. Pulsar para desvincular"
+        aria-label="Desvincular seccion reutilizable"
+        @click.stop="showUnlinkSectionModal = true"
+      >
+        <Link2 :size="15" />
+      </button>
       <input class="section-title-input" :value="sectionTitle" placeholder="Título de sección" @input="patchTitle(($event.target as HTMLInputElement).value)" />
       <select
-        class="section-control"
+        class="section-control status-control"
+        :class="section.status === 'REVIEW' ? 'review' : 'approved'"
         :value="section.status"
         title="Estado de la sección"
         @click.stop
         @change="patch({ status: ($event.target as HTMLSelectElement).value as EditorSection['status'] })"
       >
-        <option value="DRAFT">Borrador</option>
-        <option value="COMPLETED">Completado</option>
         <option value="REVIEW">Revisión</option>
         <option value="APPROVED">Aprobado</option>
       </select>
-      <select
-        class="section-control visibility"
-        :value="section.visible ? 'VISIBLE' : 'HIDDEN'"
-        title="Visibilidad de la sección"
-        @click.stop
-        @change="patch({ visible: ($event.target as HTMLSelectElement).value === 'VISIBLE' })"
+      <button
+        class="visibility-toggle"
+        :class="{ hidden: !section.visible }"
+        :title="section.visible ? 'Visible' : 'Oculto'"
+        :aria-label="section.visible ? 'Ocultar seccion' : 'Mostrar seccion'"
+        @click.stop="patch({ visible: !section.visible })"
+        @mousedown.stop
       >
-        <option value="VISIBLE">Visible</option>
-        <option value="HIDDEN">Oculto</option>
-      </select>
+        <Eye v-if="section.visible" :size="16" />
+        <EyeOff v-else :size="16" />
+      </button>
       <button class="bar-save" title="Guardar sección" @click.stop="emit('saveSection')"><Save :size="14" /> Guardar</button>
       <button class="bar-icon" title="Comprimir editor" @click.stop="patch({ collapsed: !section.collapsed })">
         <ChevronUp :class="{ collapsed: section.collapsed }" :size="18" />
@@ -2933,7 +2969,7 @@ function imageAssetId(node: JSONContent) {
       @click="handleSectionClick"
       @mouseleave="handleSectionMouseLeave"
     >
-      <Teleport v-if="activeToolbar" to="#manual-editor-toolbar">
+      <Teleport v-if="activeToolbar && !isLinkedSection" to="#manual-editor-toolbar">
       <div class="toolbar" @mousedown.prevent.stop @click.stop>
         <div class="ribbon-group compact-group">
           <div class="ribbon-row">
@@ -3046,7 +3082,7 @@ function imageAssetId(node: JSONContent) {
       </div>
       </Teleport>
 
-      <div v-if="hasSelection" class="selection-actions" @mousedown.stop>
+      <div v-if="hasSelection && !isLinkedSection" class="selection-actions" @mousedown.stop>
         <strong>{{ selectedCount }} {{ selectedCount === 1 ? 'bloque seleccionado' : 'bloques seleccionados' }}</strong>
         <button @click="duplicateSelectedBlocks"><Copy :size="15" /> Duplicar</button>
         <button :disabled="!availableMoveTargets.length" @click="openMoveModal"><MoveRight :size="15" /> Mover</button>
@@ -3058,13 +3094,13 @@ function imageAssetId(node: JSONContent) {
       <EditorContent
         :editor="editor"
         class="editor-shell"
-        :class="{ 'block-selection-mode': blockSelectionMode }"
+        :class="{ 'block-selection-mode': blockSelectionMode, linked: isLinkedSection }"
         :style="{ '--section-prefix': `${section.sectionNumber || section.sortOrder}.` }"
         @mousedown.stop
         @click.stop="handleSectionClick"
       />
       <div
-        v-if="blockActionsPosition.visible"
+        v-if="blockActionsPosition.visible && !isLinkedSection"
         class="block-actions-float"
         :style="{ top: `${blockActionsPosition.top}px`, left: `${blockActionsPosition.left}px` }"
       >
@@ -3130,7 +3166,7 @@ function imageAssetId(node: JSONContent) {
         </button>
       </div>
       <div
-        v-if="blockResizeOverlay.visible"
+        v-if="blockResizeOverlay.visible && !isLinkedSection"
         class="block-resize-overlay"
         :class="blockResizeOverlay.kind"
         :style="{
@@ -3150,7 +3186,7 @@ function imageAssetId(node: JSONContent) {
         <button class="resize-handle w" title="Redimensionar" @mousedown="startBlockResize($event, 'w')" />
       </div>
       <div
-        v-if="noteActionsPosition.visible"
+        v-if="noteActionsPosition.visible && !isLinkedSection"
         class="note-actions-float"
         :style="{ top: `${noteActionsPosition.top}px`, left: `${noteActionsPosition.left}px` }"
       >
@@ -3202,7 +3238,7 @@ function imageAssetId(node: JSONContent) {
         </button>
       </div>
       <div
-        v-if="noteDragPreview.visible"
+        v-if="noteDragPreview.visible && !isLinkedSection"
         class="note-drag-preview"
         :class="{ linked: noteDragPreview.linked }"
         :style="{ top: `${noteDragPreview.top}px`, left: `${noteDragPreview.left}px` }"
@@ -3211,7 +3247,7 @@ function imageAssetId(node: JSONContent) {
         <p>{{ noteDragPreview.text }}</p>
       </div>
       <div
-        v-if="blockDragPreview.visible"
+        v-if="blockDragPreview.visible && !isLinkedSection"
         class="block-drag-preview"
         :class="blockDragPreview.kind"
         :style="{ top: `${blockDragPreview.top}px`, left: `${blockDragPreview.left}px` }"
@@ -3222,6 +3258,19 @@ function imageAssetId(node: JSONContent) {
     </div>
 
     <Teleport to="body">
+    <AppModal
+      v-if="showUnlinkSectionModal"
+      title="Desvincular seccion"
+      description="La seccion dejara de estar vinculada al contenido reutilizable y podra editarse de forma independiente."
+      size="sm"
+      @close="showUnlinkSectionModal = false"
+    >
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="showUnlinkSectionModal = false">Cancelar</button>
+        <button type="button" class="btn btn-primary" @click="confirmUnlinkSection">Desvincular</button>
+      </template>
+    </AppModal>
+
     <div v-if="showImageModal" class="modal-backdrop" @click.self="showImageModal = false">
       <div class="modal-card image-modal">
         <header>
@@ -3554,6 +3603,15 @@ function imageAssetId(node: JSONContent) {
   box-shadow: 0 0 0 2px rgba(14, 127, 187, .1);
 }
 
+.rich-section.linked {
+  background: #eff8ff;
+  border-color: #8fc7ee;
+}
+
+.rich-section.linked.selected {
+  box-shadow: 0 0 0 2px rgba(47, 128, 192, .18);
+}
+
 .section-bar {
   position: sticky;
   top: 0;
@@ -3587,6 +3645,33 @@ function imageAssetId(node: JSONContent) {
 
 .section-number {
   font-weight: 600;
+}
+
+.section-link-button,
+.visibility-toggle {
+  width: 28px;
+  height: 26px;
+  min-width: 28px;
+  border: 1px solid rgba(255, 255, 255, .5);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, .14);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.section-link-button:hover,
+.visibility-toggle:hover {
+  background: rgba(255, 255, 255, .24);
+}
+
+.section-link-button {
+  color: #dff2ff;
+}
+
+.visibility-toggle.hidden {
+  color: rgba(255, 255, 255, .66);
 }
 
 .section-title-input {
@@ -3909,6 +3994,10 @@ function imageAssetId(node: JSONContent) {
   min-height: 240mm;
   padding: 14mm;
   background: #fff;
+}
+
+.editor-shell.linked {
+  background: #eff8ff;
 }
 
 .editor-shell :deep(.rich-editor-surface) {
@@ -5009,6 +5098,21 @@ function imageAssetId(node: JSONContent) {
   font-size: 11px;
 }
 
+.status-control {
+  min-width: 98px;
+  border-color: transparent;
+  color: #fff;
+  font-weight: 700;
+}
+
+.status-control.review {
+  background: #f59e0b;
+}
+
+.status-control.approved {
+  background: #16a34a;
+}
+
 .section-control option {
   color: var(--foreground);
   background: #fff;
@@ -5113,6 +5217,10 @@ function imageAssetId(node: JSONContent) {
   background: #eff8ff;
   color: var(--dikoin-blue-dark);
   cursor: grab;
+}
+
+.editor-shell.linked :deep(.rich-editor-surface) {
+  cursor: not-allowed;
 }
 
 .fragment-insert-options {

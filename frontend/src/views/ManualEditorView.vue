@@ -93,7 +93,7 @@ function addSection() {
     level: 1,
     titleEs: 'Nueva sección',
     titleEn: isEnglish ? 'New section' : undefined,
-    status: 'DRAFT',
+    status: 'APPROVED',
     visible: true,
     collapsed: false,
     blocks: [],
@@ -127,10 +127,11 @@ function editorSectionFromReusable(sectionItem: ReusableBlockResponse, cloneSpan
     sortOrder: 1,
     sectionNumber: '1',
     parentSectionId: anchor?.parentSectionId,
+    linkedReusableSectionId: sectionItem.id,
     level: anchor?.level || 1,
     titleEs: String(parsed.titleEs || sectionItem.titleEs || sectionItem.title || 'Seccion reutilizable'),
     titleEn: String(parsed.titleEn || sectionItem.titleEn || (cloneSpanishToEnglish ? parsed.titleEs || sectionItem.titleEs || sectionItem.title : '') || ''),
-    completionStatus: 'DRAFT',
+    completionStatus: 'APPROVED',
     visible: true,
     blocks,
   }])[0]
@@ -139,8 +140,9 @@ function editorSectionFromReusable(sectionItem: ReusableBlockResponse, cloneSpan
     id: randomId('section'),
     backendId: undefined,
     parentSectionId: anchor?.parentSectionId,
+    linkedReusableSectionId: sectionItem.id,
     level: anchor?.level || 1,
-    status: 'DRAFT',
+    status: 'APPROVED',
     collapsed: false,
     blocks: loaded.blocks.map((block) => ({
       ...block,
@@ -284,7 +286,7 @@ function addSubsection(parent: EditorSection) {
     level: (parent.level || 1) + 1,
     titleEs: 'Nueva subsección',
     titleEn: languageMode.value === 'EN' || languageMode.value === 'BOTH' ? 'New subsection' : undefined,
-    status: 'DRAFT',
+    status: 'APPROVED',
     visible: true,
     collapsed: false,
     blocks: [],
@@ -621,9 +623,10 @@ function stopIndexPanelResize() {
 
 function buildVersionRequest(status: ManualStatus, changeNotes: string) {
   if (!version.value) return null
+  const manualStatus = sections.value.some((section) => section.status === 'REVIEW') ? 'REVIEW' : status
   return versionRequestFromEditor({
     versionNumber: version.value.versionNumber,
-    status,
+    status: manualStatus,
     active: true,
     esReady: version.value.esReady || hasLanguageBlocks('ES'),
     enReady: hasLanguageBlocks('EN'),

@@ -32,6 +32,7 @@ export interface EditorSection {
   sortOrder: number
   sectionNumber?: string
   parentSectionId?: number
+  linkedReusableSectionId?: number
   level: number
   titleEs: string
   titleEn?: string
@@ -228,6 +229,7 @@ export function sectionsFromBackend(sections: ManualSectionResponse[] = []): Edi
     sortOrder: section.sortOrder ?? index + 1,
     sectionNumber: section.sectionNumber,
     parentSectionId: section.parentSectionId,
+    linkedReusableSectionId: section.linkedReusableSectionId,
     level: section.level || 1,
     titleEs: section.titleEs,
     titleEn: section.titleEn,
@@ -266,6 +268,7 @@ export function versionRequestFromEditor(params: {
       sortOrder: sectionIndex + 1,
       sectionNumber: section.sectionNumber || String(sectionIndex + 1),
       parentSectionId: section.parentSectionId,
+      linkedReusableSectionId: section.linkedReusableSectionId,
       level: section.level,
       titleEs: section.titleEs,
       titleEn: section.titleEn,
@@ -288,10 +291,9 @@ export function versionRequestFromEditor(params: {
 
 function normalizeSectionStatus(status?: string): EditorSection['status'] {
   const normalized = String(status || '').toUpperCase()
-  if (normalized === 'READY' || normalized === 'COMPLETED') return 'COMPLETED'
   if (normalized === 'REVIEWED' || normalized === 'REVIEW') return 'REVIEW'
-  if (normalized === 'APPROVED') return 'APPROVED'
-  return 'DRAFT'
+  if (normalized === 'DRAFT' || normalized === 'PENDING' || normalized === 'IMPORTED') return 'REVIEW'
+  return 'APPROVED'
 }
 
 function contentTypeFromJson(contentJson: string): EditorBlockType | null {

@@ -188,6 +188,7 @@ export interface ManualSectionResponse {
   sortOrder: number
   sectionNumber?: string
   parentSectionId?: number
+  linkedReusableSectionId?: number
   level: number
   titleEs: string
   titleEn?: string
@@ -236,6 +237,7 @@ export interface ManualSectionRequest {
   sortOrder: number
   sectionNumber?: string
   parentSectionId?: number
+  linkedReusableSectionId?: number
   level?: number
   titleEs: string
   titleEn?: string
