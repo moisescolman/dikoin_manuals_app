@@ -25,7 +25,7 @@ const emit = defineEmits<{
             <X :size="17" />
           </button>
         </header>
-        <div class="app-modal-body">
+        <div v-if="$slots.default" class="app-modal-body">
           <slot />
         </div>
         <footer v-if="$slots.footer" class="app-modal-footer">

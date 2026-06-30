@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ChevronDown, ChevronRight, Copy, Eye, GripVertical, Languages, Link2, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { ArrowLeft, ChevronDown, ChevronRight, Copy, Eye, GripVertical, Languages, Link2, PanelLeftClose, PanelLeftOpen, Plus, Save } from '@lucide/vue'
 import { createReusableBlock, getReusableBlocks } from '@/api/reusable-blocks.api'
 import { getReusableFragments } from '@/api/reusable-fragments.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
@@ -10,7 +10,7 @@ import BackendError from '@/components/shared/BackendError.vue'
 import { useManualsStore } from '@/stores/manuals.store'
 import type { EditorBlock, EditorSection } from '@/types/editor'
 import { randomId, sectionsFromBackend, versionRequestFromEditor } from '@/types/editor'
-import type { LanguageCode, ManualBlockResponse, ManualStatus, ReusableBlockResponse } from '@/types/api'
+import type { LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualStatus, ReusableBlockResponse } from '@/types/api'
 
 type BlockSelectionSync = {
   sectionId: string
@@ -65,6 +65,13 @@ const cloneConfirmOpen = ref(false)
 const editorContentVersion = ref(0)
 const reusableLibrary = ref<ReusableBlockResponse[]>([])
 const reusableLibraryLoading = ref(true)
+const editorReady = ref(false)
+const hasUnsavedChanges = ref(false)
+const localDraftSavedAt = ref('')
+const showLeaveEditorModal = ref(false)
+const pendingNavigation = ref<any>(null)
+const navigationAllowed = ref(false)
+let localAutosaveTimer = 0
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
@@ -82,7 +89,13 @@ onMounted(async () => {
     store.fetchManual(Number(props.id)),
     loadReusableLibrary(),
   ])
-  sections.value = sectionsFromBackend(loaded.activeVersion?.sections || [])
+  const localDraft = readLocalDraft()
+  sections.value = sectionsFromBackend(localDraft?.activeVersion?.sections || loaded.activeVersion?.sections || [])
+  editorReady.value = true
+  if (localDraft) {
+    hasUnsavedChanges.value = true
+    localDraftSavedAt.value = 'Cambios locales recuperados'
+  }
 })
 
 async function loadReusableLibrary() {
@@ -106,7 +119,20 @@ async function loadReusableLibrary() {
 
 onBeforeUnmount(() => {
   stopIndexPanelResize()
+  window.clearTimeout(localAutosaveTimer)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
+
+onBeforeRouteLeave((to) => {
+  if (navigationAllowed.value || !hasUnsavedChanges.value) return true
+  flushSectionEditors()
+  saveLocalDraft(false)
+  pendingNavigation.value = to
+  showLeaveEditorModal.value = true
+  return false
+})
+
+window.addEventListener('beforeunload', handleBeforeUnload)
 
 watch(() => route.query.lang, (lang) => {
   selectedLanguage.value = lang === 'EN' ? 'EN' : 'ES'
@@ -891,16 +917,106 @@ function hasLanguageBlocks(language: LanguageCode) {
   return sections.value.some((section) => section.blocks.some((block) => block.languageCode === language))
 }
 
+function localDraftKey() {
+  return `dikoin-manual-editor-draft:${props.id}`
+}
+
+function createLocalDraftManual(): ManualDetailResponse | null {
+  if (!manual.value || !version.value) return null
+  const request = buildVersionRequest(version.value.status, 'Autoguardado local')
+  if (!request) return null
+  const activeVersion = {
+    ...version.value,
+    status: request.status,
+    active: request.active,
+    esReady: request.esReady,
+    enReady: request.enReady,
+    changeNotes: request.changeNotes,
+    sections: request.sections.map((section, sectionIndex) => ({
+      id: section.id || 0,
+      sortOrder: section.sortOrder,
+      sectionNumber: section.sectionNumber,
+      parentSectionId: section.parentSectionId,
+      linkedReusableSectionId: section.linkedReusableSectionId,
+      level: section.level || 1,
+      titleEs: section.titleEs,
+      titleEn: section.titleEn,
+      completionStatus: section.completionStatus,
+      visible: section.visible !== false,
+      blocks: section.blocks.map((block, blockIndex) => ({
+        id: block.id || 0,
+        sortOrder: block.sortOrder || blockIndex + 1,
+        blockType: block.blockType,
+        languageCode: block.languageCode,
+        contentJson: block.contentJson,
+        plainText: block.plainText,
+        assetId: block.assetId,
+        reusableBlockId: block.reusableBlockId,
+        reusableFragmentId: block.reusableFragmentId,
+      })),
+    })),
+  }
+  return {
+    ...manual.value,
+    activeVersion,
+    versions: manual.value.versions.map((item) => item.id === activeVersion.id ? activeVersion : item),
+  }
+}
+
+function saveLocalDraft(flushEditors = true) {
+  if (flushEditors) flushSectionEditors()
+  const draft = createLocalDraftManual()
+  if (!draft) return false
+  localStorage.setItem(localDraftKey(), JSON.stringify({
+    manualId: draft.id,
+    savedAt: new Date().toISOString(),
+    manual: draft,
+  }))
+  localDraftSavedAt.value = 'Autoguardado local'
+  return true
+}
+
+function readLocalDraft(): ManualDetailResponse | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(localDraftKey()) || 'null')
+    return parsed?.manual?.id === Number(props.id) ? parsed.manual : null
+  } catch {
+    return null
+  }
+}
+
+function clearLocalDraft() {
+  localStorage.removeItem(localDraftKey())
+  localDraftSavedAt.value = ''
+}
+
+function markLocalChange() {
+  if (!editorReady.value) return
+  hasUnsavedChanges.value = true
+  window.clearTimeout(localAutosaveTimer)
+  localAutosaveTimer = window.setTimeout(() => {
+    saveLocalDraft(false)
+  }, 600)
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!hasUnsavedChanges.value) return
+  flushSectionEditors()
+  saveLocalDraft(false)
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+watch(sections, () => {
+  markLocalChange()
+}, { deep: true })
+
 async function saveDraft(changeNotes = 'Borrador autoguardado desde editor', flushEditors = true) {
   if (!manual.value) return false
   if (flushEditors) {
     flushSectionEditors()
   }
-  const request = buildVersionRequest('DRAFT', changeNotes)
-  if (!request) return false
-  await store.saveVersion(manual.value.id, request)
-  sections.value = sectionsFromBackend(store.current?.activeVersion?.sections || [])
-  return true
+  return saveLocalDraft(false)
 }
 
 async function save() {
@@ -911,6 +1027,8 @@ async function save() {
     const request = buildVersionRequest(version.value.status, 'Guardado desde editor Vue')
     if (!request) return
     await store.saveVersion(manual.value.id, request)
+    hasUnsavedChanges.value = false
+    clearLocalDraft()
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
   } finally {
@@ -920,20 +1038,17 @@ async function save() {
 
 async function saveDraftForPreview() {
   if (!manual.value || !version.value) return
-  saving.value = true
-  try {
-    await saveDraft('Borrador autoguardado para vista previa')
-    router.push({ name: 'manual-detail', params: { id: manual.value.id }, query: { lang: selectedLanguage.value } })
-  } finally {
-    saving.value = false
-  }
+  flushSectionEditors()
+  saveLocalDraft(false)
+  navigationAllowed.value = true
+  router.push({ name: 'manual-detail', params: { id: manual.value.id }, query: { lang: selectedLanguage.value, preview: 'local' } })
 }
 
 async function changeLanguage(lang: LanguageCode) {
   if ((lang === selectedLanguage.value && languageMode.value === lang) || saving.value) return
   saving.value = true
   try {
-    const savedDraft = await saveDraft(`Borrador autoguardado al cambiar a ${lang}`)
+    const savedDraft = await saveDraft(`Autoguardado local al cambiar a ${lang}`)
     if (!savedDraft) return
     selectedSectionId.value = ''
     activeEditorKey.value = ''
@@ -951,7 +1066,7 @@ async function showBothLanguages() {
   if (languageMode.value === 'BOTH' || saving.value) return
   saving.value = true
   try {
-    const savedDraft = await saveDraft('Borrador autoguardado al mostrar ambos idiomas')
+    const savedDraft = await saveDraft('Autoguardado local al mostrar ambos idiomas')
     if (!savedDraft) return
     selectedSectionId.value = ''
     activeEditorKey.value = ''
@@ -990,7 +1105,7 @@ async function cloneSpanishToEnglish(force = false) {
   editorContentVersion.value += 1
   saving.value = true
   try {
-    await saveDraft('Versión inglesa clonada desde el contenido español', false)
+    await saveDraft('Version inglesa clonada desde el contenido espanol', false)
     editorContentVersion.value += 1
     selectedLanguage.value = 'EN'
     languageMode.value = 'EN'
@@ -1043,15 +1158,26 @@ function cloneJsonNodeForNewBlock(node: Record<string, unknown>, blockId: string
   return cloned
 }
 
-async function sendReview() {
-  if (!manual.value || !version.value) return
-  flushSectionEditors()
-  const request = buildVersionRequest('REVIEW', 'Enviado a revisión desde frontend')
-  if (!request) return
-  await store.saveVersion(manual.value.id, request)
-  router.push({ name: 'manual-detail', params: { id: manual.value.id }, query: { lang: selectedLanguage.value } })
+async function saveAndContinueNavigation() {
+  await save()
+  if (!pendingNavigation.value || hasUnsavedChanges.value) return
+  navigationAllowed.value = true
+  showLeaveEditorModal.value = false
+  router.push(pendingNavigation.value)
+  pendingNavigation.value = null
 }
 
+function discardChangesAndContinueNavigation() {
+  clearLocalDraft()
+  hasUnsavedChanges.value = false
+  navigationAllowed.value = true
+  showLeaveEditorModal.value = false
+  const target = pendingNavigation.value
+  pendingNavigation.value = null
+  if (target) {
+    router.push(target)
+  }
+}
 function sectionTitle(section: EditorSection) {
   if (languageMode.value === 'BOTH') {
     return [section.titleEs, section.titleEn].filter(Boolean).join(' / ') || 'Sin titulo'
@@ -1085,9 +1211,9 @@ function sectionTitle(section: EditorSection) {
         <div><dt>Secciones</dt><dd>{{ sections.length }}</dd></div>
       </dl>
       <span v-if="saved" class="saved">Guardado</span>
+      <span v-else-if="localDraftSavedAt" class="saved local">{{ localDraftSavedAt }}</span>
       <button class="btn btn-outline" :disabled="saving" @click="saveDraftForPreview"><Eye :size="14" /> Vista previa</button>
       <button class="btn btn-primary" :disabled="saving" @click="save"><Save :size="14" /> {{ saving ? 'Guardando...' : 'Guardar' }}</button>
-      <button class="btn btn-outline" :disabled="saving" @click="sendReview"><Send :size="14" /> Enviar a revisión</button>
       <div id="manual-editor-toolbar" class="editor-toolbar-dock">
         <span v-if="!activeEditorKey" class="toolbar-empty">Selecciona una seccion para mostrar la cinta de herramientas.</span>
       </div>
@@ -1272,6 +1398,21 @@ function sectionTitle(section: EditorSection) {
         <button type="button" class="btn btn-primary" @click="cloneSpanishToEnglish(true)">Clonar</button>
       </template>
     </AppModal>
+    <AppModal
+      v-if="showLeaveEditorModal"
+      title="Cambios sin guardar"
+      description="Estás saliendo del editor. Si no guardas, los cambios se perderán."
+      size="sm"
+      @close="showLeaveEditorModal = false"
+    >
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="showLeaveEditorModal = false">Permanecer</button>
+        <button type="button" class="btn btn-outline danger-action" @click="discardChangesAndContinueNavigation">Descartar cambios</button>
+        <button type="button" class="btn btn-primary" :disabled="saving" @click="saveAndContinueNavigation">
+          <Save :size="14" /> {{ saving ? 'Guardando...' : 'Guardar y salir' }}
+        </button>
+      </template>
+    </AppModal>
   </section>
 </template>
 
@@ -1376,6 +1517,19 @@ function sectionTitle(section: EditorSection) {
   color: #065f46;
   font-weight: 600;
   font-size: 12px;
+}
+
+.saved.local {
+  color: var(--dikoin-blue);
+}
+
+.danger-action {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.danger-action:hover {
+  background: #fef2f2;
 }
 
 .editor-toolbar-dock {

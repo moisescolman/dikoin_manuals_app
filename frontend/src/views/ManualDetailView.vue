@@ -10,7 +10,7 @@ import ManualLanguageCompare from '@/components/shared/ManualLanguageCompare.vue
 import ManualRenderer from '@/components/shared/ManualRenderer.vue'
 import StatusBadge from '@/components/shared/StatusBadge.vue'
 import { useManualsStore } from '@/stores/manuals.store'
-import type { ManualStatus } from '@/types/api'
+import type { ManualDetailResponse, ManualStatus } from '@/types/api'
 import { formatDate } from '@/utils/formatters'
 
 const props = defineProps<{ id: string }>()
@@ -29,10 +29,12 @@ const exporting = ref(false)
 const detailPage = ref<HTMLElement | null>(null)
 const previewStart = ref<HTMLElement | null>(null)
 const showBackToTop = ref(false)
+const localPreviewManual = ref<ManualDetailResponse | null>(null)
 let scrollContainer: HTMLElement | null = null
 
 onMounted(async () => {
   await store.fetchManual(Number(props.id))
+  loadLocalPreview()
   await nextTick()
   scrollContainer = detailPage.value?.closest('.main-content') as HTMLElement | null
   scrollContainer?.addEventListener('scroll', updateBackToTop, { passive: true })
@@ -48,6 +50,11 @@ watch(() => store.current?.activeVersion?.status, (status) => {
 watch(() => route.query.lang, (lang) => {
   selectedLanguage.value = lang === 'EN' ? 'EN' : 'ES'
 })
+watch(() => route.query.preview, () => {
+  loadLocalPreview()
+})
+
+const displayedManual = computed(() => localPreviewManual.value || store.current)
 
 const languageReady = computed(() => selectedLanguage.value === 'ES'
   ? store.current?.activeVersion?.esReady
@@ -62,6 +69,23 @@ function changeLanguage(lang: 'ES' | 'EN') {
 function openEditor() {
   if (!store.current) return
   router.push({ name: 'manual-editor', params: { id: store.current.id }, query: { lang: selectedLanguage.value } })
+}
+
+function localDraftKey() {
+  return `dikoin-manual-editor-draft:${props.id}`
+}
+
+function loadLocalPreview() {
+  if (route.query.preview !== 'local') {
+    localPreviewManual.value = null
+    return
+  }
+  try {
+    const parsed = JSON.parse(localStorage.getItem(localDraftKey()) || 'null')
+    localPreviewManual.value = parsed?.manual?.id === Number(props.id) ? parsed.manual : null
+  } catch {
+    localPreviewManual.value = null
+  }
 }
 
 function showLanguageCompare() {
@@ -184,8 +208,8 @@ function scrollToCover() {
       </div>
 
       <div v-if="tab === 'Contenido'" ref="previewStart" class="preview-start">
-        <ManualLanguageCompare v-if="compareMode" :manual="store.current" />
-        <ManualRenderer v-else :manual="store.current" :language="selectedLanguage" />
+        <ManualLanguageCompare v-if="compareMode && displayedManual" :manual="displayedManual" />
+        <ManualRenderer v-else-if="displayedManual" :manual="displayedManual" :language="selectedLanguage" />
       </div>
       <div v-else-if="tab === 'Metadatos'" class="card info-panel">
         <p><strong>Producto:</strong> {{ store.current.productCode }} · {{ store.current.productName }}</p>
