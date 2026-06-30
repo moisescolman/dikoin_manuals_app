@@ -1680,6 +1680,13 @@ function finishBlockMouseDrag(event: MouseEvent) {
     clearActiveBlockElement()
     return
   }
+  if (sharedBlockDrag.kind === 'image') {
+    const imageDropTarget = imageDropTargetFromPoint(target, event)
+    if (imageDropTarget) {
+      moveDraggedImageBesideImage(target, imageDropTarget)
+      return
+    }
+  }
   const position = target.editor.view.posAtCoords({ left: event.clientX, top: event.clientY })
   if (!position) {
     sharedBlockDrag = null
@@ -2072,6 +2079,120 @@ function moveDraggedBlockTo(target: EditorRegistryRecord | undefined, position: 
   sharedBlockDrag = null
   hideBlockActions()
   clearActiveBlockElement()
+}
+
+function imageDropTargetFromPoint(target: EditorRegistryRecord, event: MouseEvent): { range: MovableBlockRange; side: 'before' | 'after' } | null {
+  const drag = sharedBlockDrag
+  if (!drag || drag.kind !== 'image') return null
+  const root = target.editor.view.dom
+  const directImage = document.elementsFromPoint(event.clientX, event.clientY)
+    .map((element) => element.tagName === 'IMG' ? element as HTMLElement : element.closest('img') as HTMLElement | null)
+    .find((image) => image && root.contains(image) && image !== activeBlockElement)
+
+  const directInfo = directImage ? blockInfoFromElement(directImage, 'image') : null
+  if (directImage && directInfo && !isDraggedSourceRange(target.editor, directInfo)) {
+    return { range: directInfo, side: imageDropSide(directImage, event.clientX) }
+  }
+
+  const candidates = Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+    .map((image) => {
+      const range = blockInfoFromElement(image, 'image')
+      if (!range || isDraggedSourceRange(target.editor, range)) return null
+      const rect = image.getBoundingClientRect()
+      const inExpandedRow = event.clientY >= rect.top - 48 && event.clientY <= rect.bottom + 48
+      const horizontalReach = Math.max(180, rect.width * 0.85)
+      const inHorizontalReach = event.clientX >= rect.left - horizontalReach && event.clientX <= rect.right + horizontalReach
+      const verticalGap = event.clientY < rect.top
+        ? rect.top - event.clientY
+        : event.clientY > rect.bottom
+          ? event.clientY - rect.bottom
+          : 0
+      const horizontalGap = event.clientX < rect.left
+        ? rect.left - event.clientX
+        : event.clientX > rect.right
+          ? event.clientX - rect.right
+          : 0
+      const priority = inExpandedRow && inHorizontalReach ? 0 : 1
+      return { image, range, rect, verticalGap, horizontalGap, priority }
+    })
+    .filter((candidate): candidate is { image: HTMLImageElement; range: MovableBlockRange; rect: DOMRect; verticalGap: number; horizontalGap: number; priority: number } => Boolean(candidate))
+    .sort((left, right) => left.priority - right.priority || left.verticalGap - right.verticalGap || left.horizontalGap - right.horizontalGap)
+
+  const nearest = candidates[0]
+  if (!nearest) return null
+  const verticalThreshold = Math.max(150, nearest.rect.height * 1.25)
+  const horizontalThreshold = Math.max(260, nearest.rect.width * 1.2)
+  if (nearest.priority > 0 && (nearest.verticalGap > verticalThreshold || nearest.horizontalGap > horizontalThreshold)) return null
+  return { range: nearest.range, side: imageDropSide(nearest.image, event.clientX) }
+}
+
+function imageDropSide(image: HTMLElement, clientX: number): 'before' | 'after' {
+  const rect = image.getBoundingClientRect()
+  return clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+}
+
+function isDraggedSourceRange(targetEditor: Editor, range: MovableBlockRange) {
+  const drag = sharedBlockDrag
+  return Boolean(drag && drag.editor === targetEditor && drag.from === range.from && drag.to === range.to)
+}
+
+function moveDraggedImageBesideImage(target: EditorRegistryRecord, dropTarget: { range: MovableBlockRange; side: 'before' | 'after' }) {
+  const drag = sharedBlockDrag
+  const targetEditor = target.editor
+  if (!drag || drag.kind !== 'image') return
+
+  const insertPosition = dropTarget.side === 'before' ? dropTarget.range.from : dropTarget.range.to
+  if (drag.editor === targetEditor && insertPosition >= drag.from && insertPosition <= drag.to) {
+    sharedBlockDrag = null
+    clearActiveBlockElement()
+    return
+  }
+
+  const imageJson = inlineImageJson(drag.json)
+  setImageRangeInline(targetEditor, dropTarget.range)
+
+  let selectedPosition = insertPosition
+  if (drag.editor === targetEditor) {
+    const sourceSize = drag.to - drag.from
+    const adjustedInsertPosition = Math.max(0, insertPosition > drag.to ? insertPosition - sourceSize : insertPosition)
+    targetEditor.view.dispatch(targetEditor.state.tr.delete(drag.from, drag.to))
+    targetEditor.commands.insertContentAt(adjustedInsertPosition, imageJson)
+    selectedPosition = adjustedInsertPosition
+  } else {
+    targetEditor.commands.insertContentAt(insertPosition, imageJson)
+    drag.editor.view.dispatch(drag.editor.state.tr.delete(drag.from, drag.to))
+  }
+  targetEditor.commands.setNodeSelection(selectedPosition)
+
+  drag.markSourceDirty()
+  target.markDirty()
+  sharedBlockDrag = null
+  hideBlockActions()
+  clearActiveBlockElement()
+}
+
+function inlineImageJson(node: JSONContent): JSONContent {
+  return {
+    ...structuredClone(node),
+    attrs: {
+      ...(node.attrs || {}),
+      align: 'inline',
+      offsetX: 0,
+      offsetY: 0,
+    },
+  }
+}
+
+function setImageRangeInline(targetEditor: Editor, range: MovableBlockRange) {
+  const node = targetEditor.state.doc.nodeAt(range.from)
+  if (!node || node.type.name !== 'image') return
+  if (node.attrs.align === 'inline' && !node.attrs.offsetX && !node.attrs.offsetY) return
+  targetEditor.view.dispatch(targetEditor.state.tr.setNodeMarkup(range.from, undefined, {
+    ...node.attrs,
+    align: 'inline',
+    offsetX: 0,
+    offsetY: 0,
+  }))
 }
 
 function moveDraggedNoteTo(target: EditorRegistryRecord | undefined, position: number) {
@@ -2627,7 +2748,18 @@ function toggleNoteMenu() {
 }
 
 function insertImage(src: string, assetId?: number) {
-  editor.value?.chain().focus().insertContent({
+  const current = editor.value
+  if (!current) return
+
+  const { selection } = current.state
+  const selectedNode = (selection as unknown as { node?: { type?: { name?: string } } }).node
+  const appendAfterSelectedImage = selectedNode?.type?.name === 'image'
+  const insertPosition = appendAfterSelectedImage
+    ? selection.to
+    : { from: selection.from, to: selection.to }
+  const selectPosition = typeof insertPosition === 'number' ? insertPosition : insertPosition.from
+
+  const inserted = current.chain().focus().insertContentAt(insertPosition, {
     type: 'image',
     attrs: {
       src,
@@ -2639,6 +2771,17 @@ function insertImage(src: string, assetId?: number) {
       offsetY: 0,
     },
   }).run()
+
+  if (!inserted) {
+    editorMessage.value = 'No se pudo insertar la imagen en el editor.'
+    return
+  }
+
+  queueMicrotask(() => {
+    current.commands.setNodeSelection(selectPosition)
+    updateBlockActionsPosition()
+  })
+  markEditorDirty()
   showImageModal.value = false
 }
 
@@ -5187,9 +5330,13 @@ function imageAssetId(node: JSONContent) {
 
 .editor-shell :deep(img[data-align="inline"]) {
   display: inline-block;
-  max-width: 100%;
-  margin: 4px 8px 4px 0;
+  max-width: calc(100% - 8px);
+  margin: 6px 8px 6px 0;
   vertical-align: top;
+}
+
+.editor-shell :deep(img[data-align="inline"] + img[data-align="inline"]) {
+  margin-left: 0;
 }
 
 .editor-shell :deep(img[data-align="left"]) {
@@ -5258,7 +5405,7 @@ function imageAssetId(node: JSONContent) {
 }
 
 .status-control.approved {
-  background: #16a34a;
+  background: #00bbff;
 }
 
 .section-control option {

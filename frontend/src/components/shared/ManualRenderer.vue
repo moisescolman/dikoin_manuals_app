@@ -60,6 +60,7 @@ interface TableCellRender {
 type ContentUnit =
   | { key: string; kind: 'section'; section: ManualSectionResponse; index: number }
   | { key: string; kind: 'block'; block: ManualBlockResponse }
+  | { key: string; kind: 'image-row'; blocks: ManualBlockResponse[] }
 
 let resizeObserver: ResizeObserver | null = null
 let paginationRun = 0
@@ -74,11 +75,28 @@ const contentUnits = computed<ContentUnit[]>(() => {
   const units: ContentUnit[] = []
   contentSections.value.forEach((section, index) => {
     units.push({ key: `section-${section.id}`, kind: 'section', section, index })
+    let imageRow: ManualBlockResponse[] = []
+    const flushImageRow = () => {
+      if (imageRow.length === 1) {
+        const block = imageRow[0]
+        units.push({ key: `block-${block.id}-0`, kind: 'block', block })
+      } else if (imageRow.length > 1) {
+        units.push({ key: `image-row-${imageRow.map((block) => block.id).join('-')}`, kind: 'image-row', blocks: imageRow })
+      }
+      imageRow = []
+    }
+
     visibleBlocks(section).forEach((block) => {
       splitBlock(block).forEach((split, splitIndex) => {
+        if (isInlineImageBlock(split)) {
+          imageRow.push(split)
+          return
+        }
+        flushImageRow()
         units.push({ key: `block-${block.id}-${splitIndex}`, kind: 'block', block: split })
       })
     })
+    flushImageRow()
   })
   return units
 })
@@ -238,6 +256,12 @@ function splitBlock(block: ManualBlockResponse): ManualBlockResponse[] {
     id: Number(`${block.id}${index}`),
     contentJson: JSON.stringify({ ...content(block.contentJson), text: chunk }),
   }))
+}
+
+function isInlineImageBlock(block: ManualBlockResponse) {
+  if (block.blockType !== 'IMAGE') return false
+  const parsed = content(block.contentJson)
+  return (parsed.json?.attrs?.align || parsed.align || 'inline') === 'inline'
 }
 
 function tableRows(blockJson: string) {
@@ -690,7 +714,11 @@ function contentPageForSection(sectionId: number) {
 
 function contentPageForBlock(blockId: number) {
   const pageIndex = contentPages.value.findIndex((page) => {
-    return page.some((unit) => unit.kind === 'block' && unit.block.id === blockId)
+    return page.some((unit) => {
+      if (unit.kind === 'block') return unit.block.id === blockId
+      if (unit.kind === 'image-row') return unit.blocks.some((block) => block.id === blockId)
+      return false
+    })
   })
   return pageIndex >= 0 ? pageIndex + 3 : undefined
 }
@@ -761,6 +789,12 @@ function contentPageForBlock(blockId: number) {
           <section v-if="unit.kind === 'section'" class="doc-section-title">
             <h2>{{ sectionTitle(unit.section, unit.index) }}</h2>
           </section>
+          <div v-else-if="unit.kind === 'image-row'" class="doc-block doc-image-row">
+            <figure v-for="block in unit.blocks" :key="block.id" class="doc-image" :style="imageFigureStyle(block.contentJson)">
+              <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" :style="{ width: imageWidth(block.contentJson), height: imageHeight(block.contentJson) }" alt="" />
+              <figcaption v-if="content(block.contentJson).caption">{{ content(block.contentJson).caption }}</figcaption>
+            </figure>
+          </div>
           <div v-else class="doc-block">
             <div v-if="content(unit.block.contentJson).type === 'notice_ref'" class="linked-note">
               <strong>{{ noticeTitle(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</strong>
@@ -899,6 +933,12 @@ function contentPageForBlock(blockId: number) {
                 <section v-if="unit.kind === 'section'" class="doc-section-title">
                   <h2>{{ sectionTitle(unit.section, unit.index) }}</h2>
                 </section>
+                <div v-else-if="unit.kind === 'image-row'" class="doc-block doc-image-row">
+                  <figure v-for="block in unit.blocks" :key="block.id" class="doc-image" :style="imageFigureStyle(block.contentJson)">
+                    <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" :style="{ width: imageWidth(block.contentJson), height: imageHeight(block.contentJson) }" alt="" />
+                    <figcaption v-if="content(block.contentJson).caption">{{ content(block.contentJson).caption }}</figcaption>
+                  </figure>
+                </div>
                 <div v-else class="doc-block">
                   <div v-if="content(unit.block.contentJson).type === 'notice_ref'" class="linked-note">
                     <strong>{{ noticeTitle(noticeById(content(unit.block.contentJson).noticeTemplateId)) }}</strong>
@@ -1363,6 +1403,21 @@ function contentPageForBlock(blockId: number) {
 
 .doc-image {
   margin: 10px 0;
+}
+
+.doc-image-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.doc-image-row .doc-image {
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin: 0;
 }
 
 .doc-image img {
