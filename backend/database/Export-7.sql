@@ -700,7 +700,7 @@ CREATE TABLE IF NOT EXISTS `manual_versions` (
   `en_ready` bit(1) NOT NULL,
   `es_ready` bit(1) NOT NULL,
   `published_at` datetime(6) DEFAULT NULL,
-  `status` enum('APPROVED','ARCHIVED','DRAFT','PUBLISHED','REVIEW') NOT NULL,
+  `status` enum('APPROVED','ARCHIVED','DEACTIVATED','DRAFT','PUBLISHED','REVIEW') NOT NULL,
   `updated_at` datetime(6) DEFAULT NULL,
   `version_number` varchar(40) NOT NULL,
   `manual_id` bigint(20) NOT NULL,
@@ -1176,17 +1176,11 @@ CREATE TABLE IF NOT EXISTS `products` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `UK57ivhy5aj3qfmdvl6vxdfjs4p` (`code`),
   KEY `idx_products_code_name` (`code`,`name`),
-  KEY `idx_products_product_image_asset_id` (`product_image_asset_id`),
   KEY `FKd0y82kpa1ikaasb268xa1i9g9` (`family_id`),
+  KEY `idx_products_product_image_asset_id` (`product_image_asset_id`),
   CONSTRAINT `FKd0y82kpa1ikaasb268xa1i9g9` FOREIGN KEY (`family_id`) REFERENCES `product_families` (`id`),
   CONSTRAINT `fk_products_product_image_asset` FOREIGN KEY (`product_image_asset_id`) REFERENCES `assets` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=119 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-
-ALTER TABLE `products`
-  ADD COLUMN IF NOT EXISTS `product_image_asset_id` bigint(20) DEFAULT NULL AFTER `description_en`;
-
-CREATE INDEX IF NOT EXISTS `idx_products_product_image_asset_id`
-  ON `products` (`product_image_asset_id`);
 
 -- Volcando datos para la tabla dikoin_manuales.products: ~118 rows (aproximadamente)
 DELETE FROM `products`;

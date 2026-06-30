@@ -9,4 +9,5 @@ public interface ManualSectionRepository extends JpaRepository<ManualSection, Lo
     List<ManualSection> findByManualVersionIdOrderBySortOrderAsc(Long manualVersionId);
     List<ManualSection> findByManualVersionManualId(Long manualId);
     List<ManualSection> findByParentSectionIdOrderBySortOrderAsc(Long parentSectionId);
+    List<ManualSection> findByLinkedReusableSectionId(Long linkedReusableSectionId);
 }

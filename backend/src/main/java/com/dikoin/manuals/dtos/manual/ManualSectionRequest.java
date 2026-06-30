@@ -11,6 +11,7 @@ public record ManualSectionRequest(
         @NotNull Integer sortOrder,
         String sectionNumber,
         Long parentSectionId,
+        Long linkedReusableSectionId,
         Integer level,
         @NotBlank String titleEs,
         String titleEn,

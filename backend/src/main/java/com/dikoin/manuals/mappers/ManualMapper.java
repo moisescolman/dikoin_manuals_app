@@ -93,6 +93,7 @@ public class ManualMapper {
                 section.getSortOrder(),
                 section.getSectionNumber(),
                 section.getParentSection() != null ? section.getParentSection().getId() : null,
+                section.getLinkedReusableSection() != null ? section.getLinkedReusableSection().getId() : null,
                 section.getLevel(),
                 section.getTitleEs(),
                 section.getTitleEn(),

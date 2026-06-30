@@ -185,7 +185,9 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
             throw new ApiException("Ya existe contenido reutilizable con codigo " + code);
         }
         applyRequest(request, block, code);
-        return reusableBlockMapper.toResponse(reusableBlockRepository.save(block));
+        ReusableBlock saved = reusableBlockRepository.save(block);
+        syncLinkedManualSections(saved);
+        return reusableBlockMapper.toResponse(saved);
     }
 
     @Override
@@ -303,6 +305,55 @@ public class ReusableBlockServiceImpl implements ReusableBlockService {
             }
         }
         return null;
+    }
+
+    private void syncLinkedManualSections(ReusableBlock reusableSection) {
+        if (reusableSection.getReusableType() != ReusableType.SINGLE_BLOCK) {
+            return;
+        }
+        List<ManualSection> linkedSections = manualSectionRepository.findByLinkedReusableSectionId(reusableSection.getId());
+        if (linkedSections.isEmpty()) {
+            return;
+        }
+        JsonNode root = parseReusableRoot(reusableSection.getContentJson());
+        List<SnapshotBlock> snapshots = parseFragment(reusableSection.getContentJson()).stream()
+                .sorted(Comparator
+                        .comparing((SnapshotBlock block) -> block.sortOrder() == null ? Integer.MAX_VALUE : block.sortOrder())
+                        .thenComparing(block -> block.languageCode() == LanguageCode.EN ? 1 : 0))
+                .toList();
+        for (ManualSection section : linkedSections) {
+            section.setTitleEs(firstNotBlank(jsonText(root, "titleEs"), reusableSection.getTitleEs(), reusableSection.getTitle()));
+            section.setTitleEn(firstNotBlank(jsonText(root, "titleEn"), reusableSection.getTitleEn(), section.getTitleEs()));
+            section.getBlocks().clear();
+            int sortOrder = 1;
+            for (SnapshotBlock snapshot : snapshots) {
+                ManualBlock block = ManualBlock.builder()
+                        .section(section)
+                        .sortOrder(sortOrder++)
+                        .blockType(snapshot.blockType())
+                        .languageCode(snapshot.languageCode())
+                        .contentJson(snapshot.contentJson())
+                        .plainText(snapshot.plainText())
+                        .asset(findAsset(snapshot.assetId()))
+                        .reusableBlock(reusableSection)
+                        .build();
+                section.getBlocks().add(block);
+            }
+        }
+        manualSectionRepository.saveAll(linkedSections);
+    }
+
+    private JsonNode parseReusableRoot(String contentJson) {
+        try {
+            return objectMapper.readTree(contentJson);
+        } catch (Exception exception) {
+            throw new ApiException("El JSON del contenido reutilizable no es valido", exception);
+        }
+    }
+
+    private String jsonText(JsonNode root, String field) {
+        JsonNode node = root == null ? null : root.path(field);
+        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText(null);
     }
 
     private boolean matches(ReusableBlock block, String query, Map<String, Product> productsByCode) {

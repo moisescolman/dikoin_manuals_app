@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ChevronDown, ChevronRight, Copy, Eye, GripVertical, Languages, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
-import { createReusableBlock } from '@/api/reusable-blocks.api'
+import { ArrowLeft, ChevronDown, ChevronRight, Copy, Eye, GripVertical, Languages, Link2, PanelLeftClose, PanelLeftOpen, Plus, Save, Send } from '@lucide/vue'
+import { createReusableBlock, getReusableBlocks } from '@/api/reusable-blocks.api'
+import { getReusableFragments } from '@/api/reusable-fragments.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
@@ -26,6 +27,12 @@ type IndexHeading = {
   level: number
 }
 
+type IndexItem = IndexHeading & {
+  kind: 'heading' | 'fragment'
+}
+
+type IndexDropPosition = 'before' | 'after'
+
 const props = defineProps<{ id: string }>()
 const route = useRoute()
 const router = useRouter()
@@ -42,7 +49,8 @@ const dropTargetIndex = ref<number | null>(null)
 const indexDraggingSectionId = ref('')
 const indexDropSectionId = ref('')
 const indexDraggingHeading = ref<{ sectionId: string; blockId: string } | null>(null)
-const indexDropHeading = ref<{ sectionId: string; blockId: string } | null>(null)
+const indexDropHeading = ref<{ sectionId: string; blockId: string; position: IndexDropPosition } | null>(null)
+const indexLastPreviewKey = ref('')
 const indexPanelWidth = ref(280)
 const resizingIndexPanel = ref(false)
 const sectionsPanelCollapsed = ref(false)
@@ -55,6 +63,8 @@ const reusableSectionCandidate = ref<EditorSection | null>(null)
 const reusableTitle = ref('')
 const cloneConfirmOpen = ref(false)
 const editorContentVersion = ref(0)
+const reusableLibrary = ref<ReusableBlockResponse[]>([])
+const reusableLibraryLoading = ref(true)
 
 const manual = computed(() => store.current)
 const version = computed(() => manual.value?.activeVersion)
@@ -68,9 +78,31 @@ const sectionTargets = computed(() => sections.value.map((section) => ({
 })))
 
 onMounted(async () => {
-  const loaded = await store.fetchManual(Number(props.id))
+  const [loaded] = await Promise.all([
+    store.fetchManual(Number(props.id)),
+    loadReusableLibrary(),
+  ])
   sections.value = sectionsFromBackend(loaded.activeVersion?.sections || [])
 })
+
+async function loadReusableLibrary() {
+  reusableLibraryLoading.value = true
+  try {
+    const [sectionItems, fragmentItems] = await Promise.all([
+      getReusableBlocks(false, 'SINGLE_BLOCK'),
+      getReusableFragments(),
+    ])
+    reusableLibrary.value = [
+      ...sectionItems,
+      ...fragmentItems.map((fragment) => ({
+        ...fragment,
+        reusableType: 'FRAGMENT' as const,
+      })),
+    ] as ReusableBlockResponse[]
+  } finally {
+    reusableLibraryLoading.value = false
+  }
+}
 
 onBeforeUnmount(() => {
   stopIndexPanelResize()
@@ -224,6 +256,11 @@ function updateBlockSelectionMode(payload: BlockSelectionSync) {
 
 function updateSection(section: EditorSection) {
   sections.value = sections.value.map((item) => item.id === section.id ? section : item)
+}
+
+function updateSectionAllLanguages(section: EditorSection) {
+  updateSection(section)
+  editorContentVersion.value += 1
 }
 
 function updateSectionForLanguage(section: EditorSection, language: LanguageCode) {
@@ -458,6 +495,106 @@ function indexHeadings(section: EditorSection): IndexHeading[] {
     })
 }
 
+function indexItems(section: EditorSection): IndexItem[] {
+  return indexItemsForLanguage(section, indexLanguage.value)
+}
+
+function indexItemsForLanguage(section: EditorSection, language: LanguageCode): IndexItem[] {
+  const counters = [0, 0, 0]
+  const prefix = section.sectionNumber || String(section.sortOrder)
+  let lastHeadingLevel = 0
+  return section.blocks
+    .filter((block) => block.languageCode === language)
+    .flatMap((block): IndexItem[] => {
+      if (block.type === 'titulo') {
+        const level = headingBlockLevel(block)
+        lastHeadingLevel = level
+        if (level === 1) {
+          counters[0] += 1
+          counters[1] = 0
+          counters[2] = 0
+        } else if (level === 2) {
+          if (!counters[0]) counters[0] = 1
+          counters[1] += 1
+          counters[2] = 0
+        } else {
+          if (!counters[0]) counters[0] = 1
+          if (!counters[1]) counters[1] = 1
+          counters[2] += 1
+        }
+        return [{
+          kind: 'heading' as const,
+          blockId: block.id,
+          number: `${prefix}.${counters.slice(0, level).join('.')}`,
+          title: block.content || 'Titulo sin texto',
+          level,
+        }]
+      }
+      if (block.type !== 'fragmento-ref' || !Number(block.data?.reusableFragmentId || block.content || 0)) {
+        return []
+      }
+      const fragmentHeadings = reusableFragmentHeadings(block, language)
+      const fragmentNumberedHeadings: Array<{ level: number; counters: number[] }> = []
+      fragmentHeadings.forEach((heading) => {
+        const level = heading.level
+        lastHeadingLevel = level
+        incrementIndexCounters(counters, level)
+        fragmentNumberedHeadings.push({ level, counters: [...counters] })
+      })
+      const firstHeading = fragmentNumberedHeadings[0]
+      const level = firstHeading?.level || Math.min(3, Math.max(1, lastHeadingLevel + 1))
+      const number = firstHeading
+        ? `${prefix}.${firstHeading.counters.slice(0, level).join('.')}`
+        : 'Frag.'
+      return [{
+        kind: 'fragment' as const,
+        blockId: block.id,
+        number,
+        title: String(block.data?.title || block.data?.code || 'Fragmento vinculado'),
+        level,
+      }]
+    })
+}
+
+function incrementIndexCounters(counters: number[], level: number) {
+  if (level === 1) {
+    counters[0] += 1
+    counters[1] = 0
+    counters[2] = 0
+  } else if (level === 2) {
+    if (!counters[0]) counters[0] = 1
+    counters[1] += 1
+    counters[2] = 0
+  } else {
+    if (!counters[0]) counters[0] = 1
+    if (!counters[1]) counters[1] = 1
+    counters[2] += 1
+  }
+}
+
+function reusableFragmentHeadings(block: EditorBlock, language: LanguageCode): Array<{ level: number }> {
+  const fragmentId = Number(block.data?.reusableFragmentId || block.content || 0)
+  const fragment = reusableLibrary.value.find((item) => item.reusableType === 'FRAGMENT' && item.id === fragmentId)
+  if (!fragment?.contentJson) return []
+  try {
+    const parsed = JSON.parse(fragment.contentJson)
+    const snapshots = Array.isArray(parsed.blocks) ? parsed.blocks : []
+    return snapshots
+      .filter((snapshot: Record<string, unknown>) => (!snapshot.languageCode || snapshot.languageCode === language) && snapshot.blockType === 'HEADING')
+      .map((snapshot: Record<string, unknown>) => {
+        const contentJson = typeof snapshot.contentJson === 'string'
+          ? snapshot.contentJson
+          : JSON.stringify(snapshot.contentJson || {})
+        const parsedContent = JSON.parse(contentJson)
+        return {
+          level: Math.min(3, Math.max(1, Number(parsedContent.level || 1))),
+        }
+      })
+  } catch {
+    return []
+  }
+}
+
 function headingBlockLevel(block: EditorBlock) {
   return Math.min(3, Math.max(1, Number(block.data?.level || 1)))
 }
@@ -500,6 +637,53 @@ function dropIndexHeading(sectionId: string, targetBlockId: string) {
   clearIndexDragState()
 }
 
+function startIndexItemDrag(sectionId: string, item: IndexItem) {
+  flushSectionEditors()
+  indexDraggingHeading.value = { sectionId, blockId: item.blockId }
+  indexDropHeading.value = null
+  indexLastPreviewKey.value = ''
+}
+
+function updateIndexItemDrop(sectionId: string, targetItem: IndexItem, event: DragEvent) {
+  const source = indexDraggingHeading.value
+  if (!source || source.sectionId !== sectionId || source.blockId === targetItem.blockId) return
+  const position = indexDropPosition(event)
+  indexDropHeading.value = { sectionId, blockId: targetItem.blockId, position }
+  const previewKey = `${sectionId}:${source.blockId}:${targetItem.blockId}:${position}`
+  if (indexLastPreviewKey.value === previewKey) return
+  const section = sections.value.find((item) => item.id === sectionId)
+  if (!section || !canReorderIndexItems(section, source.blockId, targetItem.blockId)) return
+  indexLastPreviewKey.value = previewKey
+  sections.value = sections.value.map((section) => {
+    if (section.id !== sectionId) return section
+    return reorderIndexItems(section, source.blockId, targetItem.blockId, position)
+  })
+  editorContentVersion.value += 1
+}
+
+function indexDropPosition(event: DragEvent): IndexDropPosition {
+  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  if (!target) return 'before'
+  const rect = target.getBoundingClientRect()
+  return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+}
+
+function dropIndexItem() {
+  clearIndexDragState()
+}
+
+function canReorderIndexItems(section: EditorSection, sourceBlockId: string, targetBlockId: string) {
+  const items = indexItemsForLanguage(section, indexLanguage.value)
+  const sourceItem = items.find((item) => item.blockId === sourceBlockId)
+  const targetItem = items.find((item) => item.blockId === targetBlockId)
+  if (!sourceItem || !targetItem) return false
+  if (sourceItem.kind === 'heading' && targetItem.kind === 'heading' && sourceItem.level !== targetItem.level) {
+    infoMessage.value = 'Solo se pueden reordenar titulos del mismo nivel.'
+    return false
+  }
+  return true
+}
+
 function reorderHeadingSegments(section: EditorSection, sourceBlockId: string, targetBlockId: string): EditorSection {
   const sourceHeadings = indexHeadings(section)
   const sourceOrdinal = sourceHeadings.findIndex((heading) => heading.blockId === sourceBlockId)
@@ -520,6 +704,73 @@ function reorderHeadingSegments(section: EditorSection, sourceBlockId: string, t
     infoMessage.value = 'El idioma paralelo no coincide en número/nivel de títulos; se reordenó solo el idioma activo.'
   }
   return { ...section, blocks: withParallel }
+}
+
+function reorderIndexItems(section: EditorSection, sourceBlockId: string, targetBlockId: string, position: IndexDropPosition): EditorSection {
+  const sourceItems = indexItemsForLanguage(section, indexLanguage.value)
+  const sourceOrdinal = sourceItems.findIndex((item) => item.blockId === sourceBlockId)
+  const targetOrdinal = sourceItems.findIndex((item) => item.blockId === targetBlockId)
+  if (sourceOrdinal < 0 || targetOrdinal < 0 || sourceOrdinal === targetOrdinal) return section
+  const activeBlocks = reorderIndexItemSegmentForLanguage(section.blocks, indexLanguage.value, sourceOrdinal, targetOrdinal, position)
+  const parallelLanguage: LanguageCode = indexLanguage.value === 'ES' ? 'EN' : 'ES'
+  const parallelItems = indexItemsForLanguage({ ...section, blocks: activeBlocks }, parallelLanguage)
+  const canMoveParallel = Boolean(
+    parallelItems[sourceOrdinal]
+    && parallelItems[targetOrdinal]
+    && parallelItems[sourceOrdinal].kind === sourceItems[sourceOrdinal].kind
+    && parallelItems[targetOrdinal].kind === sourceItems[targetOrdinal].kind,
+  )
+  return {
+    ...section,
+    blocks: canMoveParallel
+      ? reorderIndexItemSegmentForLanguage(activeBlocks, parallelLanguage, sourceOrdinal, targetOrdinal, position)
+      : activeBlocks,
+  }
+}
+
+function reorderIndexItemSegmentForLanguage(blocks: EditorBlock[], language: LanguageCode, sourceOrdinal: number, targetOrdinal: number, position: IndexDropPosition) {
+  const languageBlocks = blocks.filter((block) => block.languageCode === language)
+  const reorderedLanguageBlocks = reorderLanguageIndexItemSegment(languageBlocks, sourceOrdinal, targetOrdinal, position)
+  let nextIndex = 0
+  return blocks.map((block) => {
+    if (block.languageCode !== language) return block
+    return reorderedLanguageBlocks[nextIndex++] || block
+  })
+}
+
+function reorderLanguageIndexItemSegment(blocks: EditorBlock[], sourceOrdinal: number, targetOrdinal: number, position: IndexDropPosition) {
+  const ranges = indexItemRanges(blocks)
+  const source = ranges[sourceOrdinal]
+  const target = ranges[targetOrdinal]
+  if (!source || !target) return blocks
+  if (target.start >= source.start && target.start < source.end) return blocks
+  const segment = blocks.slice(source.start, source.end)
+  const withoutSegment = [...blocks.slice(0, source.start), ...blocks.slice(source.end)]
+  let insertIndex = position === 'after' ? target.end : target.start
+  if (source.start < insertIndex) {
+    insertIndex -= segment.length
+  }
+  return [
+    ...withoutSegment.slice(0, insertIndex),
+    ...segment,
+    ...withoutSegment.slice(insertIndex),
+  ]
+}
+
+function indexItemRanges(blocks: EditorBlock[]) {
+  const items = blocks
+    .map((block, index) => ({ block, index }))
+    .filter(({ block }) => block.type === 'titulo' || (block.type === 'fragmento-ref' && Number(block.data?.reusableFragmentId || block.content || 0)))
+  return items.map(({ block, index }) => {
+    if (block.type === 'fragmento-ref') {
+      return { kind: 'fragment' as const, start: index, end: index + 1 }
+    }
+    const sourceLevel = headingBlockLevel(block)
+    const end = items.find(({ block: nextBlock, index: nextIndex }) => {
+      return nextIndex > index && nextBlock.type === 'titulo' && headingBlockLevel(nextBlock) <= sourceLevel
+    })?.index ?? blocks.length
+    return { kind: 'heading' as const, start: index, end }
+  })
 }
 
 function headingsForLanguage(section: EditorSection, language: LanguageCode) {
@@ -594,6 +845,7 @@ function clearIndexDragState() {
   indexDropSectionId.value = ''
   indexDraggingHeading.value = null
   indexDropHeading.value = null
+  indexLastPreviewKey.value = ''
 }
 
 function startIndexPanelResize(event: PointerEvent) {
@@ -899,25 +1151,29 @@ function sectionTitle(section: EditorSection) {
               <strong>{{ sectionTitle(section) }}</strong>
               <small>Nivel {{ section.level || 1 }}</small>
             </header>
-            <div v-if="isIndexSectionExpanded(section.id) && indexHeadings(section).length" class="index-heading-list">
+            <div v-if="isIndexSectionExpanded(section.id) && indexItems(section).length" class="index-heading-list">
               <button
-                v-for="heading in indexHeadings(section)"
-                :key="heading.blockId"
+                v-for="heading in indexItems(section)"
+                :key="`${heading.kind}-${heading.blockId}`"
                 type="button"
                 class="index-heading-card"
                 :class="{
+                  fragment: heading.kind === 'fragment',
                   dragging: indexDraggingHeading?.blockId === heading.blockId,
                   'drop-target': indexDropHeading?.blockId === heading.blockId,
+                  'drop-before': indexDropHeading?.blockId === heading.blockId && indexDropHeading?.position === 'before',
+                  'drop-after': indexDropHeading?.blockId === heading.blockId && indexDropHeading?.position === 'after',
                 }"
                 :style="{ '--heading-indent': `${Math.max(0, heading.level - 1) * 16}px` }"
                 draggable="true"
                 @click="openSectionFromIndex(section)"
-                @dragstart.stop="startIndexHeadingDrag(section.id, heading.blockId)"
+                @dragstart.stop="startIndexItemDrag(section.id, heading)"
                 @dragend="clearIndexDragState"
-                @dragover.prevent.stop="indexDropHeading = { sectionId: section.id, blockId: heading.blockId }"
-                @drop.stop.prevent="dropIndexHeading(section.id, heading.blockId)"
+                @dragover.prevent.stop="updateIndexItemDrop(section.id, heading, $event)"
+                @drop.stop.prevent="dropIndexItem"
               >
-                <GripVertical :size="12" />
+                <GripVertical v-if="heading.kind === 'heading'" :size="12" />
+                <Link2 v-else :size="12" />
                 <span>{{ heading.number }}</span>
                 <strong>{{ heading.title }}</strong>
               </button>
@@ -950,7 +1206,11 @@ function sectionTitle(section: EditorSection) {
               :manual-id="manual?.id"
               :section-targets="sectionTargets"
               :selection-sync="blockSelectionSync"
+              :reusable-library="reusableLibrary"
+              :reusable-library-loading="reusableLibraryLoading"
               @update="updateSectionForLanguage($event, lang)"
+              @update-all-languages="updateSectionAllLanguages"
+              @refresh-reusable-library="loadReusableLibrary"
               @insert-reusable-section="insertReusableSection"
               @delete="deleteSection(section.id)"
               @duplicate="duplicateSection(index)"
@@ -1370,6 +1630,7 @@ function sectionTitle(section: EditorSection) {
 }
 
 .index-heading-card {
+  position: relative;
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
@@ -1386,10 +1647,48 @@ function sectionTitle(section: EditorSection) {
   transition: border-color .12s ease, background .12s ease, opacity .12s ease;
 }
 
+.index-heading-card::before,
+.index-heading-card::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 999px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.index-heading-card::before {
+  top: -6px;
+}
+
+.index-heading-card::after {
+  bottom: -6px;
+}
+
+.index-heading-card.drop-before::before,
+.index-heading-card.drop-after::after {
+  background: var(--dikoin-blue);
+  box-shadow: 0 0 0 3px rgba(14, 127, 187, .13);
+}
+
 .index-heading-card:hover,
 .index-heading-card.drop-target {
   border-color: #9ecde8;
   background: var(--dikoin-blue-lighter);
+}
+
+.index-heading-card.fragment {
+  border-color: #9ecde8;
+  background: #edf8ff;
+  color: var(--dikoin-blue-dark);
+  cursor: pointer;
+}
+
+.index-heading-card.fragment:hover {
+  background: #dff2ff;
+  border-color: #73b9df;
 }
 
 .index-heading-card.dragging {
@@ -1403,6 +1702,11 @@ function sectionTitle(section: EditorSection) {
   color: var(--dikoin-blue);
   font-size: 10px;
   font-weight: 800;
+}
+
+.index-heading-card.fragment span {
+  background: #cfeeff;
+  color: var(--dikoin-blue-dark);
 }
 
 .index-heading-card strong {

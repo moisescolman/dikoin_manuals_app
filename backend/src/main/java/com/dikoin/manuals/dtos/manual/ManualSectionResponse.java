@@ -7,6 +7,7 @@ public record ManualSectionResponse(
         Integer sortOrder,
         String sectionNumber,
         Long parentSectionId,
+        Long linkedReusableSectionId,
         Integer level,
         String titleEs,
         String titleEn,

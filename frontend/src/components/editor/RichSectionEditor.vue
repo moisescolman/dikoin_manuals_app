@@ -84,6 +84,8 @@ let sharedNoteDrag: { editor: Editor; from: number; to: number; json: JSONConten
 let sharedBlockClipboard: JSONContent | null = null
 let sharedBlockDrag: { editor: Editor; from: number; to: number; json: JSONContent; kind: MovableBlockKind; markSourceDirty: () => void } | null = null
 const editorRegistry: EditorRegistryRecord[] = []
+let sharedReusableLibraryCache: ReusableBlockResponse[] | null = null
+let sharedReusableLibraryRequest: Promise<ReusableBlockResponse[]> | null = null
 
 const props = defineProps<{
   section: EditorSection
@@ -95,10 +97,13 @@ const props = defineProps<{
   sectionTargets?: SectionTarget[]
   selectionOwnerKey?: string
   selectionSync?: BlockSelectionSync | null
+  reusableLibrary?: ReusableBlockResponse[]
+  reusableLibraryLoading?: boolean
 }>()
 
 const emit = defineEmits<{
   update: [section: EditorSection]
+  updateAllLanguages: [section: EditorSection]
   select: [id: string]
   activate: [id: string, language: LanguageCode]
   delete: []
@@ -109,12 +114,15 @@ const emit = defineEmits<{
   insertReusableSection: [payload: { sectionItem: ReusableBlockResponse; cloneSpanishToEnglish: boolean; afterSectionId: string }]
   selectionChange: [key: string, active: boolean, indexes: number[]]
   selectionModeChange: [payload: BlockSelectionSync]
+  refreshReusableLibrary: []
   saveSection: []
 }>()
 
 const assets = ref<AssetResponse[]>([])
 const notices = ref<NoticeTemplateResponse[]>([])
-const reusableBlocks = ref<ReusableBlockResponse[]>([])
+const reusableBlocks = ref<ReusableBlockResponse[]>(props.reusableLibrary || sharedReusableLibraryCache || [])
+const reusableLibraryLoading = ref(props.reusableLibrary ? Boolean(props.reusableLibraryLoading) : !sharedReusableLibraryCache)
+const reusableLibraryLoaded = ref(props.reusableLibrary ? !props.reusableLibraryLoading : Boolean(sharedReusableLibraryCache))
 const showImageModal = ref(false)
 const showNoticeModal = ref(false)
 const noteMode = ref<NoteMode>('new')
@@ -762,6 +770,29 @@ watch(isLinkedSection, (linked) => {
 })
 
 watch(
+  () => props.reusableLibrary,
+  (library) => {
+    if (!library) return
+    reusableBlocks.value = library
+    reusableLibraryLoading.value = Boolean(props.reusableLibraryLoading)
+    reusableLibraryLoaded.value = !props.reusableLibraryLoading
+    refreshLinkedNotesFromLibrary()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.reusableLibraryLoading,
+  (loading) => {
+    if (props.reusableLibrary) {
+      reusableLibraryLoading.value = Boolean(loading)
+      reusableLibraryLoaded.value = !loading
+      refreshLinkedNotesFromLibrary()
+    }
+  },
+)
+
+watch(
   () => [props.section.id, props.language, props.refreshKey],
   () => {
     if (!editor.value || editor.value.isDestroyed) return
@@ -1013,7 +1044,12 @@ async function saveSelectedFragment() {
       isReusable: true,
     })
     fragmentMessage.value = 'Fragmento guardado'
-    reusableBlocks.value = await loadReusableLibrary()
+    mergeReusableLibraryItem({ ...fragment, reusableType: 'FRAGMENT' as const } as ReusableBlockResponse)
+    if (props.reusableLibrary) {
+      emit('refreshReusableLibrary')
+    } else {
+      await loadReusableLibraryIntoState(true)
+    }
     replaceSelectedBlocksWithFragment(fragment)
     clearBlockSelection()
     setTimeout(() => {
@@ -1053,6 +1089,10 @@ function confirmMoveSelection() {
 
 function patch(value: Partial<EditorSection>) {
   emit('update', { ...props.section, ...value })
+}
+
+function patchAllLanguages(value: Partial<EditorSection>) {
+  emit('updateAllLanguages', { ...props.section, ...value })
 }
 
 function confirmUnlinkSection() {
@@ -2305,25 +2345,95 @@ function insertReusableFragment(fragment: ReusableBlockResponse) {
 function insertReusableFragmentReference(fragment: ReusableFragmentLike) {
   const current = editor.value
   if (!current) return
-  const fragmentNode = reusableFragmentNode(fragment)
   const doc: JSONContent = structuredClone(current.getJSON())
   const content: JSONContent[] = [...(doc.content || [])]
-  if (fragmentInsertPosition.value === 'AFTER_SELECTION' && hasSelection.value) {
-    const lastSelectedIndex = content.reduce(
-      (last, node, index) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')) ? index : last,
-      -1,
-    )
-    content.splice(lastSelectedIndex + 1, 0, fragmentNode)
-  } else {
-    content.push(fragmentNode)
+  const insertAt = fragmentInsertIndex(content)
+  const languages = reusableFragmentAvailableLanguages(fragment)
+  const languageUpdates = new Map<LanguageCode, EditorBlock[]>()
+
+  if (languages.includes(props.language)) {
+    content.splice(insertAt, 0, reusableFragmentNode(fragment, props.language))
+    doc.content = content
+    syncingFromProps.value = true
+    current.commands.setContent(doc)
+    queueMicrotask(() => {
+      syncingFromProps.value = false
+      scheduleHeadingNumbers()
+    })
   }
-  doc.content = content
-  current.commands.setContent(doc)
-  markEditorDirty()
+
+  languageUpdates.set(props.language, blocksFromDoc(languages.includes(props.language) ? doc : current.getJSON()))
+  ;(['ES', 'EN'] as LanguageCode[])
+    .filter((language) => language !== props.language && languages.includes(language))
+    .forEach((language) => {
+      const blocks = props.section.blocks.filter((block) => block.languageCode === language)
+      const next = [...blocks]
+      next.splice(Math.min(insertAt, next.length), 0, reusableFragmentEditorBlock(fragment, language))
+      languageUpdates.set(language, next)
+    })
+
+  hasPendingTableSync.value = false
+  editorDirty.value = false
+  patchAllLanguages({ blocks: mergeUpdatedLanguageBlocks(languageUpdates) })
   clearBlockSelection()
   showFragmentInsertModal.value = false
   fragmentInsertSearch.value = ''
   fragmentMessage.value = ''
+}
+
+function fragmentInsertIndex(content: JSONContent[]) {
+  if (fragmentInsertPosition.value !== 'AFTER_SELECTION' || !hasSelection.value) {
+    return content.length
+  }
+  const lastSelectedIndex = content.reduce(
+    (last, node, index) => selectedBlockIds.value.includes(String(node.attrs?.blockId || '')) ? index : last,
+    -1,
+  )
+  return lastSelectedIndex < 0 ? content.length : lastSelectedIndex + 1
+}
+
+function reusableFragmentAvailableLanguages(fragment: ReusableFragmentLike): LanguageCode[] {
+  try {
+    const parsed = JSON.parse(fragment.contentJson || '{}')
+    const blocks: Record<string, unknown>[] = Array.isArray(parsed.blocks) ? parsed.blocks : []
+    const languages = blocks.reduce((result: LanguageCode[], block: Record<string, unknown>) => {
+      const language: LanguageCode = block.languageCode === 'EN' ? 'EN' : 'ES'
+      return result.includes(language) ? result : [...result, language]
+    }, [] as LanguageCode[])
+    return languages.length ? languages : [props.language]
+  } catch {
+    return [props.language]
+  }
+}
+
+function mergeReusableLibraryItem(item: ReusableBlockResponse) {
+  reusableBlocks.value = [
+    item,
+    ...reusableBlocks.value.filter((current) => current.id !== item.id || current.reusableType !== item.reusableType),
+  ]
+}
+
+function reusableFragmentEditorBlock(fragment: ReusableFragmentLike, language: LanguageCode): EditorBlock {
+  return {
+    id: randomId('block'),
+    type: 'fragmento-ref',
+    content: String(fragment.id),
+    languageCode: language,
+    data: {
+      type: 'reusable_fragment_ref',
+      reusableFragmentId: fragment.id,
+      title: fragment.titleEs || fragment.title || 'Fragmento reutilizable',
+      code: fragment.code || '',
+    },
+  }
+}
+
+function mergeUpdatedLanguageBlocks(languageUpdates: Map<LanguageCode, EditorBlock[]>) {
+  const updatedLanguages = new Set(languageUpdates.keys())
+  return [
+    ...props.section.blocks.filter((block) => !updatedLanguages.has(block.languageCode)),
+    ...(['ES', 'EN'] as LanguageCode[]).flatMap((language) => languageUpdates.get(language) || []),
+  ]
 }
 
 function replaceSelectedBlocksWithFragment(fragment: ReusableFragmentLike) {
@@ -2343,8 +2453,15 @@ function replaceSelectedBlocksWithFragment(fragment: ReusableFragmentLike) {
   markEditorDirty()
 }
 
-function reusableFragmentNode(fragment: ReusableFragmentLike): JSONContent {
-  const content = reusableFragmentContent(fragment)
+function reusableFragmentNode(fragment: ReusableFragmentLike, language: LanguageCode = props.language): JSONContent {
+  const content = reusableFragmentContent(fragment, language)
+  const libraryLoading = props.reusableLibrary
+    ? Boolean(props.reusableLibraryLoading)
+    : reusableLibraryLoading.value
+  const libraryLoaded = props.reusableLibrary ? !props.reusableLibraryLoading : reusableLibraryLoaded.value
+  const fallbackText = libraryLoading && !libraryLoaded
+    ? 'Cargando fragmento...'
+    : 'Fragmento no disponible.'
   return {
     type: 'reusableFragmentBox',
     attrs: {
@@ -2357,7 +2474,7 @@ function reusableFragmentNode(fragment: ReusableFragmentLike): JSONContent {
     content: content.length ? content : [{
       type: 'paragraph',
       attrs: { blockId: randomId('block'), backendId: null },
-      content: textContent('Fragmento no disponible.'),
+      content: textContent(fallbackText),
     }],
   }
 }
@@ -2367,19 +2484,19 @@ function reusableFragmentNodes(fragmentId: number): JSONContent[] {
   return reusableFragmentContent(fragment)
 }
 
-function reusableFragmentContent(fragment?: ReusableFragmentLike): JSONContent[] {
+function reusableFragmentContent(fragment?: ReusableFragmentLike, language: LanguageCode = props.language): JSONContent[] {
   if (!fragment) return []
-  return reusableFragmentContentFromJson(fragment.contentJson)
+  return reusableFragmentContentFromJson(fragment.contentJson, language)
 }
 
-function reusableFragmentContentFromJson(contentJson?: string): JSONContent[] {
+function reusableFragmentContentFromJson(contentJson?: string, language: LanguageCode = props.language): JSONContent[] {
   if (!contentJson) return []
   try {
     const parsed = JSON.parse(contentJson)
     const snapshots = Array.isArray(parsed.blocks) ? parsed.blocks : []
     return snapshots
-      .filter((snapshot: Record<string, unknown>) => !snapshot.languageCode || snapshot.languageCode === props.language)
-      .map((snapshot: Record<string, unknown>, index: number) => reusableSnapshotBlock(snapshot, index))
+      .filter((snapshot: Record<string, unknown>) => !snapshot.languageCode || snapshot.languageCode === language)
+      .map((snapshot: Record<string, unknown>, index: number) => reusableSnapshotBlock(snapshot, index, language))
       .flatMap((block: EditorBlock) => nodeFromBlock(block))
   } catch {
     return []
@@ -2402,7 +2519,7 @@ function cloneFragmentContentNode(node: JSONContent, root = false): JSONContent 
   return cloned
 }
 
-function reusableSnapshotBlock(snapshot: Record<string, unknown>, index: number): EditorBlock {
+function reusableSnapshotBlock(snapshot: Record<string, unknown>, index: number, language: LanguageCode = props.language): EditorBlock {
   const contentJson = typeof snapshot.contentJson === 'string'
     ? snapshot.contentJson
     : JSON.stringify(snapshot.contentJson || {})
@@ -2410,7 +2527,7 @@ function reusableSnapshotBlock(snapshot: Record<string, unknown>, index: number)
     id: 0,
     sortOrder: Number(snapshot.sortOrder || index + 1),
     blockType: snapshot.blockType as ManualBlockResponse['blockType'],
-    languageCode: (snapshot.languageCode || props.language) as LanguageCode,
+    languageCode: (snapshot.languageCode || language) as LanguageCode,
     contentJson,
     plainText: typeof snapshot.plainText === 'string' ? snapshot.plainText : undefined,
     assetId: typeof snapshot.assetId === 'number' ? snapshot.assetId : undefined,
@@ -2566,20 +2683,51 @@ async function uploadImage(event: Event) {
 }
 
 async function loadModalData() {
+  const reusablePromise = props.reusableLibrary ? Promise.resolve() : loadReusableLibraryIntoState()
   try {
-    const [loadedAssets, loadedNotices, loadedReusableBlocks] = await Promise.all([
+    const [loadedAssets, loadedNotices] = await Promise.all([
       getAssets(props.manualId ? { manualId: props.manualId } : undefined),
       getNotices('NOTE'),
-      loadReusableLibrary(),
     ])
     assets.value = loadedAssets.filter((asset) => ['IMAGE', 'EXTRACTED_IMAGE', 'PRODUCT_IMAGE'].includes(asset.assetType))
     notices.value = loadedNotices
-    reusableBlocks.value = loadedReusableBlocks
   } catch {
     assets.value = []
     notices.value = []
-    reusableBlocks.value = []
   }
+  await reusablePromise
+}
+
+async function loadReusableLibraryIntoState(force = false) {
+  reusableLibraryLoading.value = true
+  try {
+    const loadedReusableBlocks = await loadReusableLibraryCached(force)
+    reusableBlocks.value = loadedReusableBlocks
+    reusableLibraryLoaded.value = true
+    refreshLinkedNotesFromLibrary()
+  } catch {
+    if (!reusableLibraryLoaded.value) {
+      reusableBlocks.value = []
+    }
+  } finally {
+    reusableLibraryLoading.value = false
+  }
+}
+
+function loadReusableLibraryCached(force = false) {
+  if (!force && sharedReusableLibraryCache) {
+    return Promise.resolve(sharedReusableLibraryCache)
+  }
+  if (!force && sharedReusableLibraryRequest) {
+    return sharedReusableLibraryRequest
+  }
+  sharedReusableLibraryRequest = loadReusableLibrary().then((items) => {
+    sharedReusableLibraryCache = items
+    return items
+  }).finally(() => {
+    sharedReusableLibraryRequest = null
+  })
+  return sharedReusableLibraryRequest
 }
 
 async function loadReusableLibrary() {

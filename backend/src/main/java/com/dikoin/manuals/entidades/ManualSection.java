@@ -47,6 +47,10 @@ public class ManualSection {
     @Column(length = 40)
     private String completionStatus;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "linked_reusable_section_id")
+    private ReusableBlock linkedReusableSection;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean visible = true;

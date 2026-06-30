@@ -3,6 +3,7 @@ package com.dikoin.manuals.servicios.impl;
 import com.dikoin.manuals.dtos.manual.*;
 import com.dikoin.manuals.entidades.*;
 import com.dikoin.manuals.enums.AssetType;
+import com.dikoin.manuals.enums.BlockType;
 import com.dikoin.manuals.enums.LanguageCode;
 import com.dikoin.manuals.enums.ManualStatus;
 import com.dikoin.manuals.exceptions.ApiException;
@@ -12,6 +13,8 @@ import com.dikoin.manuals.repositorios.*;
 import com.dikoin.manuals.servicios.AssetStorageService;
 import com.dikoin.manuals.servicios.ManualCodeService;
 import com.dikoin.manuals.servicios.ManualService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +46,7 @@ public class ManualServiceImpl implements ManualService {
     private final AssetStorageService assetStorageService;
     private final ManualCodeService manualCodeService;
     private final ManualMapper manualMapper;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -381,11 +385,18 @@ public class ManualServiceImpl implements ManualService {
             section.setSortOrder(request.sortOrder());
             section.setSectionNumber(request.sectionNumber());
             section.setLevel(request.level() == null ? 1 : Math.max(1, request.level()));
-            section.setTitleEs(request.titleEs());
-            section.setTitleEn(request.titleEn());
             section.setCompletionStatus(request.completionStatus());
+            ReusableBlock linkedReusableSection = request.linkedReusableSectionId() == null ? null : reusableBlockRepository.findById(request.linkedReusableSectionId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Seccion reutilizable no encontrada: " + request.linkedReusableSectionId()));
+            section.setLinkedReusableSection(linkedReusableSection);
             section.setVisible(request.visible() == null || request.visible());
-            mergeBlocks(section, request.blocks() == null ? List.of() : request.blocks());
+            if (linkedReusableSection == null) {
+                section.setTitleEs(request.titleEs());
+                section.setTitleEn(request.titleEn());
+                mergeBlocks(section, request.blocks() == null ? List.of() : request.blocks());
+            } else {
+                hydrateLinkedReusableSection(section, linkedReusableSection);
+            }
             merged.add(section);
             requestBySection.put(section, request);
             if (request.id() != null) {
@@ -461,6 +472,79 @@ public class ManualServiceImpl implements ManualService {
         }
     }
 
+    private void hydrateLinkedReusableSection(ManualSection section, ReusableBlock reusableSection) {
+        JsonNode root = parseReusableRoot(reusableSection.getContentJson());
+        section.setTitleEs(firstNotBlank(jsonText(root, "titleEs"), reusableSection.getTitleEs(), reusableSection.getTitle()));
+        section.setTitleEn(firstNotBlank(jsonText(root, "titleEn"), reusableSection.getTitleEn(), section.getTitleEs()));
+        List<ReusableSectionBlock> blocks = parseReusableSectionBlocks(reusableSection.getContentJson()).stream()
+                .sorted(Comparator
+                        .comparing((ReusableSectionBlock block) -> block.sortOrder() == null ? Integer.MAX_VALUE : block.sortOrder())
+                        .thenComparing(block -> block.languageCode() == LanguageCode.EN ? 1 : 0))
+                .toList();
+        section.getBlocks().clear();
+        int sortOrder = 1;
+        for (ReusableSectionBlock source : blocks) {
+            ManualBlock block = ManualBlock.builder()
+                    .section(section)
+                    .sortOrder(sortOrder++)
+                    .blockType(source.blockType())
+                    .languageCode(source.languageCode())
+                    .contentJson(source.contentJson())
+                    .plainText(source.plainText())
+                    .asset(source.assetId() == null ? null : assetRepository.findById(source.assetId())
+                            .orElseThrow(() -> new ResourceNotFoundException("Asset no encontrado: " + source.assetId())))
+                    .reusableBlock(reusableSection)
+                    .build();
+            section.getBlocks().add(block);
+        }
+    }
+
+    private JsonNode parseReusableRoot(String contentJson) {
+        try {
+            return objectMapper.readTree(contentJson);
+        } catch (Exception exception) {
+            throw new ApiException("El JSON del contenido reutilizable no es valido", exception);
+        }
+    }
+
+    private List<ReusableSectionBlock> parseReusableSectionBlocks(String contentJson) {
+        try {
+            JsonNode root = objectMapper.readTree(contentJson);
+            JsonNode blocks = root.path("blocks");
+            if (!blocks.isArray()) {
+                return List.of();
+            }
+            List<ReusableSectionBlock> result = new ArrayList<>();
+            for (JsonNode node : blocks) {
+                JsonNode content = node.path("contentJson");
+                String serializedContent = content.isTextual() ? content.asText() : objectMapper.writeValueAsString(content);
+                BlockType blockType = BlockType.valueOf(node.path("blockType").asText());
+                if (blockType == BlockType.FORMULA
+                        && (serializedContent == null || serializedContent.isBlank() || !serializedContent.contains("\"latex\""))) {
+                    throw new ApiException("La ecuacion debe contener una expresion LaTeX");
+                }
+                result.add(new ReusableSectionBlock(
+                        blockType,
+                        LanguageCode.valueOf(node.path("languageCode").asText("ES")),
+                        serializedContent,
+                        node.path("plainText").isMissingNode() ? null : node.path("plainText").asText(null),
+                        node.path("assetId").isNumber() ? node.path("assetId").asLong() : null,
+                        node.path("sortOrder").asInt(result.size() + 1)
+                ));
+            }
+            return result;
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new ApiException("El JSON de la seccion reutilizable no es valido", exception);
+        }
+    }
+
+    private String jsonText(JsonNode root, String field) {
+        JsonNode node = root == null ? null : root.path(field);
+        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText(null);
+    }
+
     private void recalculateSectionNumbers(ManualVersion version) {
         Map<ManualSection, List<ManualSection>> childrenByParent = new HashMap<>();
         List<ManualSection> roots = new ArrayList<>();
@@ -508,5 +592,15 @@ public class ManualServiceImpl implements ManualService {
                 version.setActive(false);
             }
         });
+    }
+
+    private record ReusableSectionBlock(
+            BlockType blockType,
+            LanguageCode languageCode,
+            String contentJson,
+            String plainText,
+            Long assetId,
+            Integer sortOrder
+    ) {
     }
 }

@@ -56,6 +56,7 @@ public class ManualContentServiceImpl implements ManualContentService {
                 .titleEs(request.titleEs())
                 .titleEn(request.titleEn())
                 .completionStatus(request.completionStatus())
+                .linkedReusableSection(findReusableBlock(request.linkedReusableSectionId()))
                 .visible(request.visible() == null || request.visible())
                 .build();
         ManualSection saved = manualSectionRepository.save(section);
