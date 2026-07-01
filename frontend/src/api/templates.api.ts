@@ -26,6 +26,10 @@ export async function activateTemplate(id: number) {
   return data
 }
 
+export async function deleteTemplate(id: number) {
+  await http.delete(`/templates/${id}`)
+}
+
 export async function uploadTemplateLogo(id: number, file: File, onProgress?: (progress: number) => void) {
   const form = new FormData()
   form.append('file', file)

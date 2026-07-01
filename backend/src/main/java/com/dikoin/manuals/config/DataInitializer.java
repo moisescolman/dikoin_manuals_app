@@ -210,7 +210,9 @@ public class DataInitializer implements CommandLineRunner {
                 .logoPath("assets/logos/logo-placeholder.png")
                 .headerConfigJson("{\"showLogo\":true,\"showManualCode\":true}")
                 .footerConfigJson("{\"showContact\":true,\"showPageNumber\":true}")
+                .layoutConfigJson("{\"version\":1}")
                 .active(true)
+                .systemDefault(true)
                 .build());
     }
 }

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowUp, Columns2, Download, Edit, GitBranch, History } from '@lucide/vue'
 import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
 import { getApiError } from '@/api/http'
+import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import LangBadge from '@/components/shared/LangBadge.vue'
 import ManualLanguageCompare from '@/components/shared/ManualLanguageCompare.vue'
@@ -26,6 +27,7 @@ const statusNotes = ref('')
 const statusMessage = ref('')
 const changingStatus = ref(false)
 const exporting = ref(false)
+const publishPdfModalOpen = ref(false)
 const detailPage = ref<HTMLElement | null>(null)
 const previewStart = ref<HTMLElement | null>(null)
 const showBackToTop = ref(false)
@@ -125,13 +127,31 @@ function pdfFilename(path: string | undefined) {
 
 async function changeStatus() {
   if (!store.current || !store.current.activeVersion) return
+  if (selectedStatus.value === 'PUBLISHED') {
+    publishPdfModalOpen.value = true
+    return
+  }
+  await applyStatusChange(selectedStatus.value)
+}
+
+async function applyStatusChange(status: ManualStatus) {
+  if (!store.current || !store.current.activeVersion) return
   changingStatus.value = true
   statusMessage.value = ''
   try {
-    await store.updateStatus(store.current.id, selectedStatus.value, statusNotes.value || `Cambio de estado a ${selectedStatus.value}`)
-    statusMessage.value = `Estado cambiado a ${selectedStatus.value}`
+    await store.updateStatus(store.current.id, status, statusNotes.value || `Cambio de estado a ${status}`)
+    selectedStatus.value = status
+    statusMessage.value = `Estado cambiado a ${status}`
   } finally {
     changingStatus.value = false
+  }
+}
+
+async function confirmPublish(generatePdf: boolean) {
+  publishPdfModalOpen.value = false
+  await applyStatusChange('PUBLISHED')
+  if (generatePdf) {
+    await exportPdf()
   }
 }
 
@@ -193,7 +213,6 @@ function scrollToCover() {
           <option value="APPROVED">Aprobado</option>
           <option value="PUBLISHED">Publicado</option>
           <option value="ARCHIVED">Archivado</option>
-          <option value="DEACTIVATED">Dado de baja</option>
         </select>
         <input v-model="statusNotes" class="field" placeholder="Notas del cambio, opcional" />
         <button class="btn btn-primary" :disabled="changingStatus" @click="changeStatus">
@@ -239,6 +258,23 @@ function scrollToCover() {
       <button v-if="tab === 'Contenido' && showBackToTop" class="back-to-cover" type="button" @click="scrollToCover">
         <ArrowUp :size="16" /> Subir
       </button>
+
+      <AppModal
+        v-if="publishPdfModalOpen"
+        title="Publicar manual"
+        description="El manual quedara publicado como version vigente. Se recomienda generar un PDF nuevo para dejarlo disponible para clientes y suscriptores."
+        size="sm"
+        @close="publishPdfModalOpen = false"
+      >
+        <template #footer>
+          <button type="button" class="btn btn-outline" :disabled="changingStatus || exporting" @click="confirmPublish(false)">
+            Publicar sin PDF
+          </button>
+          <button type="button" class="btn btn-primary" :disabled="changingStatus || exporting" @click="confirmPublish(true)">
+            Publicar y generar PDF
+          </button>
+        </template>
+      </AppModal>
     </template>
   </section>
 </template>

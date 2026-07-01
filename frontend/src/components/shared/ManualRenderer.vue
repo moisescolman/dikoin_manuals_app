@@ -31,6 +31,84 @@ const headerDefaults = {
   showManualCode: true,
 }
 
+const layoutDefaults = {
+  theme: {
+    primary: '#007cb8',
+    secondary: '#0f3a54',
+    accent: '#f97316',
+    text: '#17202a',
+    muted: '#607789',
+    border: '#b8cce3',
+    pageBackground: '#ffffff',
+    fontFamily: 'Arial',
+    baseFontSize: 11,
+  },
+  page: {
+    marginTop: 14,
+    marginRight: 14,
+    marginBottom: 14,
+    marginLeft: 14,
+  },
+  cover: {
+    showLogo: true,
+    showProductImage: true,
+    showDate: true,
+    showProductCode: true,
+    showDocumentVersion: true,
+    alignment: 'center',
+    logoPosition: 'center',
+    productImagePosition: 'center',
+    titleSize: 32,
+    subtitleSize: 15,
+    codeSize: 11,
+  },
+  index: {
+    title: 'Índice',
+    titleSize: 24,
+    level1Size: 13,
+    level2Size: 12,
+    level3Size: 11,
+    dottedLeaders: true,
+    lineSpacing: 1.35,
+    pageNumberSize: 11,
+  },
+  header: {
+    enabled: true,
+    showLogo: true,
+    showCompanyName: true,
+    showManualCode: true,
+    height: 10,
+    background: '#ffffff',
+    textColor: '#17202a',
+    borderColor: '#007cb8',
+  },
+  footer: {
+    enabled: true,
+    showContact: false,
+    showWebsite: false,
+    showPageNumber: true,
+    height: 8,
+    background: '#007cb8',
+    textColor: '#ffffff',
+    borderColor: '#007cb8',
+  },
+  content: {
+    sectionTitleBackground: '#007cb8',
+    sectionTitleColor: '#ffffff',
+    sectionTitleSize: 14,
+    subsectionTitleColor: '#0f3a54',
+    subsectionTitleSize: 13,
+    bodySize: 12,
+    lineHeight: 1.42,
+    tableHeaderBackground: '#007cb8',
+    tableHeaderColor: '#ffffff',
+    tableBorderColor: '#b8cce3',
+    tableCellPadding: 6,
+    tableFontSize: 10,
+    tableStripe: true,
+  },
+}
+
 interface RenderBlock {
   blockType: BlockType
   languageCode: LanguageCode
@@ -603,8 +681,86 @@ function parseConfig<T extends Record<string, boolean>>(value: string | undefine
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function mergeDeep<T extends Record<string, unknown>>(base: T, patch: unknown): T {
+  if (!isRecord(patch)) return base
+  const output = { ...base }
+  Object.entries(patch).forEach(([key, value]) => {
+    const current = output[key]
+    output[key as keyof T] = (isRecord(current) && isRecord(value)
+      ? mergeDeep(current, value)
+      : value) as T[keyof T]
+  })
+  return output
+}
+
+function layoutConfig() {
+  const base = JSON.parse(JSON.stringify(layoutDefaults)) as typeof layoutDefaults
+  try {
+    const parsed = mergeDeep(base as unknown as Record<string, unknown>, JSON.parse(activeTemplate.value?.layoutConfigJson || '{}')) as unknown as typeof layoutDefaults
+    const legacyHeader = parseConfig(activeTemplate.value?.headerConfigJson, headerDefaults)
+    parsed.header.showLogo = legacyHeader.showLogo
+    parsed.header.showCompanyName = legacyHeader.showCompanyName
+    parsed.header.showManualCode = legacyHeader.showManualCode
+    return parsed
+  } catch {
+    return base
+  }
+}
+
 function headerConfig() {
-  return parseConfig(activeTemplate.value?.headerConfigJson, headerDefaults)
+  return layoutConfig().header
+}
+
+function templateCssVars() {
+  const config = layoutConfig()
+  return {
+    '--tpl-primary': config.theme.primary,
+    '--tpl-secondary': config.theme.secondary,
+    '--tpl-accent': config.theme.accent,
+    '--tpl-text': config.theme.text,
+    '--tpl-muted': config.theme.muted,
+    '--tpl-border': config.theme.border,
+    '--tpl-page-bg': config.theme.pageBackground,
+    '--tpl-font': config.theme.fontFamily,
+    '--tpl-base-size': `${config.theme.baseFontSize}px`,
+    '--tpl-margin-top': `${config.page.marginTop}mm`,
+    '--tpl-margin-right': `${config.page.marginRight}mm`,
+    '--tpl-margin-bottom': `${config.page.marginBottom}mm`,
+    '--tpl-margin-left': `${config.page.marginLeft}mm`,
+    '--tpl-header-height': `${config.header.height}mm`,
+    '--tpl-header-bg': config.header.background,
+    '--tpl-header-text': config.header.textColor,
+    '--tpl-header-border': config.header.borderColor,
+    '--tpl-footer-height': `${config.footer.height}mm`,
+    '--tpl-footer-bg': config.footer.background,
+    '--tpl-footer-text': config.footer.textColor,
+    '--tpl-footer-border': config.footer.borderColor,
+    '--tpl-cover-title-size': `${config.cover.titleSize}px`,
+    '--tpl-cover-subtitle-size': `${config.cover.subtitleSize}px`,
+    '--tpl-cover-code-size': `${config.cover.codeSize}px`,
+    '--tpl-index-title-size': `${config.index.titleSize}px`,
+    '--tpl-index-level-1': `${config.index.level1Size}px`,
+    '--tpl-index-level-2': `${config.index.level2Size}px`,
+    '--tpl-index-level-3': `${config.index.level3Size}px`,
+    '--tpl-index-line-height': config.index.lineSpacing,
+    '--tpl-index-page-size': `${config.index.pageNumberSize}px`,
+    '--tpl-section-bg': config.content.sectionTitleBackground,
+    '--tpl-section-color': config.content.sectionTitleColor,
+    '--tpl-section-size': `${config.content.sectionTitleSize}px`,
+    '--tpl-subsection-color': config.content.subsectionTitleColor,
+    '--tpl-subsection-size': `${config.content.subsectionTitleSize}px`,
+    '--tpl-body-size': `${config.content.bodySize}px`,
+    '--tpl-line-height': config.content.lineHeight,
+    '--tpl-table-head-bg': config.content.tableHeaderBackground,
+    '--tpl-table-head-color': config.content.tableHeaderColor,
+    '--tpl-table-border': config.content.tableBorderColor,
+    '--tpl-table-padding': `${config.content.tableCellPadding}px`,
+    '--tpl-table-size': `${config.content.tableFontSize}px`,
+  }
 }
 
 function normalizeTitle(value: string) {
@@ -725,34 +881,34 @@ function contentPageForBlock(blockId: number) {
 </script>
 
 <template>
-  <div class="manual-pages">
+  <div class="manual-pages" :style="templateCssVars()">
     <article class="manual-page cover-page">
       <div class="cover-mark">
-        <div v-if="headerConfig().showLogo" class="cover-logo" :class="{ 'logo-image': logoSrc() }">
+        <div v-if="layoutConfig().cover.showLogo" class="cover-logo" :class="{ 'logo-image': logoSrc() }">
           <img v-if="logoSrc()" :src="logoSrc()" alt="Logo plantilla" />
           <span v-else>DK</span>
         </div>
         <strong v-if="headerConfig().showCompanyName">{{ templateCompany() }}</strong>
       </div>
       <div class="cover-content">
-        <div class="cover-product">
+        <div v-if="layoutConfig().cover.showProductImage" class="cover-product">
           <img v-if="productImageSrc()" :src="productImageSrc()" :alt="manual.productName" />
         </div>
         <div class="cover-title-block">
           <h1>{{ manual.productName }}</h1>
           <p>{{ manualTitle() }}</p>
-          <strong>{{ manual.documentTypeName || manual.category || 'Manual' }}</strong>
+          <strong v-if="layoutConfig().cover.showDocumentVersion">{{ manual.documentTypeName || manual.category || 'Manual' }}</strong>
         </div>
-        <p class="manual-code">{{ manual.code }}</p>
+        <p v-if="layoutConfig().cover.showProductCode" class="manual-code">{{ manual.code }}</p>
         <h1>{{ manualTitle() }}</h1>
         <p>{{ manual.productCode }} · {{ manual.productName }}</p>
         <span>v{{ manual.activeVersion?.versionNumber }} · {{ activeLanguage() }}</span>
       </div>
-      <footer class="paper-footer">1</footer>
+      <footer v-if="layoutConfig().cover.showDate || layoutConfig().footer.showPageNumber" class="paper-footer">{{ layoutConfig().footer.showPageNumber ? '1' : '' }}</footer>
     </article>
 
     <article class="manual-page toc-page">
-      <header class="paper-header">
+      <header v-if="headerConfig().enabled" class="paper-header">
         <div v-if="headerConfig().showLogo" class="logo" :class="{ 'logo-image': logoSrc() }">
           <img v-if="logoSrc()" :src="logoSrc()" alt="Logo plantilla" />
           <span v-else>DK</span>
@@ -762,8 +918,8 @@ function contentPageForBlock(blockId: number) {
       </header>
       <div class="header-line"></div>
       <main class="paper-content">
-        <h1>Índice</h1>
-        <ol class="toc-list">
+        <h1>{{ layoutConfig().index.title }}</h1>
+        <ol class="toc-list" :class="{ 'no-dots': !layoutConfig().index.dottedLeaders }">
           <li v-for="entry in tocEntries" :key="entry.key" :class="`toc-level-${entry.level}`">
             <span>{{ entry.title }}</span>
             <span class="toc-dots"></span>
@@ -771,11 +927,11 @@ function contentPageForBlock(blockId: number) {
           </li>
         </ol>
       </main>
-      <footer class="paper-footer">2</footer>
+      <footer v-if="layoutConfig().footer.enabled" class="paper-footer">{{ layoutConfig().footer.showPageNumber ? '2' : '' }}</footer>
     </article>
 
     <article v-for="(pageUnits, pageIndex) in contentPages" :key="pageIndex" class="manual-page">
-      <header class="paper-header">
+      <header v-if="headerConfig().enabled" class="paper-header">
         <div v-if="headerConfig().showLogo" class="logo" :class="{ 'logo-image': logoSrc() }">
           <img v-if="logoSrc()" :src="logoSrc()" alt="Logo plantilla" />
           <span v-else>DK</span>
@@ -901,11 +1057,11 @@ function contentPageForBlock(blockId: number) {
           </div>
         </template>
       </main>
-      <footer class="paper-footer">{{ pageIndex + 3 }}</footer>
+      <footer v-if="layoutConfig().footer.enabled" class="paper-footer">{{ layoutConfig().footer.showPageNumber ? pageIndex + 3 : '' }}</footer>
     </article>
 
     <article v-for="blankIndex in blankPages" :key="`blank-${blankIndex}`" class="manual-page blank-page">
-      <header class="paper-header">
+      <header v-if="headerConfig().enabled" class="paper-header">
         <div v-if="headerConfig().showLogo" class="logo" :class="{ 'logo-image': logoSrc() }">
           <img v-if="logoSrc()" :src="logoSrc()" alt="Logo plantilla" />
           <span v-else>DK</span>
@@ -915,7 +1071,7 @@ function contentPageForBlock(blockId: number) {
       </header>
       <div class="header-line"></div>
       <main class="paper-content"></main>
-      <footer class="paper-footer">{{ totalPages + blankIndex }}</footer>
+      <footer v-if="layoutConfig().footer.enabled" class="paper-footer">{{ layoutConfig().footer.showPageNumber ? totalPages + blankIndex : '' }}</footer>
     </article>
 
     <div class="pagination-measure" aria-hidden="true">
@@ -1034,14 +1190,16 @@ function contentPageForBlock(blockId: number) {
 .manual-page {
   width: min(210mm, 100%);
   min-height: 297mm;
-  padding: 14mm;
-  background: #fff;
-  border: 1px solid var(--border);
+  padding: var(--tpl-margin-top, 14mm) var(--tpl-margin-right, 14mm) var(--tpl-margin-bottom, 14mm) var(--tpl-margin-left, 14mm);
+  background: var(--tpl-page-bg, #fff);
+  border: 1px solid var(--tpl-border, var(--border));
   box-shadow: 0 10px 30px rgba(0,0,0,.08);
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   overflow: hidden;
-  font-family: Arial, sans-serif;
+  color: var(--tpl-text, var(--foreground));
+  font-family: var(--tpl-font, Arial), Arial, sans-serif;
+  font-size: var(--tpl-base-size, 11px);
 }
 
 .manual-page,
@@ -1050,6 +1208,9 @@ function contentPageForBlock(blockId: number) {
 }
 
 .paper-header {
+  min-height: var(--tpl-header-height, 10mm);
+  background: var(--tpl-header-bg, #fff);
+  color: var(--tpl-header-text, var(--foreground));
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -1058,7 +1219,7 @@ function contentPageForBlock(blockId: number) {
 .paper-header span {
   margin-left: auto;
   font-size: 11px;
-  color: var(--muted-foreground);
+  color: var(--tpl-muted, var(--muted-foreground));
 }
 
 .logo,
@@ -1067,7 +1228,7 @@ function contentPageForBlock(blockId: number) {
   height: 30px;
   display: grid;
   place-items: center;
-  background: var(--dikoin-blue);
+  background: var(--tpl-primary, var(--dikoin-blue));
   color: #fff;
   font-size: 10px;
   font-weight: 600;
@@ -1098,7 +1259,7 @@ function contentPageForBlock(blockId: number) {
 
 .header-line {
   height: 2px;
-  background: var(--dikoin-blue);
+  background: var(--tpl-header-border, var(--tpl-primary, var(--dikoin-blue)));
   margin: 6px 0 18px;
 }
 
@@ -1138,8 +1299,8 @@ function contentPageForBlock(blockId: number) {
 .cover-content h1 {
   max-width: 620px;
   margin: 0;
-  color: var(--dikoin-blue-dark);
-  font-size: 32px;
+  color: var(--tpl-secondary, var(--dikoin-blue-dark));
+  font-size: var(--tpl-cover-title-size, 32px);
   line-height: 1.12;
   letter-spacing: 0;
 }
@@ -1147,7 +1308,7 @@ function contentPageForBlock(blockId: number) {
 .cover-content p,
 .cover-content span {
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--tpl-muted, var(--muted-foreground));
 }
 
 .cover-product {
@@ -1172,17 +1333,17 @@ function contentPageForBlock(blockId: number) {
 }
 
 .cover-title-block p {
-  color: var(--dikoin-blue);
-  font-size: 15px;
+  color: var(--tpl-primary, var(--dikoin-blue));
+  font-size: var(--tpl-cover-subtitle-size, 15px);
   font-weight: 600;
-  border-top: 1px solid var(--dikoin-blue);
+  border-top: 1px solid var(--tpl-primary, var(--dikoin-blue));
   width: min(100%, 650px);
   padding-top: 6px;
 }
 
 .cover-title-block strong {
   width: min(100%, 650px);
-  background: var(--dikoin-blue);
+  background: var(--tpl-primary, var(--dikoin-blue));
   color: #fff;
   padding: 5px 10px;
 }
@@ -1191,15 +1352,15 @@ function contentPageForBlock(blockId: number) {
   font-family: Consolas, Monaco, 'Courier New', monospace;
   justify-self: start;
   align-self: end;
-  font-size: 11px;
+  font-size: var(--tpl-cover-code-size, 11px);
   font-weight: 400;
-  color: var(--muted-foreground) !important;
+  color: var(--tpl-muted, var(--muted-foreground)) !important;
 }
 
 .toc-page h1 {
   margin: 0 0 22px;
-  color: var(--dikoin-blue-dark);
-  font-size: 24px;
+  color: var(--tpl-secondary, var(--dikoin-blue-dark));
+  font-size: var(--tpl-index-title-size, 24px);
 }
 
 .toc-list {
@@ -1208,6 +1369,7 @@ function contentPageForBlock(blockId: number) {
   list-style: none;
   display: grid;
   gap: 9px;
+  line-height: var(--tpl-index-line-height, 1.35);
 }
 
 .toc-list li {
@@ -1215,12 +1377,12 @@ function contentPageForBlock(blockId: number) {
   grid-template-columns: auto 1fr auto;
   gap: 8px;
   align-items: baseline;
-  font-size: 13px;
+  font-size: var(--tpl-index-level-1, 13px);
 }
 
 .toc-list .toc-level-0 {
   font-weight: 600;
-  color: var(--dikoin-blue-dark);
+  color: var(--tpl-secondary, var(--dikoin-blue-dark));
 }
 
 .toc-list .toc-level-1 {
@@ -1229,33 +1391,37 @@ function contentPageForBlock(blockId: number) {
 
 .toc-list .toc-level-2 {
   padding-left: 30px;
-  font-size: 12px;
+  font-size: var(--tpl-index-level-2, 12px);
 }
 
 .toc-list .toc-level-3 {
   padding-left: 46px;
-  font-size: 11px;
-  color: var(--muted-foreground);
+  font-size: var(--tpl-index-level-3, 11px);
+  color: var(--tpl-muted, var(--muted-foreground));
 }
 
 .toc-dots {
   min-width: 24px;
-  border-bottom: 1px dotted #8fa9bb;
+  border-bottom: 1px dotted var(--tpl-border, #8fa9bb);
+}
+
+.toc-list.no-dots .toc-dots {
+  border-bottom-color: transparent;
 }
 
 .doc-section-title h2 {
   margin: 0 0 10px;
-  background: var(--dikoin-blue);
-  color: #fff;
+  background: var(--tpl-section-bg, var(--dikoin-blue));
+  color: var(--tpl-section-color, #fff);
   padding: 6px 9px;
-  font-size: 14px;
+  font-size: var(--tpl-section-size, 14px);
   line-height: 1.25;
 }
 
 .doc-block {
   margin: 0 0 9px;
-  font-size: 12px;
-  line-height: 1.42;
+  font-size: var(--tpl-body-size, 12px);
+  line-height: var(--tpl-line-height, 1.42);
   min-width: 0;
   max-width: 100%;
   overflow-wrap: break-word;
@@ -1320,26 +1486,26 @@ function contentPageForBlock(blockId: number) {
   max-width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--tpl-table-size, 11px);
 }
 
 .doc-table-compact {
-  font-size: 9px;
+  font-size: calc(var(--tpl-table-size, 11px) - 1px);
 }
 
 .doc-table th {
-  background: var(--dikoin-blue);
-  color: #fff;
+  background: var(--tpl-table-head-bg, var(--dikoin-blue));
+  color: var(--tpl-table-head-color, #fff);
   text-align: left;
-  padding: 6px;
+  padding: var(--tpl-table-padding, 6px);
   overflow-wrap: break-word;
   word-break: normal;
   hyphens: auto;
 }
 
 .doc-table td {
-  border: 1px solid #b8cce3;
-  padding: 6px;
+  border: 1px solid var(--tpl-table-border, #b8cce3);
+  padding: var(--tpl-table-padding, 6px);
   overflow-wrap: break-word;
   word-break: normal;
   hyphens: auto;
@@ -1352,7 +1518,7 @@ function contentPageForBlock(blockId: number) {
 }
 
 .doc-table tr:nth-child(odd) td {
-  background: var(--dikoin-blue-light);
+  background: color-mix(in srgb, var(--tpl-primary, var(--dikoin-blue)) 10%, #fff);
 }
 
 .warning {
@@ -1436,8 +1602,12 @@ function contentPageForBlock(blockId: number) {
 .paper-footer {
   justify-self: center;
   align-self: end;
-  min-height: 18px;
-  color: var(--muted-foreground);
+  min-height: var(--tpl-footer-height, 18px);
+  min-width: 42px;
+  background: var(--tpl-footer-bg, transparent);
+  color: var(--tpl-footer-text, var(--muted-foreground));
+  border-top: 1px solid var(--tpl-footer-border, transparent);
+  padding: 3px 8px;
   font-size: 11px;
 }
 

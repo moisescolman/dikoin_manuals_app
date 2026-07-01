@@ -2,15 +2,18 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ChevronDown, ChevronRight, Copy, Eye, GripVertical, Languages, Link2, PanelLeftClose, PanelLeftOpen, Plus, Save } from '@lucide/vue'
+import { translateManualVersionToEnglish } from '@/api/manuals.api'
+import { getApiError } from '@/api/http'
 import { createReusableBlock, getReusableBlocks } from '@/api/reusable-blocks.api'
 import { getReusableFragments } from '@/api/reusable-fragments.api'
 import RichSectionEditor from '@/components/editor/RichSectionEditor.vue'
 import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
+import { useAuthStore } from '@/stores/auth.store'
 import { useManualsStore } from '@/stores/manuals.store'
 import type { EditorBlock, EditorSection } from '@/types/editor'
 import { randomId, sectionsFromBackend, versionRequestFromEditor } from '@/types/editor'
-import type { LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualStatus, ReusableBlockResponse } from '@/types/api'
+import type { LanguageCode, ManualBlockResponse, ManualDetailResponse, ManualStatus, ManualTranslationMode, ReusableBlockResponse } from '@/types/api'
 
 type BlockSelectionSync = {
   sectionId: string
@@ -37,6 +40,7 @@ const props = defineProps<{ id: string }>()
 const route = useRoute()
 const router = useRouter()
 const store = useManualsStore()
+const auth = useAuthStore()
 const sections = ref<EditorSection[]>([])
 const selectedSectionId = ref('')
 const activeEditorKey = ref('')
@@ -71,6 +75,13 @@ const localDraftSavedAt = ref('')
 const showLeaveEditorModal = ref(false)
 const pendingNavigation = ref<any>(null)
 const navigationAllowed = ref(false)
+const translationModalOpen = ref(false)
+const translationMode = ref<ManualTranslationMode>('FULL_MANUAL')
+const translationSelectedSectionIds = ref<number[]>([])
+const translationOverwriteExisting = ref(false)
+const translationLoading = ref(false)
+const translationError = ref('')
+const translationProgressText = ref('')
 let localAutosaveTimer = 0
 
 const manual = computed(() => store.current)
@@ -83,6 +94,30 @@ const sectionTargets = computed(() => sections.value.map((section) => ({
   number: section.sectionNumber,
   title: sectionTitle(section),
 })))
+const translationSections = computed(() => sections.value
+  .filter((section) => typeof section.backendId === 'number')
+  .map((section) => ({
+    id: section.backendId as number,
+    number: section.sectionNumber || String(section.sortOrder),
+    title: section.titleEs || section.titleEn || 'Sin titulo',
+    level: section.level || 1,
+    hasEnglish: sectionHasEnglish(section),
+  })))
+const hasSpanishContent = computed(() => sections.value.some(sectionHasSpanish))
+const canTranslateToEnglish = computed(() => {
+  const role = auth.user?.role
+  return Boolean(version.value)
+    && hasSpanishContent.value
+    && (languageMode.value === 'EN' || languageMode.value === 'BOTH')
+    && role !== 'CLIENTE'
+})
+const selectedTranslationSectionIds = computed(() => translationMode.value === 'FULL_MANUAL'
+  ? translationSections.value.map((section) => section.id)
+  : translationSelectedSectionIds.value)
+const selectedTranslationHasEnglish = computed(() => {
+  const selected = new Set(selectedTranslationSectionIds.value)
+  return translationSections.value.some((section) => selected.has(section.id) && section.hasEnglish)
+})
 
 onMounted(async () => {
   const [loaded] = await Promise.all([
@@ -149,8 +184,8 @@ function addSection() {
     sortOrder: next,
     sectionNumber: String(next),
     level: 1,
-    titleEs: 'Nueva sección',
-    titleEn: isEnglish ? 'New section' : undefined,
+    titleEs: '',
+    titleEn: isEnglish ? '' : undefined,
     status: 'APPROVED',
     visible: true,
     collapsed: false,
@@ -901,7 +936,8 @@ function stopIndexPanelResize() {
 
 function buildVersionRequest(status: ManualStatus, changeNotes: string) {
   if (!version.value) return null
-  const manualStatus = sections.value.some((section) => section.status === 'REVIEW') ? 'REVIEW' : status
+  const hasSectionInReview = sections.value.some((section) => section.status === 'REVIEW')
+  const manualStatus = hasSectionInReview ? 'REVIEW' : status === 'REVIEW' ? 'APPROVED' : status
   return versionRequestFromEditor({
     versionNumber: version.value.versionNumber,
     status: manualStatus,
@@ -915,6 +951,14 @@ function buildVersionRequest(status: ManualStatus, changeNotes: string) {
 
 function hasLanguageBlocks(language: LanguageCode) {
   return sections.value.some((section) => section.blocks.some((block) => block.languageCode === language))
+}
+
+function sectionHasSpanish(section: EditorSection) {
+  return Boolean(section.titleEs?.trim()) || section.blocks.some((block) => block.languageCode === 'ES')
+}
+
+function sectionHasEnglish(section: EditorSection) {
+  return Boolean(section.titleEn?.trim()) || section.blocks.some((block) => block.languageCode === 'EN')
 }
 
 function localDraftKey() {
@@ -1033,6 +1077,101 @@ async function save() {
     setTimeout(() => { saved.value = false }, 2000)
   } finally {
     saving.value = false
+  }
+}
+
+function syncSectionsFromCurrentManual() {
+  sections.value = sectionsFromBackend(store.current?.activeVersion?.sections || [])
+  editorContentVersion.value += 1
+}
+
+async function saveAndReloadForTranslation() {
+  if (!manual.value || !version.value) return false
+  flushSectionEditors()
+  const request = buildVersionRequest(version.value.status, 'Guardado previo a traduccion automatica')
+  if (!request) return false
+  saving.value = true
+  try {
+    await store.saveVersion(manual.value.id, request)
+    syncSectionsFromCurrentManual()
+    clearLocalDraft()
+    hasUnsavedChanges.value = false
+    return true
+  } finally {
+    saving.value = false
+  }
+}
+
+async function openTranslationModal() {
+  if (!canTranslateToEnglish.value || translationLoading.value) return
+  translationError.value = ''
+  translationOverwriteExisting.value = false
+  translationMode.value = 'FULL_MANUAL'
+  translationProgressText.value = ''
+  if (hasUnsavedChanges.value) {
+    const savedDraft = await saveAndReloadForTranslation()
+    if (!savedDraft) return
+  } else {
+    flushSectionEditors()
+  }
+  translationSelectedSectionIds.value = selectedSectionId.value
+    ? translationSections.value.filter((section) => sections.value.find((item) => item.backendId === section.id)?.id === selectedSectionId.value).map((section) => section.id)
+    : []
+  translationModalOpen.value = true
+}
+
+function closeTranslationModal() {
+  if (!translationLoading.value) {
+    translationModalOpen.value = false
+  }
+}
+
+function toggleTranslationSection(sectionId: number, active: boolean) {
+  const selected = new Set(translationSelectedSectionIds.value)
+  if (active) selected.add(sectionId)
+  else selected.delete(sectionId)
+  translationSelectedSectionIds.value = Array.from(selected)
+}
+
+function toggleTranslationSectionFromEvent(sectionId: number, event: Event) {
+  toggleTranslationSection(sectionId, Boolean((event.target as HTMLInputElement | null)?.checked))
+}
+
+async function runEnglishTranslation() {
+  if (!version.value || translationLoading.value) return
+  const sectionIds = selectedTranslationSectionIds.value
+  if (translationMode.value === 'SELECTED_SECTIONS' && !sectionIds.length) {
+    translationError.value = 'Selecciona al menos una seccion.'
+    return
+  }
+
+  translationLoading.value = true
+  translationError.value = ''
+  translationProgressText.value = `Traduciendo 0 / ${sectionIds.length || translationSections.value.length} secciones...`
+  try {
+    const result = await translateManualVersionToEnglish(version.value.id, {
+      mode: translationMode.value,
+      sectionIds: translationMode.value === 'SELECTED_SECTIONS' ? sectionIds : undefined,
+      overwriteExisting: translationOverwriteExisting.value,
+    })
+    translationProgressText.value = `Traduciendo ${result.translatedSections + result.skippedSections} / ${sectionIds.length || translationSections.value.length} secciones...`
+    await store.fetchManual(Number(props.id))
+    syncSectionsFromCurrentManual()
+    selectedLanguage.value = 'EN'
+    if (languageMode.value !== 'BOTH') {
+      languageMode.value = 'EN'
+    }
+    clearLocalDraft()
+    hasUnsavedChanges.value = false
+    translationModalOpen.value = false
+    const partial = result.status === 'PARTIAL' || result.errors?.length
+    infoMessage.value = partial
+      ? `La traduccion se completo parcialmente. Secciones traducidas: ${result.translatedSections}. Secciones omitidas: ${result.skippedSections}.`
+      : `Traduccion completada. Secciones traducidas: ${result.translatedSections}. Bloques creados: ${result.translatedBlocks}.`
+  } catch (error) {
+    translationError.value = getApiError(error)
+  } finally {
+    translationLoading.value = false
   }
 }
 
@@ -1204,6 +1343,9 @@ function sectionTitle(section: EditorSection) {
       <button v-if="languageMode === 'EN'" class="btn btn-outline" :disabled="saving" @click="cloneSpanishToEnglish()">
         <Copy :size="14" /> Clonar del Español
       </button>
+      <button v-if="canTranslateToEnglish" class="btn btn-outline" :disabled="saving || translationLoading" @click="openTranslationModal">
+        <Languages :size="14" /> Traducir al ingles
+      </button>
       <dl class="top-properties">
         <div><dt>Versión</dt><dd>v{{ version?.versionNumber }}</dd></div>
         <div><dt>Estado</dt><dd>{{ version?.status }}</dd></div>
@@ -1373,6 +1515,67 @@ function sectionTitle(section: EditorSection) {
     </AppModal>
 
     <AppModal
+      v-if="translationModalOpen"
+      title="Traducir al ingles"
+      description="Puedes traducir todo el manual o seleccionar las secciones que deseas traducir. La traduccion se guardara en la version inglesa del editor respetando la estructura y la posicion visual de los bloques."
+      size="lg"
+      @close="closeTranslationModal"
+    >
+      <div class="translation-modal-body">
+        <div class="translation-mode-group">
+          <label class="translation-radio">
+            <input v-model="translationMode" type="radio" value="FULL_MANUAL" :disabled="translationLoading" />
+            <span>Todo el manual</span>
+          </label>
+          <label class="translation-radio">
+            <input v-model="translationMode" type="radio" value="SELECTED_SECTIONS" :disabled="translationLoading" />
+            <span>Seleccionar secciones</span>
+          </label>
+        </div>
+
+        <div v-if="translationMode === 'SELECTED_SECTIONS'" class="translation-section-list">
+          <label
+            v-for="section in translationSections"
+            :key="section.id"
+            class="translation-section-card"
+            :style="{ '--translation-indent': `${Math.max(0, section.level - 1) * 16}px` }"
+          >
+            <input
+              type="checkbox"
+              :checked="translationSelectedSectionIds.includes(section.id)"
+              :disabled="translationLoading"
+              @change="toggleTranslationSectionFromEvent(section.id, $event)"
+            />
+            <span>{{ section.number }}. {{ section.title }}</span>
+            <small v-if="section.hasEnglish">Tiene EN</small>
+          </label>
+        </div>
+
+        <div v-if="selectedTranslationHasEnglish" class="translation-existing-warning">
+          <strong>Algunas secciones ya tienen contenido en ingles.</strong>
+          <span>Quieres sobrescribirlas?</span>
+          <label class="translation-radio">
+            <input v-model="translationOverwriteExisting" type="radio" :value="false" :disabled="translationLoading" />
+            <span>Solo traducir secciones sin version inglesa</span>
+          </label>
+          <label class="translation-radio">
+            <input v-model="translationOverwriteExisting" type="radio" :value="true" :disabled="translationLoading" />
+            <span>Sobrescribir traduccion existente</span>
+          </label>
+        </div>
+
+        <p v-if="translationLoading" class="translation-progress">{{ translationProgressText || 'Traduciendo...' }}</p>
+        <p v-if="translationError" class="translation-error">{{ translationError }}</p>
+      </div>
+      <template #footer>
+        <button type="button" class="btn btn-outline" :disabled="translationLoading" @click="closeTranslationModal">Cancelar</button>
+        <button type="button" class="btn btn-primary" :disabled="translationLoading" @click="runEnglishTranslation">
+          {{ translationLoading ? 'Traduciendo...' : 'Traducir al ingles' }}
+        </button>
+      </template>
+    </AppModal>
+
+    <AppModal
       v-if="reusableSectionCandidate"
       title="Guardar como reutilizable"
       description="Indica el título con el que se guardará en la biblioteca."
@@ -1530,6 +1733,97 @@ function sectionTitle(section: EditorSection) {
 
 .danger-action:hover {
   background: #fef2f2;
+}
+
+.translation-modal-body {
+  display: grid;
+  gap: 14px;
+}
+
+.translation-mode-group,
+.translation-existing-warning {
+  display: grid;
+  gap: 10px;
+}
+
+.translation-radio {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.translation-radio input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--dikoin-blue);
+}
+
+.translation-section-list {
+  max-height: min(360px, 50vh);
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.translation-section-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px calc(12px + var(--translation-indent, 0px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.translation-section-card input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--dikoin-blue);
+}
+
+.translation-section-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.translation-section-card small {
+  color: var(--dikoin-blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.translation-existing-warning {
+  padding: 12px;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.translation-existing-warning > span {
+  font-size: 13px;
+}
+
+.translation-progress {
+  margin: 0;
+  color: var(--dikoin-blue);
+  font-weight: 700;
+}
+
+.translation-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 600;
 }
 
 .editor-toolbar-dock {

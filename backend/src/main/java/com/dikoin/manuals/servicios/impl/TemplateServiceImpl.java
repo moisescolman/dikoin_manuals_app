@@ -18,6 +18,7 @@ import com.dikoin.manuals.repositorios.TemplateVersionRepository;
 import com.dikoin.manuals.servicios.AssetStorageService;
 import com.dikoin.manuals.servicios.TemplateService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -36,6 +37,7 @@ public class TemplateServiceImpl implements TemplateService {
     private final AssetRepository assetRepository;
     private final AssetStorageService assetStorageService;
     private final TemplateMapper templateMapper;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     @Transactional(readOnly = true)
@@ -81,6 +83,21 @@ public class TemplateServiceImpl implements TemplateService {
         Template template = findTemplate(id);
         templateRepository.findAll().forEach(t -> t.setActive(t.getId().equals(id)));
         return templateMapper.toResponse(template);
+    }
+
+    @Override
+    @Transactional
+    public void delete(Long id) {
+        Template template = findTemplate(id);
+        if (template.isSystemDefault()) {
+            throw new ApiException("La plantilla por defecto no se puede eliminar");
+        }
+        if (template.isActive()) {
+            throw new ApiException("No se puede eliminar la plantilla activa");
+        }
+        jdbcTemplate.update("DELETE FROM template_assets WHERE template_id = ?", id);
+        templateVersionRepository.deleteAll(templateVersionRepository.findByTemplateIdOrderByCreatedAtDesc(id));
+        templateRepository.delete(template);
     }
 
     @Override

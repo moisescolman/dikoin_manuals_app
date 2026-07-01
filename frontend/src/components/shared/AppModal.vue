@@ -4,7 +4,7 @@ import { X } from '@lucide/vue'
 defineProps<{
   title: string
   description?: string
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }>()
 
 const emit = defineEmits<{
@@ -21,9 +21,12 @@ const emit = defineEmits<{
             <h2>{{ title }}</h2>
             <p v-if="description">{{ description }}</p>
           </div>
-          <button type="button" class="app-modal-close" title="Cerrar" @click="emit('close')">
-            <X :size="17" />
-          </button>
+          <div class="app-modal-header-actions">
+            <slot name="header-actions" />
+            <button type="button" class="app-modal-close" title="Cerrar" @click="emit('close')">
+              <X :size="17" />
+            </button>
+          </div>
         </header>
         <div v-if="$slots.default" class="app-modal-body">
           <slot />
@@ -61,6 +64,7 @@ const emit = defineEmits<{
 
 .app-modal-card.sm { width: min(100%, 420px); }
 .app-modal-card.lg { width: min(100%, 820px); }
+.app-modal-card.xl { width: min(100%, 1420px); }
 
 .app-modal-header {
   display: flex;
@@ -73,6 +77,12 @@ const emit = defineEmits<{
 .app-modal-header h2 {
   margin: 0;
   font-size: 17px;
+}
+
+.app-modal-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .app-modal-header p {

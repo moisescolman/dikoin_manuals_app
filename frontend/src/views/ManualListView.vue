@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Ban, Download, Edit, Eye, History, Plus, Search, Trash2, FileText } from '@lucide/vue'
+import { Archive, Edit, Eye, History, Plus, Search, Trash2, FileText } from '@lucide/vue'
 import { downloadExportPdf, exportManualPdf } from '@/api/exports.api'
 import { getApiError } from '@/api/http'
 import BackendError from '@/components/shared/BackendError.vue'
@@ -30,6 +30,7 @@ const bulkNotice = ref({ type: 'WARNING', title: '', content: '' })
 const bulkStatus = ref<ManualStatus>('REVIEW')
 const statusMessage = ref('')
 const deleteCandidate = ref<number | null>(null)
+const publishCandidate = ref<number | null>(null)
 
 onMounted(() => store.fetchManuals(search.value))
 watch(search, (value) => {
@@ -96,13 +97,29 @@ async function deleteManual(id: number | null) {
 
 async function changeRowStatus(id: number, status: ManualStatus) {
   statusMessage.value = ''
+  if (status === 'PUBLISHED') {
+    publishCandidate.value = id
+    return
+  }
   await store.updateStatus(id, status, `Cambio rapido de estado a ${status}`)
   statusMessage.value = `Estado actualizado a ${status}`
 }
 
-async function disableManualById(id: number) {
-  await store.updateEnabled(id, false)
-  disabledMessage.value = 'Manual deshabilitado.'
+async function archiveManualById(id: number) {
+  await store.updateStatus(id, 'ARCHIVED', 'Manual archivado desde listado')
+  disabledMessage.value = 'Manual archivado.'
+}
+
+async function confirmPublish(generatePdf: boolean) {
+  if (!publishCandidate.value) return
+  const id = publishCandidate.value
+  publishCandidate.value = null
+  statusMessage.value = ''
+  await store.updateStatus(id, 'PUBLISHED', 'Manual publicado desde listado')
+  statusMessage.value = 'Manual publicado.'
+  if (generatePdf) {
+    await exportPdf(id)
+  }
 }
 
 async function changeSelectedStatus() {
@@ -127,7 +144,7 @@ function closeSuggestionsLater() {
 }
 
 function statusFromQuery(value: unknown): StatusFilter {
-  return ['DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED', 'DEACTIVATED'].includes(String(value))
+  return ['DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED'].includes(String(value))
     ? String(value) as ManualStatus
     : 'ALL'
 }
@@ -198,7 +215,6 @@ function syncFiltersToRoute() {
         <option value="APPROVED">Aprobado</option>
         <option value="PUBLISHED">Publicado</option>
         <option value="ARCHIVED">Archivado</option>
-        <option value="DEACTIVATED">Dado de baja</option>
       </select>
       <select v-model="langFilter" class="field">
         <option value="ALL">Todos los idiomas</option>
@@ -217,7 +233,6 @@ function syncFiltersToRoute() {
         <option value="APPROVED">Aprobado</option>
         <option value="PUBLISHED">Publicado</option>
         <option value="ARCHIVED">Archivado</option>
-        <option value="DEACTIVATED">Dado de baja</option>
       </select>
       <button class="btn btn-outline" @click="changeSelectedStatus">Aplicar estado</button>
       <button class="btn btn-outline" @click="bulkNoticeOpen = !bulkNoticeOpen">Agregar aviso/nota</button>
@@ -248,7 +263,7 @@ function syncFiltersToRoute() {
         <tbody>
           <tr v-if="store.loading"><td colspan="9">Cargando manuales...</td></tr>
           <tr v-else-if="!filtered.length"><td colspan="9">No hay manuales para mostrar.</td></tr>
-          <tr v-for="manual in filtered" :key="manual.id">
+          <tr v-for="manual in filtered" :key="manual.id" :class="{ archived: manual.activeStatus === 'ARCHIVED' }">
             <td><input type="checkbox" :checked="selected.includes(manual.id)" @change="toggle(manual.id)" /></td>
             <td class="mono">{{ manual.code }}</td>
             <td class="mono">{{ manual.documentTypeCode || '-' }}</td>
@@ -265,7 +280,6 @@ function syncFiltersToRoute() {
                   <option value="APPROVED">Aprobado</option>
                   <option value="PUBLISHED">Publicado</option>
                   <option value="ARCHIVED">Archivado</option>
-                  <option value="DEACTIVATED">Dado de baja</option>
                 </select>
                 <button title="Ver" @click="router.push({ name: 'manual-detail', params: { id: manual.id } })"><Eye :size="14" /></button>
                 <button class="lang-action" title="Ver español" @click="router.push({ name: 'manual-detail', params: { id: manual.id }, query: { lang: 'ES' } })">ES</button>
@@ -273,7 +287,7 @@ function syncFiltersToRoute() {
                 <button title="Editar" @click="router.push({ name: 'manual-editor', params: { id: manual.id } })"><Edit :size="14" /></button>
                 <button title="Exportar PDF" :disabled="exportingIds.includes(manual.id)" @click="exportPdf(manual.id)"><FileText :size="14" /></button>
                 <button title="Historial" @click="router.push({ name: 'history', params: { id: manual.id } })"><History :size="14" /></button>
-                <button title="Deshabilitar" @click="disableManualById(manual.id)"><Ban :size="14" /></button>
+                <button title="Archivar" @click="archiveManualById(manual.id)"><Archive :size="14" /></button>
                 <button title="Eliminar" @click="deleteCandidate = manual.id"><Trash2 :size="14" /></button>
               </div>
             </td>

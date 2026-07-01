@@ -258,6 +258,24 @@ export interface ManualBlockRequest {
   reusableFragmentId?: number
 }
 
+export type ManualTranslationMode = 'FULL_MANUAL' | 'SELECTED_SECTIONS'
+
+export interface ManualTranslationRequest {
+  mode: ManualTranslationMode
+  sectionIds?: number[]
+  overwriteExisting?: boolean
+}
+
+export interface ManualTranslationResponse {
+  status: 'COMPLETED' | 'PARTIAL' | 'FAILED'
+  manualVersionId: number
+  targetLanguage: LanguageCode
+  translatedSections: number
+  translatedBlocks: number
+  skippedSections: number
+  errors: string[]
+}
+
 export interface AssetResponse {
   id: number
   originalFilename: string
@@ -312,7 +330,9 @@ export interface TemplateResponse {
   logoUrl?: string
   headerConfigJson?: string
   footerConfigJson?: string
+  layoutConfigJson?: string
   active: boolean
+  systemDefault?: boolean
   createdAt?: string
   updatedAt?: string
 }

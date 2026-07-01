@@ -51,7 +51,12 @@ public class Template {
     @Column(columnDefinition = "LONGTEXT")
     private String footerConfigJson;
 
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String layoutConfigJson;
+
     private boolean active;
+    private boolean systemDefault;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

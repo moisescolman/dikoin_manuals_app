@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getApiError } from '@/api/http'
-import { activateTemplate, createTemplate, getActiveTemplate, getTemplates, updateTemplate, uploadTemplateLogo } from '@/api/templates.api'
+import { activateTemplate, createTemplate, deleteTemplate, getActiveTemplate, getTemplates, updateTemplate, uploadTemplateLogo } from '@/api/templates.api'
 import type { TemplateResponse } from '@/types/api'
 
 export const useTemplatesStore = defineStore('templates', () => {
@@ -48,5 +48,10 @@ export const useTemplatesStore = defineStore('templates', () => {
     return updated
   }
 
-  return { templates, active, loading, error, fetchTemplates, saveTemplate, addTemplate, setActive, uploadLogo }
+  async function removeTemplate(id: number) {
+    await deleteTemplate(id)
+    await fetchTemplates()
+  }
+
+  return { templates, active, loading, error, fetchTemplates, saveTemplate, addTemplate, setActive, uploadLogo, removeTemplate }
 })

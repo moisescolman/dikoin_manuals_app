@@ -13,6 +13,7 @@ public record TemplateRequest(
         Long logoAssetId,
         String headerConfigJson,
         String footerConfigJson,
+        String layoutConfigJson,
         boolean active
 ) {
 }

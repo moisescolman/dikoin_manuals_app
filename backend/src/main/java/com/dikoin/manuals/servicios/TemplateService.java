@@ -14,6 +14,7 @@ public interface TemplateService {
     TemplateResponse create(TemplateRequest request);
     TemplateResponse update(Long id, TemplateRequest request);
     TemplateResponse activate(Long id);
+    void delete(Long id);
     TemplateResponse uploadLogo(Long id, MultipartFile file);
     List<TemplateVersionResponse> findVersions(Long templateId);
     TemplateVersionResponse createVersion(Long templateId, TemplateVersionRequest request);

@@ -15,7 +15,9 @@ public record TemplateResponse(
         String logoUrl,
         String headerConfigJson,
         String footerConfigJson,
+        String layoutConfigJson,
         boolean active,
+        boolean systemDefault,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

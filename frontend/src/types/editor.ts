@@ -225,10 +225,10 @@ export function blockContentToJson(block: EditorBlock): string {
 export function sectionsFromBackend(sections: ManualSectionResponse[] = []): EditorSection[] {
   return sections.map((section, index) => ({
     id: randomId('section'),
-    backendId: section.id,
+    backendId: positiveId(section.id),
     sortOrder: section.sortOrder ?? index + 1,
     sectionNumber: section.sectionNumber,
-    parentSectionId: section.parentSectionId,
+    parentSectionId: positiveId(section.parentSectionId),
     linkedReusableSectionId: section.linkedReusableSectionId,
     level: section.level || 1,
     titleEs: section.titleEs,
@@ -236,9 +236,9 @@ export function sectionsFromBackend(sections: ManualSectionResponse[] = []): Edi
     status: normalizeSectionStatus(section.completionStatus),
     visible: section.visible !== false,
     collapsed: false,
-    blocks: section.blocks.map((block) => ({
+    blocks: section.blocks.filter((block) => !isDefaultInitialBlock(block)).map((block) => ({
       id: randomId('block'),
-      backendId: block.id,
+      backendId: positiveId(block.id),
       type: contentTypeFromJson(block.contentJson) || backendBlockTypeToEditor(block.blockType),
       content: parseContent(block),
       languageCode: block.languageCode,
@@ -264,10 +264,10 @@ export function versionRequestFromEditor(params: {
     enReady: params.enReady,
     changeNotes: params.changeNotes,
     sections: params.sections.map((section, sectionIndex) => ({
-      id: section.backendId,
+      id: positiveId(section.backendId),
       sortOrder: sectionIndex + 1,
       sectionNumber: section.sectionNumber || String(sectionIndex + 1),
-      parentSectionId: section.parentSectionId,
+      parentSectionId: positiveId(section.parentSectionId),
       linkedReusableSectionId: section.linkedReusableSectionId,
       level: section.level,
       titleEs: section.titleEs,
@@ -275,7 +275,7 @@ export function versionRequestFromEditor(params: {
       completionStatus: section.status,
       visible: section.visible,
       blocks: section.blocks.map((block, blockIndex) => ({
-        id: block.backendId,
+        id: positiveId(block.backendId),
         sortOrder: blockIndex + 1,
         blockType: editorBlockTypeToBackend(block.type),
         languageCode: block.languageCode,
@@ -289,10 +289,25 @@ export function versionRequestFromEditor(params: {
   }
 }
 
+function positiveId(value: unknown): number | undefined {
+  const id = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(id) && id > 0 ? id : undefined
+}
+
+function isDefaultInitialBlock(block: ManualBlockResponse) {
+  if (block.blockType !== 'PARAGRAPH') return false
+  try {
+    const parsed = JSON.parse(block.contentJson)
+    const text = String(parsed?.text || '').trim()
+    return text === 'Contenido inicial del manual.' || text === 'Initial manual content.'
+  } catch {
+    return false
+  }
+}
+
 function normalizeSectionStatus(status?: string): EditorSection['status'] {
   const normalized = String(status || '').toUpperCase()
   if (normalized === 'REVIEWED' || normalized === 'REVIEW') return 'REVIEW'
-  if (normalized === 'DRAFT' || normalized === 'PENDING' || normalized === 'IMPORTED') return 'REVIEW'
   return 'APPROVED'
 }
 

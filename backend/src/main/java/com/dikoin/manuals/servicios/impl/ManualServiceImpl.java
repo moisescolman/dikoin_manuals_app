@@ -149,12 +149,12 @@ public class ManualServiceImpl implements ManualService {
                         .build());
 
         version.setVersionNumber(request.versionNumber());
-        version.setStatus(request.status() == null ? ManualStatus.DRAFT : request.status());
         version.setActive(request.active());
         version.setEsReady(request.esReady());
         version.setEnReady(request.enReady());
         version.setChangeNotes(request.changeNotes());
         mergeSections(version, request.sections() == null ? List.of() : request.sections());
+        version.setStatus(resolveVersionStatus(request.status(), version));
         recalculateSectionNumbers(version);
 
         if (request.active()) {
@@ -163,6 +163,18 @@ public class ManualServiceImpl implements ManualService {
 
         ManualVersion saved = manualVersionRepository.save(version);
         return manualMapper.toVersionResponse(saved, true);
+    }
+
+    private ManualStatus resolveVersionStatus(ManualStatus requestedStatus, ManualVersion version) {
+        boolean hasSectionInReview = version.getSections().stream()
+                .anyMatch(section -> "REVIEW".equalsIgnoreCase(section.getCompletionStatus()));
+        if (hasSectionInReview) {
+            return ManualStatus.REVIEW;
+        }
+        if (requestedStatus == null) {
+            return ManualStatus.DRAFT;
+        }
+        return requestedStatus == ManualStatus.REVIEW ? ManualStatus.APPROVED : requestedStatus;
     }
 
     @Override
@@ -329,19 +341,10 @@ public class ManualServiceImpl implements ManualService {
                 .manualVersion(version)
                 .sortOrder(1)
                 .sectionNumber("1")
-                .titleEs("Introduccion")
-                .titleEn(initialLanguage == LanguageCode.EN ? "Introduction" : null)
+                .titleEs("")
+                .titleEn(initialLanguage == LanguageCode.EN ? "" : null)
                 .completionStatus("PENDING")
                 .build();
-        String initialText = initialLanguage == LanguageCode.EN ? "Initial manual content." : "Contenido inicial del manual.";
-        String initialContent = "{\"type\":\"paragraph\",\"text\":\"" + initialText + "\"}";
-        section.getBlocks().add(ManualBlock.builder()
-                .section(section)
-                .sortOrder(1)
-                .blockType(com.dikoin.manuals.enums.BlockType.PARAGRAPH)
-                .languageCode(initialLanguage)
-                .contentJson(initialContent)
-                .build());
         version.getSections().add(section);
         return manualVersionRepository.save(version);
     }
@@ -391,7 +394,7 @@ public class ManualServiceImpl implements ManualService {
             section.setLinkedReusableSection(linkedReusableSection);
             section.setVisible(request.visible() == null || request.visible());
             if (linkedReusableSection == null) {
-                section.setTitleEs(request.titleEs());
+                section.setTitleEs(request.titleEs() == null ? "" : request.titleEs());
                 section.setTitleEn(request.titleEn());
                 mergeBlocks(section, request.blocks() == null ? List.of() : request.blocks());
             } else {

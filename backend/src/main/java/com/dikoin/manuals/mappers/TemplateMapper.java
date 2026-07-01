@@ -26,7 +26,9 @@ public class TemplateMapper {
                 logoAssetId != null ? "/api/v1/assets/" + logoAssetId + "/file" : null,
                 template.getHeaderConfigJson(),
                 template.getFooterConfigJson(),
+                template.getLayoutConfigJson(),
                 template.isActive(),
+                template.isSystemDefault(),
                 template.getCreatedAt(),
                 template.getUpdatedAt()
         );
@@ -49,6 +51,7 @@ public class TemplateMapper {
         template.setLogoAsset(logoAsset);
         template.setHeaderConfigJson(request.headerConfigJson());
         template.setFooterConfigJson(request.footerConfigJson());
+        template.setLayoutConfigJson(request.layoutConfigJson());
         template.setActive(request.active());
     }
 

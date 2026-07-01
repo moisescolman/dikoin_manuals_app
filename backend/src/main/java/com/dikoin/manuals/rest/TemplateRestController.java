@@ -44,6 +44,11 @@ public class TemplateRestController {
         return templateService.activate(id);
     }
 
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id) {
+        templateService.delete(id);
+    }
+
     @PostMapping("/{id}/logo")
     public TemplateResponse uploadLogo(@PathVariable Long id, @RequestParam MultipartFile file) {
         return templateService.uploadLogo(id, file);

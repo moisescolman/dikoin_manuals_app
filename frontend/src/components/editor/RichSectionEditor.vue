@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -163,6 +163,7 @@ const showFragmentInsertModal = ref(false)
 const showSectionInsertModal = ref(false)
 const showSectionLanguageWarningModal = ref(false)
 const showUnlinkSectionModal = ref(false)
+const showReviewVisibilityModal = ref(false)
 const showEquationModal = ref(false)
 const showMoveModal = ref(false)
 const showSelectionMismatchModal = ref(false)
@@ -1103,6 +1104,21 @@ function confirmUnlinkSection() {
 
 function patchTitle(value: string) {
   patch(props.language === 'EN' ? { titleEn: value } : { titleEs: value })
+}
+
+async function toggleReviewMode() {
+  if (props.section.status === 'REVIEW') {
+    patch({ status: 'APPROVED', visible: true })
+    return
+  }
+  patch({ status: 'REVIEW' })
+  await nextTick()
+  showReviewVisibilityModal.value = true
+}
+
+function enableReviewMode(visible: boolean) {
+  patch({ visible })
+  showReviewVisibilityModal.value = false
 }
 
 function syncEditorToSection() {
@@ -3223,17 +3239,18 @@ function imageAssetId(node: JSONContent) {
         <Link2 :size="15" />
       </button>
       <input class="section-title-input" :value="sectionTitle" placeholder="Título de sección" @input="patchTitle(($event.target as HTMLInputElement).value)" />
-      <select
-        class="section-control status-control"
-        :class="section.status === 'REVIEW' ? 'review' : 'approved'"
-        :value="section.status"
-        title="Estado de la sección"
-        @click.stop
-        @change="patch({ status: ($event.target as HTMLSelectElement).value as EditorSection['status'] })"
+      <button
+        type="button"
+        class="section-review-switch"
+        :class="{ active: section.status === 'REVIEW' }"
+        :aria-pressed="section.status === 'REVIEW'"
+        :title="section.status === 'REVIEW' ? 'Cambiar a válido' : 'Cambiar a revisión'"
+        @click.stop="toggleReviewMode"
+        @mousedown.stop
       >
-        <option value="REVIEW">Revisión</option>
-        <option value="APPROVED">Aprobado</option>
-      </select>
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span>{{ section.status === 'REVIEW' ? 'Revisión' : 'Válido' }}</span>
+      </button>
       <button
         class="visibility-toggle"
         :class="{ hidden: !section.visible }"
@@ -3559,6 +3576,19 @@ function imageAssetId(node: JSONContent) {
       <template #footer>
         <button type="button" class="btn btn-outline" @click="showUnlinkSectionModal = false">Cancelar</button>
         <button type="button" class="btn btn-primary" @click="confirmUnlinkSection">Desvincular</button>
+      </template>
+    </AppModal>
+
+    <AppModal
+      v-if="showReviewVisibilityModal"
+      title="Revisión activada"
+      description="¿Quieres dejar esta sección visible u oculta mientras está en revisión?"
+      size="sm"
+      @close="showReviewVisibilityModal = false"
+    >
+      <template #footer>
+        <button type="button" class="btn btn-outline" @click="enableReviewMode(false)">Ocultar sección</button>
+        <button type="button" class="btn btn-primary" @click="enableReviewMode(true)">Dejar visible</button>
       </template>
     </AppModal>
 
@@ -5393,19 +5423,51 @@ function imageAssetId(node: JSONContent) {
   font-size: 11px;
 }
 
-.status-control {
-  min-width: 98px;
-  border-color: transparent;
+.section-review-switch {
+  border: 0;
+  background: rgba(255, 255, 255, .16);
   color: #fff;
+  border-radius: 999px;
+  padding: 3px 8px 3px 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
   font-weight: 700;
+  cursor: pointer;
 }
 
-.status-control.review {
-  background: #f59e0b;
+.section-review-switch .switch-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .34);
+  position: relative;
+  transition: background .15s ease;
 }
 
-.status-control.approved {
-  background: #00bbff;
+.section-review-switch .switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, .25);
+  transition: transform .15s ease;
+}
+
+.section-review-switch.active .switch-track {
+  background: #d9943b;
+}
+
+.section-review-switch.active .switch-thumb {
+  transform: translateX(16px);
+}
+
+.section-review-switch:hover {
+  background: rgba(255, 255, 255, .24);
 }
 
 .section-control option {

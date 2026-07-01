@@ -4,6 +4,8 @@ import type {
   ManualDetailResponse,
   ManualStatus,
   ManualSummaryResponse,
+  ManualTranslationRequest,
+  ManualTranslationResponse,
   ManualVersionRequest,
   ManualVersionResponse,
 } from '@/types/api'
@@ -30,6 +32,13 @@ export async function createManual(request: ManualCreateRequest) {
 
 export async function saveManualVersion(manualId: number, request: ManualVersionRequest) {
   const { data } = await http.put<ManualVersionResponse>(`/manuals/${manualId}/versions`, request)
+  return data
+}
+
+export async function translateManualVersionToEnglish(versionId: number, request: ManualTranslationRequest) {
+  const { data } = await http.post<ManualTranslationResponse>(`/manual-versions/${versionId}/translate/en`, request, {
+    timeout: 180000,
+  })
   return data
 }
 

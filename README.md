@@ -40,6 +40,16 @@ spring.datasource.username=root
 spring.datasource.password=1234
 ```
 
+Traduccion automatica con Gemini API:
+
+```env
+GEMINI_API_KEY=tu_clave_de_google_ai_studio
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_ENABLED=true
+```
+
+La clave de Gemini debe configurarse como variable de entorno local o del servidor. No debe guardarse en Git ni escribirse directamente en `application.properties`.
+
 El backend se ejecuta desde Eclipse/Spring Boot y expone la API en:
 
 ```text
