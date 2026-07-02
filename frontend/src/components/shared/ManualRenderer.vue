@@ -968,7 +968,7 @@ function contentPageForBlock(blockId: number) {
         <p>{{ manual.productCode }} · {{ manual.productName }}</p>
         <span>v{{ manual.activeVersion?.versionNumber }} · {{ activeLanguage() }}</span>
       </div>
-      <footer v-if="layoutConfig().cover.showDate || layoutConfig().footer.showPageNumber" class="paper-footer">{{ layoutConfig().footer.showPageNumber ? '1' : '' }}</footer>
+      <footer v-if="layoutConfig().cover.showDate" class="paper-footer"></footer>
     </article>
 
     <article class="manual-page toc-page">
@@ -991,7 +991,6 @@ function contentPageForBlock(blockId: number) {
           </li>
         </ol>
       </main>
-      <footer v-if="layoutConfig().footer.enabled" class="paper-footer">{{ layoutConfig().footer.showPageNumber ? '2' : '' }}</footer>
     </article>
 
     <article v-for="(pageUnits, pageIndex) in contentPages" :key="pageIndex" class="manual-page">
@@ -1266,7 +1265,8 @@ function contentPageForBlock(blockId: number) {
 }
 
 .manual-page {
-  width: min(210mm, 100%);
+  width: 210mm;
+  min-width: 210mm;
   min-height: 297mm;
   padding: var(--tpl-margin-top, 14mm) var(--tpl-margin-right, 14mm) var(--tpl-margin-bottom, 14mm) var(--tpl-margin-left, 14mm);
   background: var(--tpl-page-bg, #fff);

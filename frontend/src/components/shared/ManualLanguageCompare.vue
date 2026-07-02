@@ -81,7 +81,8 @@ function syncScroll(source: HTMLElement | null, target: HTMLElement | null) {
 }
 
 .compare-pane :deep(.manual-page) {
-  width: min(170mm, 100%);
+  width: 210mm;
+  min-width: 210mm;
 }
 
 @media (max-width: 1100px) {

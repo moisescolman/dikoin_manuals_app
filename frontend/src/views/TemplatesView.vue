@@ -158,6 +158,7 @@ const logoSrc = computed(() => withVersion(rawLogoSrc.value))
 const canUploadLogo = computed(() => Boolean(form.id && !saving.value && !uploadingLogo.value))
 const selectedPreviewConfig = computed(() => parseLayoutConfig(selectedTemplate.value?.layoutConfigJson, selectedTemplate.value))
 const selectedPreviewLogo = computed(() => withVersion(templateLogoSource(selectedTemplate.value)))
+const activeTemplateCount = computed(() => store.templates.filter((template) => template.active).length)
 
 onMounted(async () => {
   await store.fetchTemplates()
@@ -462,6 +463,11 @@ async function toggleTemplateActive(template: TemplateResponse) {
     await activate(template)
     return
   }
+  if (activeTemplateCount.value <= 1) {
+    localError.value = ''
+    savedMessage.value = 'Debe quedar al menos una plantilla activa.'
+    return
+  }
   activating.value = template.id
   savedMessage.value = ''
   localError.value = ''
@@ -474,6 +480,10 @@ async function toggleTemplateActive(template: TemplateResponse) {
   } finally {
     activating.value = null
   }
+}
+
+function canDeactivateTemplate(template: TemplateResponse) {
+  return !template.active || activeTemplateCount.value > 1
 }
 
 async function uploadLogo(event: Event) {
@@ -664,8 +674,8 @@ function formatDate(value?: string) {
                     :class="{ active: template.active }"
                     :aria-pressed="template.active"
                     :aria-label="template.active ? 'Desactivar plantilla' : 'Activar plantilla'"
-                    :title="template.active ? 'Desactivar plantilla' : 'Activar plantilla'"
-                    :disabled="activating === template.id"
+                    :title="template.active && !canDeactivateTemplate(template) ? 'Debe quedar al menos una plantilla activa' : template.active ? 'Desactivar plantilla' : 'Activar plantilla'"
+                    :disabled="activating === template.id || !canDeactivateTemplate(template)"
                     @click.stop="toggleTemplateActive(template)"
                   >
                     <span></span>
@@ -711,26 +721,42 @@ function formatDate(value?: string) {
 
           <div class="mini-paper-wrap">
             <div class="paper mini" :style="previewStyles(selectedPreviewConfig)">
-              <div v-if="previewView === 'cover'" class="cover-page" :class="`align-${selectedPreviewConfig.cover.alignment}`">
-                <div v-if="selectedPreviewConfig.cover.showLogo" class="cover-logo" :class="`pos-${selectedPreviewConfig.cover.logoPosition}`">
-                  <img v-if="selectedPreviewLogo" :src="selectedPreviewLogo" alt="Logo plantilla" />
-                  <span v-else>DIKOIN</span>
+              <div v-if="previewView === 'cover'" class="cover-page manual-preview-page">
+                <div class="cover-mark">
+                  <div v-if="selectedPreviewConfig.cover.showLogo" class="cover-logo" :class="{ 'logo-image': selectedPreviewLogo }">
+                    <img v-if="selectedPreviewLogo" :src="selectedPreviewLogo" alt="Logo plantilla" />
+                    <span v-else>DK</span>
+                  </div>
+                  <strong v-if="selectedPreviewConfig.header.showCompanyName">DIKOIN</strong>
                 </div>
-                <div class="cover-main">
-                  <p v-if="selectedPreviewConfig.cover.showProductCode" class="cover-code">DMP-HY100-2501</p>
+                <div class="cover-content">
+                  <div v-if="selectedPreviewConfig.cover.showProductImage" class="cover-product">
+                    <div class="product-placeholder"><ImageIcon :size="64" /></div>
+                  </div>
+                  <p v-if="selectedPreviewConfig.cover.showProductCode" class="manual-code">DMP-HY100-2501</p>
                   <h2>Manual técnico</h2>
                   <p class="cover-subtitle">Bomba hidráulica industrial</p>
                   <small v-if="selectedPreviewConfig.cover.showDocumentVersion">Versión 01.3 · ES</small>
                 </div>
-                <div v-if="selectedPreviewConfig.cover.showProductImage" class="product-placeholder" :class="`product-${selectedPreviewConfig.cover.productImagePosition}`">
+                <div v-if="false" class="product-placeholder" :class="`product-${selectedPreviewConfig.cover.productImagePosition}`">
                   <ImageIcon :size="44" />
                 </div>
-                <footer v-if="selectedPreviewConfig.cover.showDate">Julio 2026</footer>
+                <footer v-if="selectedPreviewConfig.cover.showDate" class="paper-footer"></footer>
               </div>
 
-              <div v-else-if="previewView === 'index'" class="index-page">
-                <h2>{{ selectedPreviewConfig.index.title }}</h2>
-                <ol class="toc-list" :class="{ dotted: selectedPreviewConfig.index.dottedLeaders }">
+              <div v-else-if="previewView === 'index'" class="toc-page manual-preview-page">
+                <header v-if="selectedPreviewConfig.header.enabled" class="paper-header">
+                  <div v-if="selectedPreviewConfig.header.showLogo" class="logo" :class="{ 'logo-image': selectedPreviewLogo }">
+                    <img v-if="selectedPreviewLogo" :src="selectedPreviewLogo" alt="Logo plantilla" />
+                    <span v-else>DK</span>
+                  </div>
+                  <strong v-if="selectedPreviewConfig.header.showCompanyName">DIKOIN</strong>
+                  <span v-if="selectedPreviewConfig.header.showManualCode">Ref.: DMP-HY100-2501 · ES · v01.3</span>
+                </header>
+                <div class="header-line"></div>
+                <main class="paper-content">
+                  <h1>{{ selectedPreviewConfig.index.title }}</h1>
+                <ol class="toc-list" :class="{ 'no-dots': !selectedPreviewConfig.index.dottedLeaders }">
                   <li><span>1. Seguridad</span><em>3</em></li>
                   <li class="level-2"><span>1.1 Señalización</span><em>4</em></li>
                   <li><span>2. Instalación</span><em>7</em></li>
@@ -738,15 +764,17 @@ function formatDate(value?: string) {
                   <li class="level-3"><span>2.1.1 Pares de apriete</span><em>10</em></li>
                   <li><span>3. Mantenimiento</span><em>14</em></li>
                 </ol>
+                </main>
               </div>
 
-              <div v-else class="content-page">
-                <header v-if="selectedPreviewConfig.header.enabled" class="doc-header">
+              <div v-else class="content-page manual-preview-page">
+                <header v-if="selectedPreviewConfig.header.enabled" class="paper-header">
                   <img v-if="selectedPreviewConfig.header.showLogo && selectedPreviewLogo" :src="selectedPreviewLogo" alt="Logo plantilla" />
                   <strong v-if="selectedPreviewConfig.header.showCompanyName">DIKOIN</strong>
-                  <span v-if="selectedPreviewConfig.header.showManualCode">DMP-HY100-2501</span>
+                  <span v-if="selectedPreviewConfig.header.showManualCode">Ref.: DMP-HY100-2501 · ES · v01.3</span>
                 </header>
-                <main>
+                <div class="header-line"></div>
+                <main class="paper-content">
                   <h2>1. Título de sección</h2>
                   <h3>1.1 Subtítulo técnico</h3>
                   <p>Contenido genérico del manual con indicaciones de montaje, revisión y mantenimiento preventivo del equipo.</p>
@@ -759,10 +787,8 @@ function formatDate(value?: string) {
                     </tbody>
                   </table>
                 </main>
-                <footer v-if="selectedPreviewConfig.footer.enabled" class="doc-footer">
-                  <span v-if="selectedPreviewConfig.footer.showContact">{{ selectedTemplate?.contactEmail || 'info@dikoin.com' }}</span>
-                  <span v-if="selectedPreviewConfig.footer.showWebsite">{{ selectedTemplate?.website || 'www.dikoin.com' }}</span>
-                  <span v-if="selectedPreviewConfig.footer.showPageNumber">Página 1</span>
+                <footer v-if="selectedPreviewConfig.footer.enabled" class="paper-footer">
+                  <span v-if="selectedPreviewConfig.footer.showPageNumber">3</span>
                 </footer>
               </div>
             </div>
@@ -953,27 +979,43 @@ function formatDate(value?: string) {
           </div>
           <div class="paper-wrap">
             <div class="paper" :style="previewStyles(formConfig)">
-              <div v-if="modalPreviewView === 'cover'" class="cover-page" :class="`align-${formConfig.cover.alignment}`">
-                <div v-if="formConfig.cover.showLogo" class="cover-logo" :class="`pos-${formConfig.cover.logoPosition}`">
+              <div v-if="modalPreviewView === 'cover'" class="cover-page manual-preview-page">
+                <div class="cover-mark">
+                  <div v-if="formConfig.cover.showLogo" class="cover-logo" :class="{ 'logo-image': logoSrc }">
                   <img v-if="logoSrc" :src="logoSrc" alt="Logo plantilla" />
-                  <span v-else>DIKOIN</span>
+                  <span v-else>DK</span>
+                  </div>
+                  <strong v-if="formConfig.header.showCompanyName">DIKOIN</strong>
                 </div>
-                <div class="cover-main">
-                  <p v-if="formConfig.cover.showProductCode" class="cover-code">DMP-HY100-2501</p>
+                <div class="cover-content">
+                  <div v-if="formConfig.cover.showProductImage" class="cover-product">
+                    <div class="product-placeholder"><ImageIcon :size="72" /></div>
+                  </div>
+                  <p v-if="formConfig.cover.showProductCode" class="manual-code">DMP-HY100-2501</p>
                   <h2>Manual técnico</h2>
                   <p class="cover-subtitle">Bomba hidráulica industrial</p>
                   <small v-if="formConfig.cover.showDocumentVersion">Versión 01.3 · ES</small>
                 </div>
-                <div v-if="formConfig.cover.showProductImage" class="product-placeholder" :class="`product-${formConfig.cover.productImagePosition}`">
+                <div v-if="false" class="product-placeholder" :class="`product-${formConfig.cover.productImagePosition}`">
                   <ImageIcon :size="72" />
                   <span>Imagen producto</span>
                 </div>
-                <footer v-if="formConfig.cover.showDate">Julio 2026</footer>
+                <footer v-if="formConfig.cover.showDate" class="paper-footer"></footer>
               </div>
 
-              <div v-else-if="modalPreviewView === 'index'" class="index-page">
-                <h2>{{ formConfig.index.title }}</h2>
-                <ol class="toc-list" :class="{ dotted: formConfig.index.dottedLeaders }">
+              <div v-else-if="modalPreviewView === 'index'" class="toc-page manual-preview-page">
+                <header v-if="formConfig.header.enabled" class="paper-header">
+                  <div v-if="formConfig.header.showLogo" class="logo" :class="{ 'logo-image': logoSrc }">
+                    <img v-if="logoSrc" :src="logoSrc" alt="Logo plantilla" />
+                    <span v-else>DK</span>
+                  </div>
+                  <strong v-if="formConfig.header.showCompanyName">DIKOIN</strong>
+                  <span v-if="formConfig.header.showManualCode">Ref.: DMP-HY100-2501 · ES · v01.3</span>
+                </header>
+                <div class="header-line"></div>
+                <main class="paper-content">
+                  <h1>{{ formConfig.index.title }}</h1>
+                <ol class="toc-list" :class="{ 'no-dots': !formConfig.index.dottedLeaders }">
                   <li><span>1. Seguridad</span><em>3</em></li>
                   <li class="level-2"><span>1.1 Señalización</span><em>4</em></li>
                   <li><span>2. Instalación</span><em>7</em></li>
@@ -981,15 +1023,17 @@ function formatDate(value?: string) {
                   <li class="level-3"><span>2.1.1 Pares de apriete</span><em>10</em></li>
                   <li><span>3. Mantenimiento</span><em>14</em></li>
                 </ol>
+                </main>
               </div>
 
-              <div v-else class="content-page">
-                <header v-if="formConfig.header.enabled" class="doc-header">
+              <div v-else class="content-page manual-preview-page">
+                <header v-if="formConfig.header.enabled" class="paper-header">
                   <img v-if="formConfig.header.showLogo && logoSrc" :src="logoSrc" alt="Logo plantilla" />
                   <strong v-if="formConfig.header.showCompanyName">DIKOIN</strong>
-                  <span v-if="formConfig.header.showManualCode">DMP-HY100-2501</span>
+                  <span v-if="formConfig.header.showManualCode">Ref.: DMP-HY100-2501 · ES · v01.3</span>
                 </header>
-                <main>
+                <div class="header-line"></div>
+                <main class="paper-content">
                   <h2>1. Título de sección</h2>
                   <h3>1.1 Subtítulo técnico</h3>
                   <p>Contenido genérico del manual con indicaciones de montaje, revisión, puesta en marcha y mantenimiento preventivo del equipo.</p>
@@ -1003,10 +1047,8 @@ function formatDate(value?: string) {
                   </table>
                   <p>La información de ejemplo reproduce el aspecto final de las páginas A4 del manual.</p>
                 </main>
-                <footer v-if="formConfig.footer.enabled" class="doc-footer">
-                  <span v-if="formConfig.footer.showContact">{{ form.contactEmail || 'info@dikoin.com' }}</span>
-                  <span v-if="formConfig.footer.showWebsite">{{ form.website || 'www.dikoin.com' }}</span>
-                  <span v-if="formConfig.footer.showPageNumber">Página 1</span>
+                <footer v-if="formConfig.footer.enabled" class="paper-footer">
+                  <span v-if="formConfig.footer.showPageNumber">3</span>
                 </footer>
               </div>
             </div>
@@ -1239,7 +1281,7 @@ function formatDate(value?: string) {
 
 .template-switch:disabled {
   opacity: .58;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 .preview-panel {
@@ -1340,9 +1382,145 @@ function formatDate(value?: string) {
 }
 
 .paper.mini {
-  transform: scale(.43);
+  transform: scale(.58);
   transform-origin: top center;
-  margin-bottom: calc(-297mm * .57);
+  margin-bottom: calc(-297mm * .42);
+}
+
+.manual-preview-page {
+  min-height: 297mm;
+  padding: var(--tpl-margin-top) var(--tpl-margin-right) var(--tpl-margin-bottom) var(--tpl-margin-left);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.cover-page.manual-preview-page {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.cover-mark {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.cover-content {
+  align-self: stretch;
+  display: grid;
+  grid-template-rows: minmax(250px, 1fr) auto auto;
+  gap: 22px;
+  align-items: end;
+  justify-items: center;
+  text-align: center;
+}
+
+.cover-content > h1,
+.cover-content > p:not(.manual-code),
+.cover-content > span {
+  display: none;
+}
+
+.cover-content h2 {
+  max-width: 620px;
+  margin: 0;
+  color: var(--tpl-secondary);
+  font-size: var(--tpl-cover-title-size);
+  line-height: 1.12;
+}
+
+.cover-content .cover-subtitle {
+  color: var(--tpl-primary);
+  font-size: var(--tpl-cover-subtitle-size);
+  font-weight: 600;
+  border-top: 1px solid var(--tpl-primary);
+  width: min(100%, 650px);
+  padding-top: 6px;
+}
+
+.cover-content small {
+  width: min(100%, 650px);
+  background: var(--tpl-primary);
+  color: #fff;
+  padding: 5px 10px;
+}
+
+.manual-code {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  justify-self: start;
+  align-self: end;
+  color: var(--tpl-muted) !important;
+  font-size: var(--tpl-cover-code-size);
+}
+
+.cover-product {
+  align-self: center;
+  width: 100%;
+  min-height: 250px;
+  display: grid;
+  place-items: center;
+}
+
+.cover-product .product-placeholder {
+  width: 88%;
+  min-height: 250px;
+}
+
+.toc-page.manual-preview-page,
+.content-page.manual-preview-page {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+}
+
+.paper-header {
+  min-height: var(--tpl-header-height);
+  background: var(--tpl-header-bg);
+  color: var(--tpl-header-text);
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.paper-header > img,
+.paper-header .logo {
+  width: 34mm;
+  height: 10mm;
+  object-fit: contain;
+}
+
+.paper-header span {
+  margin-left: auto;
+  color: var(--tpl-muted);
+  font-size: 11px;
+}
+
+.header-line {
+  height: 2px;
+  background: var(--tpl-header-border);
+  margin: 6px 0 18px;
+}
+
+.paper-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toc-page h1 {
+  margin: 0 0 22px;
+  color: var(--tpl-secondary);
+  font-size: var(--tpl-index-title-size);
+}
+
+.paper-footer {
+  justify-self: center;
+  align-self: end;
+  min-height: var(--tpl-footer-height);
+  min-width: 42px;
+  border-top: 1px solid var(--tpl-footer-border);
+  background: var(--tpl-footer-bg);
+  color: var(--tpl-footer-text);
+  padding: 3px 8px;
+  font-size: 11px;
 }
 
 .cover-page,
@@ -1622,6 +1800,88 @@ function formatDate(value?: string) {
   gap: 8mm;
   padding: 2mm 3mm;
   font-size: 10px;
+}
+
+.paper .manual-preview-page.cover-page {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0;
+}
+
+.paper .cover-mark {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.paper .cover-content {
+  align-self: stretch;
+  display: grid;
+  grid-template-rows: minmax(250px, 1fr) auto auto;
+  gap: 22px;
+  align-items: end;
+  justify-items: center;
+  text-align: center;
+  max-width: none;
+}
+
+.paper .cover-content > h1,
+.paper .cover-content > p:not(.manual-code),
+.paper .cover-content > span {
+  display: none;
+}
+
+.paper .cover-content h2 {
+  max-width: 620px;
+  margin: 0;
+  color: var(--tpl-secondary);
+  font-size: var(--tpl-cover-title-size);
+  line-height: 1.12;
+}
+
+.paper .cover-content .cover-subtitle {
+  margin: 0;
+  color: var(--tpl-primary);
+  font-size: var(--tpl-cover-subtitle-size);
+  font-weight: 600;
+  border-top: 1px solid var(--tpl-primary);
+  width: min(100%, 650px);
+  padding-top: 6px;
+}
+
+.paper .cover-content small {
+  width: min(100%, 650px);
+  background: var(--tpl-primary);
+  color: #fff;
+  padding: 5px 10px;
+}
+
+.paper .cover-product {
+  align-self: center;
+  width: 100%;
+  min-height: 250px;
+  display: grid;
+  place-items: center;
+}
+
+.paper .cover-product .product-placeholder {
+  position: static;
+  width: 88%;
+  min-height: 250px;
+}
+
+.paper .manual-code {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  justify-self: start;
+  align-self: end;
+  color: var(--tpl-muted) !important;
+  font-size: var(--tpl-cover-code-size);
+}
+
+.paper .toc-page h1 {
+  margin: 0 0 22px;
+  color: var(--tpl-secondary);
+  font-size: var(--tpl-index-title-size);
 }
 
 .template-editor {

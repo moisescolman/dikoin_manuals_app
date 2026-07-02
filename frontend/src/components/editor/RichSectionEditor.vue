@@ -430,8 +430,15 @@ const BlockSelection = Extension.create({
             const selectable = canToggleBlockSelection(blockId, state)
             const wrapper = document.createElement('span')
             const hovered = hoveredBlockId.value === blockId
-            wrapper.className = `block-checkbox-widget${selected ? ' selected' : ''}${hovered ? ' hovered' : ''}`
+            const imageAttrs = node.type.name === 'image' ? normalizeImageFlowAttrs(node.attrs) : null
+            wrapper.className = `block-checkbox-widget${imageAttrs ? ' image-checkbox-widget' : ''}${selected ? ' selected' : ''}${hovered ? ' hovered' : ''}`
             wrapper.contentEditable = 'false'
+            wrapper.dataset.blockId = blockId
+            if (imageAttrs) {
+              wrapper.style.setProperty('--checkbox-x', `${Math.max(0, imageAttrs.x - 10)}px`)
+              wrapper.style.setProperty('--checkbox-y', `${Math.max(0, imageAttrs.offsetY - 10)}px`)
+              wrapper.style.zIndex = String(imageAttrs.zIndex + 200)
+            }
             const input = document.createElement('input')
             input.type = 'checkbox'
             input.checked = selected
@@ -687,11 +694,19 @@ const editor = useEditor({
     },
     handleDOMEvents: {
       beforeinput: (_view, event) => {
+        if (blockSelectionMode.value) {
+          event.preventDefault()
+          return true
+        }
         if (!isInsideLinkedNote()) return false
         event.preventDefault()
         return true
       },
       paste: (_view, event) => {
+        if (blockSelectionMode.value) {
+          event.preventDefault()
+          return true
+        }
         if (isInsideLinkedNote()) {
           event.preventDefault()
           return true
@@ -703,6 +718,10 @@ const editor = useEditor({
         return true
       },
       keydown: (_view, event) => {
+        if (blockSelectionMode.value) {
+          event.preventDefault()
+          return true
+        }
         if (handleImageKeyboardMove(event)) return true
         if (!isInsideLinkedNote()) return false
         if (event.ctrlKey || event.metaKey || event.altKey) return false
@@ -713,6 +732,11 @@ const editor = useEditor({
       },
       mousedown: (_view, event) => {
         const target = event.target instanceof Element ? event.target : null
+        if (blockSelectionMode.value) {
+          if (target?.closest('.block-checkbox-widget')) return false
+          event.preventDefault()
+          return true
+        }
         if (event.button === 0 && target?.closest('[data-absolute-flow-image] img')) {
           event.preventDefault()
           return true
@@ -731,6 +755,12 @@ const editor = useEditor({
       },
       pointerdown: (_view, event) => {
         const target = event.target instanceof Element ? event.target : null
+        if (blockSelectionMode.value) {
+          if (target?.closest('.block-checkbox-widget')) return false
+          event.preventDefault()
+          event.stopPropagation()
+          return true
+        }
         const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('[data-absolute-flow-image] img') as HTMLElement | null
         if (!image || !image.closest('.rich-editor-surface') || event.button !== 0 || isLinkedSection.value) return false
         const info = blockInfoFromElement(image, 'image')
@@ -746,6 +776,10 @@ const editor = useEditor({
         return true
       },
       contextmenu: (_view, event) => {
+        if (blockSelectionMode.value) {
+          event.preventDefault()
+          return true
+        }
         const target = event.target instanceof Element ? event.target : null
         const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('img') as HTMLElement | null
         if (!image || !image.closest('.rich-editor-surface')) return false
@@ -760,6 +794,11 @@ const editor = useEditor({
       },
       dragstart: (_view, event) => {
         const target = event.target instanceof Element ? event.target : null
+        if (blockSelectionMode.value) {
+          event.preventDefault()
+          event.stopPropagation()
+          return true
+        }
         if (target?.closest('[data-absolute-flow-image] img')) {
           event.preventDefault()
           event.stopPropagation()
@@ -862,6 +901,7 @@ const filteredReusableSections = computed(() => {
 
 onMounted(async () => {
   registerEditorInstance()
+  updateEditorEditable()
   await loadModalData()
   refreshLinkedNotesFromLibrary()
   scheduleHeadingNumbers()
@@ -884,12 +924,20 @@ onBeforeUnmount(() => {
 })
 
 watch(isLinkedSection, (linked) => {
-  editor.value?.setEditable(!linked)
+  updateEditorEditable()
   if (linked) {
     hideBlockActions()
     hideNoteActions()
     clearBlockSelection(false)
   }
+})
+
+watch(blockSelectionMode, () => {
+  updateEditorEditable()
+  hideBlockActions()
+  hideNoteActions()
+  imageContextMenu.value.visible = false
+  tableDeletePosition.value.visible = false
 })
 
 watch(
@@ -1232,7 +1280,7 @@ function patchAllLanguages(value: Partial<EditorSection>) {
 function confirmUnlinkSection() {
   patch({ linkedReusableSectionId: undefined })
   showUnlinkSectionModal.value = false
-  editor.value?.setEditable(true)
+  updateEditorEditable()
 }
 
 function patchTitle(value: string) {
@@ -1335,6 +1383,10 @@ function mergeLanguageBlocks(languageBlocks: EditorBlock[]) {
 function activateEditor() {
   emit('select', props.section.id)
   emit('activate', props.section.id, props.language)
+}
+
+function updateEditorEditable() {
+  editor.value?.setEditable(!isLinkedSection.value && !blockSelectionMode.value)
 }
 
 function selectSection() {
@@ -1658,6 +1710,7 @@ function refreshImageFlowGroups() {
   if (!root) return
   const children = Array.from(root.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
   const imageWrappers = children.filter((child) => child.matches('[data-absolute-flow-image]'))
+  const imageCheckboxes = children.filter((child) => child.matches('.image-checkbox-widget'))
 
   imageWrappers.forEach((wrapper) => {
     wrapper.classList.remove('absolute-flow-group-start', 'absolute-flow-group-member')
@@ -1667,6 +1720,9 @@ function refreshImageFlowGroups() {
     wrapper.style.removeProperty('--image-flow-shift')
     const image = wrapper.querySelector<HTMLElement>('img')
     image?.style.removeProperty('--image-flow-shift')
+  })
+  imageCheckboxes.forEach((checkbox) => {
+    checkbox.style.removeProperty('--image-flow-shift')
   })
 
   let group: HTMLElement[] = []
@@ -1690,11 +1746,17 @@ function refreshImageFlowGroups() {
       wrapper.style.zIndex = String(attrs.zIndex)
       wrapper.style.setProperty('--image-flow-shift', `${shift}px`)
       image?.style.setProperty('--image-flow-shift', `${shift}px`)
+      const checkbox = imageCheckboxForWrapper(wrapper)
+      if (checkbox) {
+        checkbox.style.setProperty('--image-flow-shift', `${shift}px`)
+        checkbox.style.zIndex = String(attrs.zIndex + 200)
+      }
     })
     group = []
   }
 
   children.forEach((child) => {
+    if (child.matches('.image-checkbox-widget')) return
     if (child.matches('[data-absolute-flow-image]')) {
       group.push(child)
       return
@@ -1702,6 +1764,13 @@ function refreshImageFlowGroups() {
     flushGroup()
   })
   flushGroup()
+}
+
+function imageCheckboxForWrapper(wrapper: HTMLElement) {
+  const blockId = wrapper.dataset.blockId || ''
+  const previous = wrapper.previousElementSibling as HTMLElement | null
+  if (previous?.matches('.image-checkbox-widget') && previous.dataset.blockId === blockId) return previous
+  return editor.value?.view.dom.querySelector<HTMLElement>(`.image-checkbox-widget[data-block-id="${CSS.escape(blockId)}"]`) || null
 }
 
 function imageFlowAttrsFromWrapper(wrapper: HTMLElement) {
@@ -1739,6 +1808,7 @@ function updateNoteDeletePosition() {
 function handleSectionClick(event: MouseEvent) {
   activateEditor()
   imageContextMenu.value.visible = false
+  if (blockSelectionMode.value) return
   const target = event.target instanceof Element ? event.target : null
   const linkableBox = target?.closest('[data-note-box],[data-reusable-fragment]') as HTMLElement | null
   if (!linkableBox) {
@@ -1762,6 +1832,7 @@ function handleSectionClick(event: MouseEvent) {
 function handleSectionMouseDown(event: MouseEvent) {
   if (event.defaultPrevented) return
   activateEditor()
+  if (blockSelectionMode.value) return
   const target = event.target instanceof Element ? event.target : null
   const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('img') as HTMLElement | null
   if (image && image.closest('.rich-editor-surface')) {
@@ -1802,6 +1873,7 @@ function handleSectionMouseDown(event: MouseEvent) {
 }
 
 function startActiveNoteDrag(event: MouseEvent) {
+  if (blockSelectionMode.value) return
   const info = noteActionRange.value || activeNoteInfo()
   const noteJson = activeNoteJson(info)
   if (!info || !noteJson || !editor.value) return
@@ -1823,6 +1895,11 @@ function startActiveNoteDrag(event: MouseEvent) {
 
 function handleSectionMouseMove(event: MouseEvent) {
   updateBlockSelectionHover(event)
+  if (blockSelectionMode.value) {
+    hideBlockActions()
+    hideNoteActions()
+    return
+  }
   const target = event.target instanceof Element ? event.target : null
   if (!target || target.closest('.note-actions-float') || target.closest('.block-actions-float')) return
   const note = target.closest('[data-note-box],[data-reusable-fragment]')
@@ -1880,6 +1957,7 @@ function finishNoteMouseDrag(event: MouseEvent) {
 }
 
 function startActiveBlockDrag(event: MouseEvent) {
+  if (blockSelectionMode.value) return
   const range = blockActionRange.value
   const blockJson = activeBlockJson()
   if (!range || !blockJson || !editor.value) return
@@ -1945,6 +2023,7 @@ function clonedClipboardBlock(block: JSONContent): JSONContent {
 }
 
 function startImageFlowDrag(event: MouseEvent | PointerEvent, range: MovableBlockRange, imageJson: JSONContent, imageElement: HTMLElement) {
+  if (blockSelectionMode.value) return
   const current = editor.value
   if (!current) return
   event.preventDefault()
@@ -1953,6 +2032,8 @@ function startImageFlowDrag(event: MouseEvent | PointerEvent, range: MovableBloc
   const startX = event.clientX
   const startY = event.clientY
   let latestAttrs = startAttrs
+  let latestInsertion: number | null = null
+  let latestCtrlMode = Boolean(event.ctrlKey)
   let moved = false
   const pointerId = 'pointerId' in event ? event.pointerId : null
   imageContextMenu.value.visible = false
@@ -1970,6 +2051,15 @@ function startImageFlowDrag(event: MouseEvent | PointerEvent, range: MovableBloc
     moveEvent.preventDefault()
     moveEvent.stopPropagation()
     moved = true
+    latestCtrlMode = Boolean(moveEvent.ctrlKey)
+    if (latestCtrlMode) {
+      latestInsertion = imageInsertionPositionFromPoint(moveEvent, range)
+      updateImageDropIndicator(moveEvent, latestInsertion)
+      requestAnimationFrame(updateBlockActionsPosition)
+      return
+    }
+    latestInsertion = null
+    imageDropIndicator.value.visible = false
     const deltaX = moveEvent.clientX - startX
     const deltaY = moveEvent.clientY - startY
     latestAttrs = clampImageFlowAttrs({
@@ -1981,7 +2071,7 @@ function startImageFlowDrag(event: MouseEvent | PointerEvent, range: MovableBloc
     requestAnimationFrame(updateBlockActionsPosition)
   }
 
-  const onUp = () => {
+  const onUp = (upEvent?: MouseEvent | PointerEvent) => {
     document.removeEventListener('pointermove', onMove)
     document.removeEventListener('pointerup', onUp)
     document.removeEventListener('pointercancel', onUp)
@@ -1998,7 +2088,19 @@ function startImageFlowDrag(event: MouseEvent | PointerEvent, range: MovableBloc
     document.body.classList.remove('note-dragging')
     imageDropIndicator.value.visible = false
     if (!moved) return
-    updateImageNodeAttrs(range, latestAttrs)
+    if ((upEvent?.ctrlKey || latestCtrlMode) && latestInsertion !== null) {
+      const movedImage = structuredClone(imageJson)
+      movedImage.attrs = {
+        ...(imageJson.attrs || {}),
+        ...latestAttrs,
+        offsetY: IMAGE_FLOW_MARGIN,
+        align: 'left',
+        offsetX: latestAttrs.x,
+      }
+      moveImageNodeToPosition(range, latestInsertion, movedImage)
+    } else {
+      updateImageNodeAttrs(range, latestAttrs)
+    }
     markEditorDirty()
     requestAnimationFrame(updateBlockActionsPosition)
   }
@@ -2034,10 +2136,11 @@ function imageInsertionPositionFromPoint(event: MouseEvent, range: MovableBlockR
   let fallback: number | null = current.state.doc.content.size
   let target: number | null = null
   current.state.doc.forEach((node, offset) => {
-    if (node.type.name === 'image') return
+    if (offset >= range.from && offset < range.to) return
     const dom = current.view.nodeDOM(offset)
     if (!(dom instanceof HTMLElement)) return
     const rect = dom.getBoundingClientRect()
+    if (!rect.height && node.type.name === 'image') return
     fallback = offset + node.nodeSize
     if (event.clientY < rect.top + rect.height / 2 && target === null) {
       target = offset
@@ -2048,10 +2151,10 @@ function imageInsertionPositionFromPoint(event: MouseEvent, range: MovableBlockR
   return insertion
 }
 
-function updateImageDropIndicator(event: MouseEvent, insertion: number | null, startRect: DOMRect) {
+function updateImageDropIndicator(event: MouseEvent | PointerEvent, insertion: number | null) {
   const wrapper = sectionContentRef.value
   const root = editor.value?.view.dom
-  if (!wrapper || !root || insertion === null || (event.clientY >= startRect.top - 28 && event.clientY <= startRect.bottom + 28)) {
+  if (!wrapper || !root || insertion === null) {
     imageDropIndicator.value.visible = false
     return
   }
@@ -2321,6 +2424,7 @@ function deleteActiveBlock() {
 }
 
 function startBlockResize(event: MouseEvent, handle: ResizeHandle) {
+  if (blockSelectionMode.value) return
   const range = blockActionRange.value
   const current = editor.value
   if (!range || !current) return
@@ -2433,6 +2537,7 @@ function updateBlockSize(range: MovableBlockRange, width: number, height: number
 }
 
 function alignActiveBlock(align: 'left' | 'center' | 'right') {
+  if (blockSelectionMode.value) return
   const range = blockActionRange.value
   const current = editor.value
   if (!range || !current) return
@@ -2449,6 +2554,7 @@ function alignActiveBlock(align: 'left' | 'center' | 'right') {
 }
 
 function handleImageKeyboardMove(event: KeyboardEvent) {
+  if (blockSelectionMode.value) return false
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return false
   const range = blockActionRange.value
   const current = editor.value
@@ -2470,6 +2576,7 @@ function handleImageKeyboardMove(event: KeyboardEvent) {
 }
 
 function setActiveImageLayer(action: 'front' | 'back' | 'forward' | 'backward') {
+  if (blockSelectionMode.value) return
   const range = blockActionRange.value
   const current = editor.value
   if (!range || range.kind !== 'image' || !current) return
@@ -2542,6 +2649,7 @@ function normalizedImageLayerOrder<T extends { attrs: ImageFlowAttrs; order: num
 }
 
 function duplicateActiveImage() {
+  if (blockSelectionMode.value) return
   const range = blockActionRange.value
   const current = editor.value
   const imageJson = activeBlockJson(range)
@@ -3936,7 +4044,7 @@ function imageAssetId(node: JSONContent) {
     >
       <Teleport v-if="activeToolbar && !isLinkedSection" to="#manual-editor-toolbar">
       <div class="toolbar" @mousedown.prevent.stop @click.stop>
-        <div class="ribbon-group compact-group">
+        <div v-if="!blockSelectionMode" class="ribbon-group compact-group">
           <div class="ribbon-row">
             <button class="tool-btn icon-only" title="Deshacer" aria-label="Deshacer" @click="undo"><Undo2 :size="16" /></button>
             <button class="tool-btn icon-only" title="Rehacer" aria-label="Rehacer" @click="redo"><Redo2 :size="16" /></button>
@@ -3947,7 +4055,7 @@ function imageAssetId(node: JSONContent) {
           <span class="group-label">Portapapeles</span>
         </div>
 
-        <div class="ribbon-group">
+        <div v-if="!blockSelectionMode" class="ribbon-group">
           <div class="ribbon-row">
             <button class="tool-btn" :class="{ active: currentHeadingLevel > 0 }" title="Título" @click="toggleDefaultHeading"><Heading :size="17" /><span>Título</span></button>
             <div class="level-controls" aria-label="Nivel de titulo">
@@ -3959,7 +4067,7 @@ function imageAssetId(node: JSONContent) {
           <span class="group-label">{{ headingGroupLabel }}</span>
         </div>
 
-        <div class="ribbon-group">
+        <div v-if="!blockSelectionMode" class="ribbon-group">
           <div class="ribbon-row">
             <button class="tool-btn" :class="{ active: editor?.isActive('bulletList') }" title="Lista" @click="editor?.chain().focus().toggleBulletList().run()"><List :size="16" /><span>Lista</span></button>
             <button class="tool-btn" :class="{ active: editor?.isActive('orderedList') }" title="Lista ordenada" @click="editor?.chain().focus().toggleOrderedList().run()"><ListOrdered :size="16" /><span>Lista ord.</span></button>
@@ -3971,7 +4079,7 @@ function imageAssetId(node: JSONContent) {
           <span class="group-label">Listas</span>
         </div>
 
-        <div class="ribbon-group">
+        <div v-if="!blockSelectionMode" class="ribbon-group">
           <div class="ribbon-row">
             <div class="table-picker-menu">
               <button class="tool-btn" title="Tabla" @click="toggleTablePicker"><TableIcon :size="16" /><span>Tabla</span></button>
@@ -4011,7 +4119,7 @@ function imageAssetId(node: JSONContent) {
           <span class="group-label">Insertar</span>
         </div>
 
-        <div class="ribbon-group table-tools">
+        <div v-if="!blockSelectionMode" class="ribbon-group table-tools">
           <div class="ribbon-row">
             <button class="tool-btn" title="Insertar fila arriba" :disabled="!editor?.isActive('table')" @click="runTableEdit('row-before')"><TableRowsSplit :size="16" /><span>Fila arriba</span></button>
             <button class="tool-btn" title="Insertar fila abajo" :disabled="!editor?.isActive('table')" @click="runTableEdit('row-after')"><TableRowsSplit :size="16" /><span>Fila abajo</span></button>
@@ -4065,14 +4173,14 @@ function imageAssetId(node: JSONContent) {
         @click.stop="handleSectionClick"
       />
       <div
-        v-if="imageDropIndicator.visible && !isLinkedSection"
+        v-if="imageDropIndicator.visible && !isLinkedSection && !blockSelectionMode"
         class="image-drop-indicator"
         :style="{ top: `${imageDropIndicator.top}px`, left: `${imageDropIndicator.left}px`, width: `${imageDropIndicator.width}px` }"
       >
         Colocar imagen aquí
       </div>
       <div
-        v-if="blockActionsPosition.visible && !isLinkedSection"
+        v-if="blockActionsPosition.visible && !isLinkedSection && !blockSelectionMode"
         class="block-actions-float"
         :style="{ top: `${blockActionsPosition.top}px`, left: `${blockActionsPosition.left}px` }"
       >
@@ -4142,7 +4250,7 @@ function imageAssetId(node: JSONContent) {
         </button>
       </div>
       <div
-        v-if="blockResizeOverlay.visible && !isLinkedSection"
+        v-if="blockResizeOverlay.visible && !isLinkedSection && !blockSelectionMode"
         class="block-resize-overlay"
         :class="blockResizeOverlay.kind"
         :style="{
@@ -4162,7 +4270,7 @@ function imageAssetId(node: JSONContent) {
         <button class="resize-handle w" title="Redimensionar" @mousedown="startBlockResize($event, 'w')" />
       </div>
       <div
-        v-if="imageContextMenu.visible && !isLinkedSection"
+        v-if="imageContextMenu.visible && !isLinkedSection && !blockSelectionMode"
         class="image-context-menu"
         :style="{ top: `${imageContextMenu.top}px`, left: `${imageContextMenu.left}px` }"
         @mousedown.stop.prevent
@@ -4174,7 +4282,7 @@ function imageAssetId(node: JSONContent) {
         <button type="button" @click="duplicateActiveImage">Duplicar imagen</button>
       </div>
       <div
-        v-if="noteActionsPosition.visible && !isLinkedSection"
+        v-if="noteActionsPosition.visible && !isLinkedSection && !blockSelectionMode"
         class="note-actions-float"
         :style="{ top: `${noteActionsPosition.top}px`, left: `${noteActionsPosition.left}px` }"
       >
@@ -5140,6 +5248,19 @@ function imageAssetId(node: JSONContent) {
 .editor-shell.block-selection-mode :deep(.block-checkbox-widget) {
   opacity: 1;
   transform: translateX(0);
+}
+
+.editor-shell :deep(.image-checkbox-widget) {
+  left: var(--checkbox-x, 0);
+  top: auto;
+  margin-top: var(--checkbox-y, 0);
+  transform: translateY(var(--image-flow-shift, 0px));
+  z-index: 250;
+}
+
+.editor-shell.block-selection-mode :deep(.image-checkbox-widget) {
+  opacity: 1;
+  transform: translateY(var(--image-flow-shift, 0px));
 }
 
 .editor-shell :deep(.block-checkbox-widget input) {
