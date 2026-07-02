@@ -17,6 +17,13 @@ type TableCellRender = {
   rowspan: number
   header: boolean
 }
+type SnapshotEntry = { block: Snapshot; index: number }
+type PreviewUnit =
+  | { key: string; kind: 'block'; block: Snapshot; index: number }
+  | { key: string; kind: 'image-group'; entries: SnapshotEntry[] }
+
+const IMAGE_REFERENCE_WIDTH = 680
+const IMAGE_FLOW_MARGIN = 12
 
 const props = defineProps<{
   item?: ReusableBlockResponse | ReusableFragmentResponse
@@ -44,18 +51,40 @@ const blocks = computed<Snapshot[]>(() => {
   return value.filter((block) => !block.languageCode || block.languageCode === props.language)
 })
 
-const pages = computed(() => {
-  const result: Array<Array<{ block: Snapshot; index: number }>> = []
-  let page: Array<{ block: Snapshot; index: number }> = []
-  let used = 0
+const contentUnits = computed<PreviewUnit[]>(() => {
+  const units: PreviewUnit[] = []
+  let imageGroup: SnapshotEntry[] = []
+  const flushImageGroup = () => {
+    if (imageGroup.length) {
+      units.push({ key: `image-group-${imageGroup.map((entry) => entry.index).join('-')}`, kind: 'image-group', entries: imageGroup })
+      imageGroup = []
+    }
+  }
+
   blocks.value.forEach((block, index) => {
-    const weight = blockWeight(block)
+    if (block.blockType === 'IMAGE' && imageLayout(content(block) as Record<string, any>) === 'absolute-flow') {
+      imageGroup.push({ block, index })
+      return
+    }
+    flushImageGroup()
+    units.push({ key: `block-${index}`, kind: 'block', block, index })
+  })
+  flushImageGroup()
+  return units
+})
+
+const pages = computed(() => {
+  const result: Array<PreviewUnit[]> = []
+  let page: PreviewUnit[] = []
+  let used = 0
+  contentUnits.value.forEach((unit) => {
+    const weight = unitWeight(unit)
     if (page.length && used + weight > 760) {
       result.push(page)
       page = []
       used = 0
     }
-    page.push({ block, index })
+    page.push(unit)
     used += weight
   })
   if (page.length || !result.length) result.push(page)
@@ -136,11 +165,77 @@ function hasHeader(block: Snapshot) {
 
 function imageFigureStyle(block: Snapshot): CSSProperties {
   const value = content(block) as Record<string, any>
+  if (imageLayout(value) === 'absolute-flow') return absoluteImageGroupStyle(block)
   const align = value.json?.attrs?.align || value.align || 'inline'
   if (align === 'center') return { display: 'flex', flexDirection: 'column', alignItems: 'center' }
   if (align === 'right') return { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }
   if (align === 'inline') return { display: 'inline-block', marginLeft: '0', marginRight: '8px', verticalAlign: 'top' }
   return { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }
+}
+
+function numberValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return undefined
+  const number = Number(String(value).replace('px', ''))
+  return Number.isFinite(number) ? number : undefined
+}
+
+function imageLayout(value: Record<string, any>) {
+  return value.layout ?? value.json?.attrs?.layout ?? 'absolute-flow'
+}
+
+function absoluteImageAttrs(block: Snapshot) {
+  const value = content(block) as Record<string, any>
+  const attrs = value.json?.attrs || {}
+  const referenceWidth = numberValue(value.referenceWidth ?? attrs.referenceWidth) ?? IMAGE_REFERENCE_WIDTH
+  const width = Math.max(1, numberValue(value.width ?? attrs.width) ?? 300)
+  const height = Math.max(1, numberValue(value.height ?? attrs.height) ?? 180)
+  const x = Math.min(Math.max(0, numberValue(value.x ?? attrs.x ?? value.offsetX ?? attrs.offsetX) ?? 0), Math.max(0, referenceWidth - width))
+  return {
+    x,
+    offsetY: Math.max(IMAGE_FLOW_MARGIN, numberValue(value.offsetY ?? attrs.offsetY) ?? IMAGE_FLOW_MARGIN),
+    width: Math.min(referenceWidth, width),
+    height,
+    zIndex: Math.max(1, numberValue(value.zIndex ?? attrs.zIndex) ?? 1),
+  }
+}
+
+function absoluteImageGroupStyle(block: Snapshot): CSSProperties {
+  const attrs = absoluteImageAttrs(block)
+  return {
+    height: `${attrs.offsetY + attrs.height + IMAGE_FLOW_MARGIN}px`,
+    position: 'relative',
+    width: '100%',
+    marginTop: '12px',
+    marginBottom: '12px',
+    overflow: 'visible',
+  }
+}
+
+function absoluteImageEntriesGroupStyle(entries: SnapshotEntry[]): CSSProperties {
+  const height = Math.max(
+    IMAGE_FLOW_MARGIN * 2,
+    ...entries.map(({ block }) => {
+      const attrs = absoluteImageAttrs(block)
+      return attrs.offsetY + attrs.height + IMAGE_FLOW_MARGIN
+    }),
+  )
+  return {
+    height: `${height}px`,
+    position: 'relative',
+    width: '100%',
+    overflow: 'visible',
+  }
+}
+
+function absoluteImageStyle(block: Snapshot): CSSProperties {
+  const attrs = absoluteImageAttrs(block)
+  return {
+    left: `${attrs.x}px`,
+    top: `${attrs.offsetY}px`,
+    width: `${attrs.width}px`,
+    height: `${attrs.height}px`,
+    zIndex: attrs.zIndex,
+  }
 }
 
 function movableBlockStyle(block: Snapshot): CSSProperties {
@@ -256,10 +351,6 @@ function imageHeight(block: Snapshot) {
   return cssSize(value.json?.attrs?.height || value.height)
 }
 
-function imageCaption(block: Snapshot) {
-  return String((content(block) as Record<string, any>).caption || '')
-}
-
 function cssSize(value: unknown) {
   if (!value) return undefined
   const textValue = String(value)
@@ -276,6 +367,17 @@ function blockWeight(block: Snapshot) {
   if (block.blockType === 'TABLE') return 90 + rows(block).length * 38
   if (block.blockType === 'HEADING') return 70
   return Math.max(55, Math.ceil((text(block).length || items(block).join(' ').length) / 75) * 28)
+}
+
+function unitWeight(unit: PreviewUnit) {
+  if (unit.kind === 'block') return blockWeight(unit.block)
+  return Math.max(
+    60,
+    ...unit.entries.map(({ block }) => {
+      const attrs = absoluteImageAttrs(block)
+      return attrs.offsetY + attrs.height + IMAGE_FLOW_MARGIN
+    }),
+  )
 }
 
 function headingNumber(pageBlock: { block: Snapshot; index: number }) {
@@ -299,33 +401,38 @@ function headingNumber(pageBlock: { block: Snapshot; index: number }) {
       <main class="paper-content">
         <p v-if="!blocks.length" class="empty">No hay contenido en {{ language }}.</p>
 
-        <template v-for="entry in pageBlocks" :key="entry.index">
-          <h3 v-if="entry.block.blockType === 'HEADING'" :class="headingClass(entry.block)">
-            <span class="heading-number">{{ headingNumber(entry) }}</span>
-            <span>{{ text(entry.block) }}</span>
+        <template v-for="unit in pageBlocks" :key="unit.key">
+          <div v-if="unit.kind === 'image-group'" class="doc-block absolute-flow-image-group" :style="absoluteImageEntriesGroupStyle(unit.entries)">
+            <figure v-for="entry in unit.entries" :key="entry.index" class="absolute-flow-image">
+              <img v-if="imageSource(entry.block)" :src="imageSource(entry.block)" :style="absoluteImageStyle(entry.block)" alt="" />
+            </figure>
+          </div>
+          <h3 v-else-if="unit.block.blockType === 'HEADING'" :class="headingClass(unit.block)">
+            <span class="heading-number">{{ headingNumber(unit) }}</span>
+            <span>{{ text(unit.block) }}</span>
           </h3>
           <div v-else class="doc-block">
-            <ul v-if="entry.block.blockType === 'UNORDERED_LIST'">
-              <li v-for="listEntry in items(entry.block)" :key="listEntry">{{ listEntry }}</li>
+            <ul v-if="unit.block.blockType === 'UNORDERED_LIST'">
+              <li v-for="listEntry in items(unit.block)" :key="listEntry">{{ listEntry }}</li>
             </ul>
-            <ol v-else-if="entry.block.blockType === 'ORDERED_LIST'">
-              <li v-for="listEntry in items(entry.block)" :key="listEntry">{{ listEntry }}</li>
+            <ol v-else-if="unit.block.blockType === 'ORDERED_LIST'">
+              <li v-for="listEntry in items(unit.block)" :key="listEntry">{{ listEntry }}</li>
             </ol>
             <table
-              v-else-if="entry.block.blockType === 'TABLE'"
+              v-else-if="unit.block.blockType === 'TABLE'"
               class="doc-table"
-              :class="{ 'doc-table-compact': isWideTable(entry.block) }"
-              :style="tableStyle(entry.block)"
+              :class="{ 'doc-table-compact': isWideTable(unit.block) }"
+              :style="tableStyle(unit.block)"
             >
-              <colgroup v-if="tableColumnWidths(entry.block).length">
+              <colgroup v-if="tableColumnWidths(unit.block).length">
                 <col
-                  v-for="(columnWidth, columnIndex) in tableColumnWidths(entry.block)"
+                  v-for="(columnWidth, columnIndex) in tableColumnWidths(unit.block)"
                   :key="`col-${columnIndex}`"
                   :style="tableColumnWidthStyle(columnWidth)"
                 />
               </colgroup>
               <tbody>
-                <tr v-for="(row, rowIndex) in tableCellRows(entry.block)" :key="rowIndex">
+                <tr v-for="(row, rowIndex) in tableCellRows(unit.block)" :key="rowIndex">
                   <component
                     :is="cell.header ? 'th' : 'td'"
                     v-for="(cell, cellIndex) in row"
@@ -339,18 +446,23 @@ function headingNumber(pageBlock: { block: Snapshot; index: number }) {
               </tbody>
             </table>
             <figure
-              v-else-if="entry.block.blockType === 'IMAGE'"
+              v-else-if="unit.block.blockType === 'IMAGE'"
               class="doc-image"
-              :style="imageFigureStyle(entry.block)"
+              :class="{ 'absolute-flow-image-block': imageLayout(content(unit.block) as Record<string, any>) === 'absolute-flow' }"
+              :style="imageFigureStyle(unit.block)"
             >
-              <img v-if="imageSource(entry.block)" :src="imageSource(entry.block)" :style="{ width: imageWidth(entry.block), height: imageHeight(entry.block) }" alt="" />
-              <figcaption v-if="imageCaption(entry.block)">{{ imageCaption(entry.block) }}</figcaption>
+              <img
+                v-if="imageSource(unit.block)"
+                :src="imageSource(unit.block)"
+                :style="imageLayout(content(unit.block) as Record<string, any>) === 'absolute-flow' ? absoluteImageStyle(unit.block) : { width: imageWidth(unit.block), height: imageHeight(unit.block) }"
+                alt=""
+              />
             </figure>
-            <aside v-else-if="['NOTE', 'WARNING', 'INFO_BOX'].includes(entry.block.blockType)" class="note">
-              {{ text(entry.block) }}
+            <aside v-else-if="['NOTE', 'WARNING', 'INFO_BOX'].includes(unit.block.blockType)" class="note">
+              {{ text(unit.block) }}
             </aside>
-            <div v-else-if="entry.block.blockType === 'FORMULA'" class="formula" :style="movableBlockStyle(entry.block)">{{ text(entry.block) }}</div>
-            <p v-else>{{ text(entry.block) }}</p>
+            <div v-else-if="unit.block.blockType === 'FORMULA'" class="formula" :style="movableBlockStyle(unit.block)">{{ text(unit.block) }}</div>
+            <p v-else>{{ text(unit.block) }}</p>
           </div>
         </template>
       </main>
@@ -535,6 +647,37 @@ h3 {
   max-width: 100%;
   height: auto;
   object-fit: contain;
+}
+
+.absolute-flow-image-block {
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.absolute-flow-image-block img {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
+}
+
+.absolute-flow-image-group {
+  margin: 10px 0;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.absolute-flow-image {
+  position: absolute;
+  margin: 0;
+}
+
+.absolute-flow-image img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  object-fit: fill;
 }
 
 .doc-image figcaption {

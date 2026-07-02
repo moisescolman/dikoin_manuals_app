@@ -9,6 +9,7 @@ import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
 import TableRow from '@tiptap/extension-table-row'
 import { Extension, mergeAttributes, Node, type Editor, type JSONContent } from '@tiptap/core'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import {
@@ -70,6 +71,16 @@ type MovableBlockRange = { from: number; to: number; kind: MovableBlockKind }
 type LinkableBoxKind = 'note' | 'fragment'
 type LinkableBoxRange = { from: number; to: number; linked: boolean; kind: LinkableBoxKind }
 type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w'
+type ImageFlowAttrs = {
+  layout: 'absolute-flow'
+  x: number
+  offsetY: number
+  width: number
+  height: number
+  zIndex: number
+  referenceWidth: number
+  lockedAspectRatio: boolean
+}
 type SectionTarget = { id: string; number?: string; title: string }
 type BlockSelectionSync = {
   sectionId: string
@@ -86,6 +97,12 @@ let sharedBlockDrag: { editor: Editor; from: number; to: number; json: JSONConte
 const editorRegistry: EditorRegistryRecord[] = []
 let sharedReusableLibraryCache: ReusableBlockResponse[] | null = null
 let sharedReusableLibraryRequest: Promise<ReusableBlockResponse[]> | null = null
+const IMAGE_REFERENCE_WIDTH = 680
+const IMAGE_FLOW_MARGIN = 12
+const IMAGE_INITIAL_MAX_WIDTH = 300
+const IMAGE_MIN_SIZE = 40
+const IMAGE_MAX_HEIGHT = 920
+const IMAGE_DUPLICATE_OFFSET = 20
 
 const props = defineProps<{
   section: EditorSection
@@ -138,6 +155,8 @@ const tableDeletePosition = ref<{ visible: boolean; top: number; left: number }>
 const blockActionsPosition = ref<{ visible: boolean; top: number; left: number; kind: MovableBlockKind | null }>({ visible: false, top: 0, left: 0, kind: null })
 const blockResizeOverlay = ref<{ visible: boolean; top: number; left: number; width: number; height: number; kind: MovableBlockKind | null }>({ visible: false, top: 0, left: 0, width: 0, height: 0, kind: null })
 const blockActionRange = ref<MovableBlockRange | null>(null)
+const imageContextMenu = ref<{ visible: boolean; top: number; left: number }>({ visible: false, top: 0, left: 0 })
+const imageDropIndicator = ref<{ visible: boolean; top: number; left: number; width: number }>({ visible: false, top: 0, left: 0, width: 0 })
 const noteActionsPosition = ref<{ visible: boolean; top: number; left: number; linked: boolean; kind: LinkableBoxKind }>({ visible: false, top: 0, left: 0, linked: false, kind: 'note' })
 const noteActionRange = ref<LinkableBoxRange | null>(null)
 const noteDragPreview = ref<{ visible: boolean; top: number; left: number; title: string; text: string; linked: boolean }>({ visible: false, top: 0, left: 0, title: '', text: '', linked: false })
@@ -156,6 +175,7 @@ const tableWithHeader = ref(true)
 const tablePickerMaxRows = 6
 const tablePickerMaxCols = 7
 let headingNumberFrame = 0
+let imageFlowRefreshFrame = 0
 const editorDirty = ref(false)
 const blockSelectionMode = ref(false)
 const selectedBlockIds = ref<string[]>([])
@@ -512,27 +532,25 @@ const HeadingNumbering = Extension.create({
 })
 
 const ResizableImage = Image.extend({
+  parseHTML() {
+    return [
+      { tag: 'div[data-absolute-flow-image] img[src]' },
+      { tag: 'img[src]' },
+    ]
+  },
   addAttributes() {
     return {
       ...(this.parent?.() || {}),
       width: {
-        default: null,
+        default: IMAGE_INITIAL_MAX_WIDTH,
         parseHTML: (element) => element.getAttribute('width') || element.style.width || null,
-        renderHTML: (attributes) => {
-          const style = [
-            attributes.width ? `width: ${cssSize(attributes.width)}` : '',
-            attributes.height ? `height: ${cssSize(attributes.height)}` : '',
-            'max-width: 100%',
-          ].filter(Boolean).join('; ')
-          return style ? { style } : {}
-        },
       },
       height: {
-        default: null,
+        default: 180,
         parseHTML: (element) => element.getAttribute('height') || element.style.height || null,
       },
       align: {
-        default: 'inline',
+        default: 'left',
         parseHTML: (element) => element.getAttribute('data-align') || 'inline',
         renderHTML: (attributes) => ({ 'data-align': attributes.align || 'inline' }),
       },
@@ -544,9 +562,64 @@ const ResizableImage = Image.extend({
         },
         renderHTML: (attributes) => attributes.assetId ? { 'data-asset-id': String(attributes.assetId) } : {},
       },
+      layout: {
+        default: 'absolute-flow',
+        parseHTML: (element) => element.getAttribute('data-layout') || 'absolute-flow',
+      },
+      x: {
+        default: 0,
+        parseHTML: (element) => Number(element.getAttribute('data-x') || 0),
+      },
       offsetX: { default: 0 },
       offsetY: { default: 0 },
+      zIndex: {
+        default: 1,
+        parseHTML: (element) => Number(element.getAttribute('data-z-index') || 1),
+      },
+      referenceWidth: {
+        default: IMAGE_REFERENCE_WIDTH,
+        parseHTML: (element) => Number(element.getAttribute('data-reference-width') || IMAGE_REFERENCE_WIDTH),
+      },
+      lockedAspectRatio: {
+        default: false,
+        parseHTML: (element) => element.getAttribute('data-locked-aspect-ratio') === 'true',
+      },
     }
+  },
+  renderHTML({ HTMLAttributes }) {
+    const attrs = normalizeImageFlowAttrs(HTMLAttributes)
+    const wrapperStyle = [
+      `height: ${attrs.offsetY + attrs.height + IMAGE_FLOW_MARGIN}px`,
+      `--image-x: ${attrs.x}px`,
+      `--image-y: ${attrs.offsetY}px`,
+      `--image-width: ${attrs.width}px`,
+      `--image-height: ${attrs.height}px`,
+      `--image-z: ${attrs.zIndex}`,
+    ].join('; ')
+    return ['div', {
+      'data-absolute-flow-image': 'true',
+      'data-block-id': HTMLAttributes.blockId,
+      'data-backend-id': HTMLAttributes.backendId,
+      class: 'absolute-flow-image-block',
+      style: wrapperStyle,
+    }, ['img', mergeAttributes(HTMLAttributes, {
+      draggable: 'false',
+      'data-layout': attrs.layout,
+      'data-x': String(attrs.x),
+      'data-offset-y': String(attrs.offsetY),
+      'data-width': String(attrs.width),
+      'data-height': String(attrs.height),
+      'data-z-index': String(attrs.zIndex),
+      'data-reference-width': String(attrs.referenceWidth),
+      'data-locked-aspect-ratio': String(attrs.lockedAspectRatio),
+      style: [
+        `left: ${attrs.x}px`,
+        `top: ${attrs.offsetY}px`,
+        `width: ${attrs.width}px`,
+        `height: ${attrs.height}px`,
+        `z-index: ${attrs.zIndex}`,
+      ].join('; '),
+    })]]
   },
 })
 
@@ -630,6 +703,7 @@ const editor = useEditor({
         return true
       },
       keydown: (_view, event) => {
+        if (handleImageKeyboardMove(event)) return true
         if (!isInsideLinkedNote()) return false
         if (event.ctrlKey || event.metaKey || event.altKey) return false
         const allowedKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Tab', 'Escape']
@@ -639,6 +713,10 @@ const editor = useEditor({
       },
       mousedown: (_view, event) => {
         const target = event.target instanceof Element ? event.target : null
+        if (event.button === 0 && target?.closest('[data-absolute-flow-image] img')) {
+          event.preventDefault()
+          return true
+        }
         const note = target?.closest('[data-note-box]') as HTMLElement | null
         if (!note) return false
         const isHandle = Boolean(target?.closest('[data-note-drag-handle]'))
@@ -651,8 +729,42 @@ const editor = useEditor({
         editor.value?.commands.setNodeSelection(info.from)
         return false
       },
+      pointerdown: (_view, event) => {
+        const target = event.target instanceof Element ? event.target : null
+        const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('[data-absolute-flow-image] img') as HTMLElement | null
+        if (!image || !image.closest('.rich-editor-surface') || event.button !== 0 || isLinkedSection.value) return false
+        const info = blockInfoFromElement(image, 'image')
+        const imageJson = activeBlockJson(info)
+        if (!info || !imageJson || !editor.value) return false
+
+        event.preventDefault()
+        event.stopPropagation()
+        activateBlockElement(image)
+        showBlockActionsForElement(image, 'image', info)
+        editor.value.commands.setNodeSelection(info.from)
+        startImageFlowDrag(event, info, imageJson, image)
+        return true
+      },
+      contextmenu: (_view, event) => {
+        const target = event.target instanceof Element ? event.target : null
+        const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('img') as HTMLElement | null
+        if (!image || !image.closest('.rich-editor-surface')) return false
+        const info = blockInfoFromElement(image, 'image')
+        if (!info || !editor.value) return false
+        event.preventDefault()
+        activateBlockElement(image)
+        showBlockActionsForElement(image, 'image', info)
+        editor.value.commands.setNodeSelection(info.from)
+        imageContextMenu.value = { visible: true, top: event.clientY, left: event.clientX }
+        return true
+      },
       dragstart: (_view, event) => {
         const target = event.target instanceof Element ? event.target : null
+        if (target?.closest('[data-absolute-flow-image] img')) {
+          event.preventDefault()
+          event.stopPropagation()
+          return true
+        }
         const note = target?.closest('[data-note-box]') as HTMLElement | null
         if (!note || !target?.closest('[data-note-drag-handle]')) return false
         const info = noteInfoFromElement(note)
@@ -689,6 +801,7 @@ const editor = useEditor({
     editorDirty.value = true
     refreshToolbarState()
     scheduleHeadingNumbers()
+    scheduleImageFlowGroupsRefresh()
     updateBlockActionsPosition()
     updateNoteDeletePosition()
     if (editor.isActive('table')) {
@@ -699,6 +812,7 @@ const editor = useEditor({
     activateEditor()
     refreshToolbarState()
     scheduleHeadingNumbers()
+    scheduleImageFlowGroupsRefresh()
     updateBlockActionsPosition()
     updateNoteDeletePosition()
   },
@@ -751,12 +865,18 @@ onMounted(async () => {
   await loadModalData()
   refreshLinkedNotesFromLibrary()
   scheduleHeadingNumbers()
+  await nextTick()
+  scheduleImageFlowGroupsRefresh()
 })
 
 onBeforeUnmount(() => {
   if (headingNumberFrame) {
     cancelAnimationFrame(headingNumberFrame)
     headingNumberFrame = 0
+  }
+  if (imageFlowRefreshFrame) {
+    cancelAnimationFrame(imageFlowRefreshFrame)
+    imageFlowRefreshFrame = 0
   }
   unregisterEditorInstance()
   flushEditorSync()
@@ -805,6 +925,7 @@ watch(
     queueMicrotask(() => {
       syncingFromProps.value = false
       scheduleHeadingNumbers()
+      scheduleImageFlowGroupsRefresh()
     })
   },
 )
@@ -998,6 +1119,16 @@ function duplicateSelectedBlocks() {
     if (!selectedBlockIds.value.includes(blockId)) return [node]
     const copy = structuredClone(node)
     copy.attrs = { ...(copy.attrs || {}), blockId: randomId('block'), backendId: null }
+    if (copy.type === 'image') {
+      const attrs = normalizeImageFlowAttrs(copy.attrs)
+      const shifted = clampImageFlowAttrs({
+        ...attrs,
+        x: attrs.x + IMAGE_DUPLICATE_OFFSET,
+        offsetY: attrs.offsetY + IMAGE_DUPLICATE_OFFSET,
+        zIndex: nextImageZIndex(),
+      })
+      copy.attrs = { ...copy.attrs, ...shifted, offsetX: shifted.x, align: 'left' }
+    }
     return [node, copy]
   })
   editor.value.commands.setContent(doc)
@@ -1347,7 +1478,9 @@ async function pasteClipboard() {
     return
   }
   if (sharedBlockClipboard) {
-    editor.value.chain().focus().insertContent(structuredClone(sharedBlockClipboard)).run()
+    const copy = clonedClipboardBlock(sharedBlockClipboard)
+    editor.value.chain().focus().insertContent(copy).run()
+    markEditorDirty()
     return
   }
   let text = ''
@@ -1512,6 +1645,78 @@ function updateBlockActionsPosition() {
   showBlockActionsForElement(blockElement.element, blockElement.kind, blockInfoFromElement(blockElement.element, blockElement.kind))
 }
 
+function scheduleImageFlowGroupsRefresh() {
+  if (imageFlowRefreshFrame) cancelAnimationFrame(imageFlowRefreshFrame)
+  imageFlowRefreshFrame = requestAnimationFrame(() => {
+    imageFlowRefreshFrame = 0
+    refreshImageFlowGroups()
+  })
+}
+
+function refreshImageFlowGroups() {
+  const root = editor.value?.view.dom
+  if (!root) return
+  const children = Array.from(root.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
+  const imageWrappers = children.filter((child) => child.matches('[data-absolute-flow-image]'))
+
+  imageWrappers.forEach((wrapper) => {
+    wrapper.classList.remove('absolute-flow-group-start', 'absolute-flow-group-member')
+    wrapper.style.height = ''
+    wrapper.style.margin = ''
+    wrapper.style.zIndex = ''
+    wrapper.style.removeProperty('--image-flow-shift')
+    const image = wrapper.querySelector<HTMLElement>('img')
+    image?.style.removeProperty('--image-flow-shift')
+  })
+
+  let group: HTMLElement[] = []
+  const flushGroup = () => {
+    if (!group.length) return
+    const groupHeight = Math.max(
+      IMAGE_FLOW_MARGIN * 2,
+      ...group.map((wrapper) => {
+        const attrs = imageFlowAttrsFromWrapper(wrapper)
+        return attrs.offsetY + attrs.height + IMAGE_FLOW_MARGIN
+      }),
+    )
+
+    group.forEach((wrapper, index) => {
+      const attrs = imageFlowAttrsFromWrapper(wrapper)
+      const image = wrapper.querySelector<HTMLElement>('img')
+      const shift = index === 0 ? 0 : -groupHeight
+      wrapper.classList.add(index === 0 ? 'absolute-flow-group-start' : 'absolute-flow-group-member')
+      wrapper.style.height = index === 0 ? `${groupHeight}px` : '0px'
+      wrapper.style.margin = '0'
+      wrapper.style.zIndex = String(attrs.zIndex)
+      wrapper.style.setProperty('--image-flow-shift', `${shift}px`)
+      image?.style.setProperty('--image-flow-shift', `${shift}px`)
+    })
+    group = []
+  }
+
+  children.forEach((child) => {
+    if (child.matches('[data-absolute-flow-image]')) {
+      group.push(child)
+      return
+    }
+    flushGroup()
+  })
+  flushGroup()
+}
+
+function imageFlowAttrsFromWrapper(wrapper: HTMLElement) {
+  const image = wrapper.querySelector<HTMLElement>('img')
+  return normalizeImageFlowAttrs({
+    x: image?.dataset.x ?? image?.style.left,
+    offsetY: image?.dataset.offsetY ?? image?.style.top,
+    width: image?.dataset.width ?? image?.style.width,
+    height: image?.dataset.height ?? image?.style.height,
+    zIndex: image?.dataset.zIndex ?? image?.style.zIndex,
+    referenceWidth: image?.dataset.referenceWidth,
+    lockedAspectRatio: image?.dataset.lockedAspectRatio,
+  })
+}
+
 function updateNoteDeletePosition() {
   const current = editor.value
   const wrapper = sectionContentRef.value
@@ -1533,6 +1738,7 @@ function updateNoteDeletePosition() {
 
 function handleSectionClick(event: MouseEvent) {
   activateEditor()
+  imageContextMenu.value.visible = false
   const target = event.target instanceof Element ? event.target : null
   const linkableBox = target?.closest('[data-note-box],[data-reusable-fragment]') as HTMLElement | null
   if (!linkableBox) {
@@ -1554,6 +1760,7 @@ function handleSectionClick(event: MouseEvent) {
 }
 
 function handleSectionMouseDown(event: MouseEvent) {
+  if (event.defaultPrevented) return
   activateEditor()
   const target = event.target instanceof Element ? event.target : null
   const image = target?.tagName === 'IMG' ? target as HTMLElement : target?.closest('img') as HTMLElement | null
@@ -1566,18 +1773,7 @@ function handleSectionMouseDown(event: MouseEvent) {
     activateBlockElement(image)
     showBlockActionsForElement(image, 'image', info)
     editor.value.commands.setNodeSelection(info.from)
-    sharedBlockDrag = {
-      editor: editor.value,
-      from: info.from,
-      to: info.to,
-      json: structuredClone(imageJson),
-      kind: 'image',
-      markSourceDirty: markEditorDirty,
-    }
-    startBlockDragFeedback(event, imageJson, 'image')
-    document.body.classList.add('note-dragging')
-    document.addEventListener('mousemove', updateBlockDragFeedback)
-    document.addEventListener('mouseup', finishBlockMouseDrag, { once: true })
+    startImageFlowDrag(event, info, imageJson, image)
     return
   }
 
@@ -1730,6 +1926,152 @@ function finishBlockMouseDrag(event: MouseEvent) {
     return
   }
   moveDraggedBlockTo(target, position.pos)
+}
+
+function clonedClipboardBlock(block: JSONContent): JSONContent {
+  const copy = structuredClone(block)
+  copy.attrs = { ...(copy.attrs || {}), blockId: randomId('block'), backendId: null }
+  if (copy.type === 'image') {
+    const attrs = normalizeImageFlowAttrs(copy.attrs)
+    const shifted = clampImageFlowAttrs({
+      ...attrs,
+      x: attrs.x + IMAGE_DUPLICATE_OFFSET,
+      offsetY: attrs.offsetY + IMAGE_DUPLICATE_OFFSET,
+      zIndex: nextImageZIndex(),
+    })
+    copy.attrs = { ...copy.attrs, ...shifted, align: 'left', offsetX: shifted.x }
+  }
+  return copy
+}
+
+function startImageFlowDrag(event: MouseEvent | PointerEvent, range: MovableBlockRange, imageJson: JSONContent, imageElement: HTMLElement) {
+  const current = editor.value
+  if (!current) return
+  event.preventDefault()
+  event.stopPropagation()
+  const startAttrs = normalizeImageFlowAttrs(imageJson.attrs || {})
+  const startX = event.clientX
+  const startY = event.clientY
+  let latestAttrs = startAttrs
+  let moved = false
+  const pointerId = 'pointerId' in event ? event.pointerId : null
+  imageContextMenu.value.visible = false
+  imageElement.classList.add('movable-block-drag-source')
+  document.body.classList.add('note-dragging')
+  if (pointerId !== null && imageElement.setPointerCapture) {
+    try {
+      imageElement.setPointerCapture(pointerId)
+    } catch {
+      // The element may be re-rendered by ProseMirror during live updates.
+    }
+  }
+
+  const onMove = (moveEvent: MouseEvent | PointerEvent) => {
+    moveEvent.preventDefault()
+    moveEvent.stopPropagation()
+    moved = true
+    const deltaX = moveEvent.clientX - startX
+    const deltaY = moveEvent.clientY - startY
+    latestAttrs = clampImageFlowAttrs({
+      ...startAttrs,
+      x: startAttrs.x + deltaX,
+      offsetY: startAttrs.offsetY + deltaY,
+    })
+    updateImageNodeAttrs(range, latestAttrs, false)
+    requestAnimationFrame(updateBlockActionsPosition)
+  }
+
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove)
+    document.removeEventListener('pointerup', onUp)
+    document.removeEventListener('pointercancel', onUp)
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    if (pointerId !== null && imageElement.releasePointerCapture) {
+      try {
+        imageElement.releasePointerCapture(pointerId)
+      } catch {
+        // Pointer capture can be released automatically if the DOM node is replaced.
+      }
+    }
+    imageElement.classList.remove('movable-block-drag-source')
+    document.body.classList.remove('note-dragging')
+    imageDropIndicator.value.visible = false
+    if (!moved) return
+    updateImageNodeAttrs(range, latestAttrs)
+    markEditorDirty()
+    requestAnimationFrame(updateBlockActionsPosition)
+  }
+
+  if (pointerId !== null) {
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp, { once: true })
+    document.addEventListener('pointercancel', onUp, { once: true })
+  } else {
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp, { once: true })
+  }
+}
+
+function updateImageNodeAttrs(range: MovableBlockRange, attrs: ImageFlowAttrs, scroll = false) {
+  const current = editor.value
+  if (!current) return
+  const node = current.state.doc.nodeAt(range.from)
+  if (!node || node.type.name !== 'image') return
+  const tr = current.state.tr.setNodeMarkup(range.from, undefined, {
+    ...node.attrs,
+    ...attrs,
+    align: 'left',
+    offsetX: attrs.x,
+  })
+  current.view.dispatch(scroll ? tr.scrollIntoView() : tr)
+  scheduleImageFlowGroupsRefresh()
+}
+
+function imageInsertionPositionFromPoint(event: MouseEvent, range: MovableBlockRange) {
+  const current = editor.value
+  if (!current) return null
+  let fallback: number | null = current.state.doc.content.size
+  let target: number | null = null
+  current.state.doc.forEach((node, offset) => {
+    if (node.type.name === 'image') return
+    const dom = current.view.nodeDOM(offset)
+    if (!(dom instanceof HTMLElement)) return
+    const rect = dom.getBoundingClientRect()
+    fallback = offset + node.nodeSize
+    if (event.clientY < rect.top + rect.height / 2 && target === null) {
+      target = offset
+    }
+  })
+  const insertion = target ?? fallback
+  if (insertion === null || (insertion >= range.from && insertion <= range.to)) return null
+  return insertion
+}
+
+function updateImageDropIndicator(event: MouseEvent, insertion: number | null, startRect: DOMRect) {
+  const wrapper = sectionContentRef.value
+  const root = editor.value?.view.dom
+  if (!wrapper || !root || insertion === null || (event.clientY >= startRect.top - 28 && event.clientY <= startRect.bottom + 28)) {
+    imageDropIndicator.value.visible = false
+    return
+  }
+  const wrapperRect = wrapper.getBoundingClientRect()
+  imageDropIndicator.value = {
+    visible: true,
+    top: event.clientY - wrapperRect.top + wrapper.scrollTop,
+    left: 28,
+    width: Math.max(240, root.getBoundingClientRect().width - 56),
+  }
+}
+
+function moveImageNodeToPosition(range: MovableBlockRange, position: number, imageJson: JSONContent) {
+  const current = editor.value
+  if (!current) return
+  const sourceSize = range.to - range.from
+  const insertPosition = Math.max(0, position > range.to ? position - sourceSize : position)
+  current.view.dispatch(current.state.tr.delete(range.from, range.to))
+  current.commands.insertContentAt(insertPosition, imageJson)
+  current.commands.setNodeSelection(insertPosition)
 }
 
 function startBlockDragFeedback(event: MouseEvent, blockJson: JSONContent, kind: MovableBlockKind) {
@@ -1990,13 +2332,54 @@ function startBlockResize(event: MouseEvent, handle: ResizeHandle) {
   const startY = event.clientY
   const startWidth = blockResizeOverlay.value.width
   const startHeight = blockResizeOverlay.value.height
+  const startNode = current.state.doc.nodeAt(range.from)
+  const startImageAttrs = range.kind === 'image' ? normalizeImageFlowAttrs(startNode?.attrs || {}) : null
+  const startRatio = startImageAttrs ? startImageAttrs.width / Math.max(1, startImageAttrs.height) : 1
   let latestWidth = startWidth
   let latestHeight = startHeight
+  let latestImageAttrs: ImageFlowAttrs | null = startImageAttrs
   const onMove = (moveEvent: MouseEvent) => {
     const deltaX = moveEvent.clientX - startX
     const deltaY = moveEvent.clientY - startY
     const signedDeltaX = handle.includes('w') ? -deltaX : deltaX
     const signedDeltaY = handle.includes('n') ? -deltaY : deltaY
+    if (range.kind === 'image' && startImageAttrs) {
+      let nextX = startImageAttrs.x
+      let nextOffsetY = startImageAttrs.offsetY
+      let nextWidth = startImageAttrs.width
+      let nextHeight = startImageAttrs.height
+      if (handle.includes('e')) nextWidth = startImageAttrs.width + deltaX
+      if (handle.includes('w')) {
+        nextX = startImageAttrs.x + deltaX
+        nextWidth = startImageAttrs.width - deltaX
+      }
+      if (handle.includes('s')) nextHeight = startImageAttrs.height + deltaY
+      if (handle.includes('n')) {
+        nextOffsetY = startImageAttrs.offsetY + deltaY
+        nextHeight = startImageAttrs.height - deltaY
+      }
+      if (moveEvent.shiftKey) {
+        if (handle === 'n' || handle === 's') {
+          nextWidth = nextHeight * startRatio
+        } else {
+          nextHeight = nextWidth / startRatio
+        }
+      }
+      latestImageAttrs = clampImageFlowAttrs({
+        ...startImageAttrs,
+        x: nextX,
+        offsetY: nextOffsetY,
+        width: nextWidth,
+        height: nextHeight,
+      })
+      latestWidth = latestImageAttrs.width
+      latestHeight = latestImageAttrs.height
+      updateImageNodeAttrs(range, latestImageAttrs, false)
+      blockResizeOverlay.value.width = latestWidth
+      blockResizeOverlay.value.height = latestHeight
+      requestAnimationFrame(updateBlockActionsPosition)
+      return
+    }
     const maxWidth = Math.max(180, current.view.dom.getBoundingClientRect().width)
     const nextWidth = handle.includes('e') || handle.includes('w')
       ? Math.min(maxWidth, Math.max(range.kind === 'table' ? 180 : 40, startWidth + signedDeltaX))
@@ -2023,7 +2406,11 @@ function startBlockResize(event: MouseEvent, handle: ResizeHandle) {
   const onUp = () => {
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
-    updateBlockSize(range, latestWidth, latestHeight)
+    if (range.kind === 'image' && latestImageAttrs) {
+      updateImageNodeAttrs(range, latestImageAttrs, true)
+    } else {
+      updateBlockSize(range, latestWidth, latestHeight)
+    }
     markEditorDirty()
     requestAnimationFrame(updateBlockActionsPosition)
   }
@@ -2057,6 +2444,129 @@ function alignActiveBlock(align: 'left' | 'center' | 'right') {
     offsetX: 0,
     offsetY: 0,
   }))
+  markEditorDirty()
+  requestAnimationFrame(updateBlockActionsPosition)
+}
+
+function handleImageKeyboardMove(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return false
+  const range = blockActionRange.value
+  const current = editor.value
+  if (!range || range.kind !== 'image' || !current) return false
+  const node = current.state.doc.nodeAt(range.from)
+  if (!node || node.type.name !== 'image') return false
+  event.preventDefault()
+  const step = event.shiftKey ? 10 : 1
+  const attrs = normalizeImageFlowAttrs(node.attrs)
+  const next = {
+    ...attrs,
+    x: attrs.x + (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0),
+    offsetY: attrs.offsetY + (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0),
+  }
+  updateImageNodeAttrs(range, clampImageFlowAttrs(next), false)
+  markEditorDirty()
+  requestAnimationFrame(updateBlockActionsPosition)
+  return true
+}
+
+function setActiveImageLayer(action: 'front' | 'back' | 'forward' | 'backward') {
+  const range = blockActionRange.value
+  const current = editor.value
+  if (!range || range.kind !== 'image' || !current) return
+  const group = imageLayerGroupForPosition(range.from)
+  if (!group.length) return
+  const ordered = normalizedImageLayerOrder(group)
+  const selectedIndex = ordered.findIndex((entry) => entry.pos === range.from)
+  if (selectedIndex < 0) return
+  const [selected] = ordered.splice(selectedIndex, 1)
+
+  if (action === 'front') {
+    ordered.push(selected)
+  } else if (action === 'back') {
+    ordered.unshift(selected)
+  } else if (action === 'forward') {
+    ordered.splice(Math.min(selectedIndex + 1, ordered.length), 0, selected)
+  } else {
+    ordered.splice(Math.max(selectedIndex - 1, 0), 0, selected)
+  }
+
+  const tr = ordered.reduce((transaction, entry, index) => {
+    const attrs = normalizeImageFlowAttrs(entry.node.attrs)
+    return transaction.setNodeMarkup(entry.pos, undefined, {
+      ...entry.node.attrs,
+      ...attrs,
+      align: 'left',
+      offsetX: attrs.x,
+      zIndex: index + 1,
+    })
+  }, current.state.tr)
+  current.view.dispatch(tr)
+  scheduleImageFlowGroupsRefresh()
+  requestAnimationFrame(updateBlockActionsPosition)
+  imageContextMenu.value.visible = false
+  markEditorDirty()
+}
+
+function imageLayerGroupForPosition(position: number) {
+  const current = editor.value
+  if (!current) return []
+  type ImageLayerEntry = { pos: number; node: ProseMirrorNode; attrs: ImageFlowAttrs; order: number; id: string }
+  const groups: ImageLayerEntry[][] = []
+  let group: ImageLayerEntry[] = []
+  current.state.doc.forEach((node, offset, index) => {
+    if (node.type.name === 'image') {
+      group.push({
+        pos: offset,
+        node,
+        attrs: normalizeImageFlowAttrs(node.attrs),
+        order: index,
+        id: String(node.attrs.blockId || node.attrs.backendId || offset),
+      })
+      return
+    }
+    if (group.length) groups.push(group)
+    group = []
+  })
+  if (group.length) groups.push(group)
+  return groups.find((items) => items.some((entry) => entry.pos === position)) || []
+}
+
+function normalizedImageLayerOrder<T extends { attrs: ImageFlowAttrs; order: number; id: string }>(images: T[]) {
+  return [...images].sort((left, right) => {
+    const zDiff = left.attrs.zIndex - right.attrs.zIndex
+    if (zDiff) return zDiff
+    const orderDiff = left.order - right.order
+    if (orderDiff) return orderDiff
+    return left.id.localeCompare(right.id)
+  })
+}
+
+function duplicateActiveImage() {
+  const range = blockActionRange.value
+  const current = editor.value
+  const imageJson = activeBlockJson(range)
+  if (!range || range.kind !== 'image' || !current || !imageJson) return
+  const attrs = normalizeImageFlowAttrs(imageJson.attrs || {})
+  const shifted = clampImageFlowAttrs({
+    ...attrs,
+    x: attrs.x + IMAGE_DUPLICATE_OFFSET,
+    offsetY: attrs.offsetY + IMAGE_DUPLICATE_OFFSET,
+    zIndex: nextImageZIndex(),
+  })
+  const copy: JSONContent = {
+    ...structuredClone(imageJson),
+    attrs: {
+      ...(imageJson.attrs || {}),
+      ...shifted,
+      blockId: randomId('block'),
+      backendId: null,
+      offsetX: shifted.x,
+      align: 'left',
+    },
+  }
+  current.commands.insertContentAt(range.to, copy)
+  current.commands.setNodeSelection(range.to)
+  imageContextMenu.value.visible = false
   markEditorDirty()
   requestAnimationFrame(updateBlockActionsPosition)
 }
@@ -2795,7 +3305,7 @@ function toggleNoteMenu() {
   showNoteMenu.value = !showNoteMenu.value
 }
 
-function insertImage(src: string, assetId?: number) {
+async function insertImage(src: string, assetId?: number) {
   const current = editor.value
   if (!current) return
 
@@ -2806,6 +3316,12 @@ function insertImage(src: string, assetId?: number) {
     ? selection.to
     : { from: selection.from, to: selection.to }
   const selectPosition = typeof insertPosition === 'number' ? insertPosition : insertPosition.from
+  const selectedImageAttrs = appendAfterSelectedImage ? normalizeImageFlowAttrs((selectedNode as any)?.attrs || {}) : null
+  const initialSize = await initialImageSize(src)
+  const zIndex = nextImageZIndex()
+  const placement = selectedImageAttrs
+    ? nextImagePlacementBeside(selectedImageAttrs, initialSize.width, initialSize.height)
+    : { x: 0, offsetY: IMAGE_FLOW_MARGIN }
 
   const inserted = current.chain().focus().insertContentAt(insertPosition, {
     type: 'image',
@@ -2813,10 +3329,16 @@ function insertImage(src: string, assetId?: number) {
       src,
       alt: assetId ? `asset-${assetId}` : 'imagen',
       assetId: assetId || null,
-      width: 240,
-      align: 'inline',
-      offsetX: 0,
-      offsetY: 0,
+      layout: 'absolute-flow',
+      x: placement.x,
+      width: initialSize.width,
+      height: initialSize.height,
+      zIndex,
+      referenceWidth: IMAGE_REFERENCE_WIDTH,
+      lockedAspectRatio: false,
+      align: 'left',
+      offsetX: placement.x,
+      offsetY: placement.offsetY,
     },
   }).run()
 
@@ -2848,7 +3370,7 @@ async function insertClipboardImage(file: File) {
     const asset = await uploadAsset({ file, assetType: 'IMAGE', manualId: props.manualId })
     const src = asset.fileUrl ? toBackendUrl(asset.fileUrl) : toBackendUrl(`/api/v1/assets/${asset.id}/file`)
     assets.value = [asset, ...assets.value.filter((item) => item.id !== asset.id)]
-    insertImage(src, asset.id)
+    await insertImage(src, asset.id)
     markEditorDirty()
   } catch {
     editorMessage.value = 'No se pudo guardar la imagen pegada desde el portapapeles.'
@@ -2859,14 +3381,16 @@ async function insertClipboardImage(file: File) {
 
 async function uploadImage(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
+  const files = Array.from(input.files || []).filter((file) => file.type.startsWith('image/'))
+  if (!files.length) return
   uploadingImage.value = true
   try {
-    const asset = await uploadAsset({ file, assetType: 'IMAGE', manualId: props.manualId })
-    const src = asset.fileUrl ? toBackendUrl(asset.fileUrl) : toBackendUrl(`/api/v1/assets/${asset.id}/file`)
-    assets.value = [asset, ...assets.value]
-    insertImage(src, asset.id)
+    for (const file of files) {
+      const asset = await uploadAsset({ file, assetType: 'IMAGE', manualId: props.manualId })
+      const src = asset.fileUrl ? toBackendUrl(asset.fileUrl) : toBackendUrl(`/api/v1/assets/${asset.id}/file`)
+      assets.value = [asset, ...assets.value.filter((item) => item.id !== asset.id)]
+      await insertImage(src, asset.id)
+    }
   } finally {
     uploadingImage.value = false
     input.value = ''
@@ -3048,17 +3572,22 @@ function nodeFromBlock(block: EditorBlock): JSONContent[] {
   }
   if (block.type === 'imagen') {
     const attrs = savedJson?.attrs as Record<string, unknown> | undefined
+    const imageAttrs = normalizeImageFlowAttrs({
+      ...(attrs || {}),
+      ...data,
+      src: block.content,
+      assetId: data.assetId ?? attrs?.assetId ?? imageAssetId(savedJson || {}),
+    })
     return [{
       type: 'image',
       attrs: {
         ...identity,
         src: block.content,
-        alt: String(data.assetId || ''),
-        width: data.width || attrs?.width || null,
-        height: data.height || attrs?.height || null,
-        align: data.align || attrs?.align || 'inline',
-        offsetX: data.offsetX || attrs?.offsetX || 0,
-        offsetY: data.offsetY || attrs?.offsetY || 0,
+        alt: data.assetId ? `asset-${data.assetId}` : 'imagen',
+        assetId: data.assetId ?? attrs?.assetId ?? null,
+        ...imageAttrs,
+        align: 'left',
+        offsetX: imageAttrs.x,
       },
     }]
   }
@@ -3142,16 +3671,30 @@ function blockFromNode(node: JSONContent): EditorBlock[] {
     })]
   }
   if (node.type === 'image') {
+    const imageAttrs = normalizeImageFlowAttrs(node.attrs || {})
     return [editorBlock('imagen', String(node.attrs?.src || ''), {
       type: 'image',
-      json: node,
+      json: {
+        ...node,
+        attrs: {
+          ...(node.attrs || {}),
+          ...imageAttrs,
+          align: 'left',
+          offsetX: imageAttrs.x,
+        },
+      },
       assetId: imageAssetId(node),
       caption: '',
-      width: node.attrs?.width || null,
-      height: node.attrs?.height || null,
-      align: node.attrs?.align || 'inline',
-      offsetX: node.attrs?.offsetX || 0,
-      offsetY: node.attrs?.offsetY || 0,
+      layout: 'absolute-flow',
+      x: imageAttrs.x,
+      width: imageAttrs.width,
+      height: imageAttrs.height,
+      align: 'left',
+      offsetX: imageAttrs.x,
+      offsetY: imageAttrs.offsetY,
+      zIndex: imageAttrs.zIndex,
+      referenceWidth: imageAttrs.referenceWidth,
+      lockedAspectRatio: imageAttrs.lockedAspectRatio,
     })]
   }
   if (node.type === 'noteBox') {
@@ -3215,6 +3758,88 @@ function editorBlock(type: EditorBlockType, content: string, data?: Record<strin
 
 function textContent(text: string): JSONContent[] | undefined {
   return text ? [{ type: 'text', text }] : undefined
+}
+
+function numberAttr(value: unknown) {
+  if (value === null || value === undefined || value === '') return undefined
+  const number = Number(String(value).replace('px', ''))
+  return Number.isFinite(number) ? number : undefined
+}
+
+function normalizeImageFlowAttrs(attrs: Record<string, unknown>): ImageFlowAttrs {
+  const width = Math.max(IMAGE_MIN_SIZE, numberAttr(attrs.width) ?? IMAGE_INITIAL_MAX_WIDTH)
+  const height = Math.max(IMAGE_MIN_SIZE, numberAttr(attrs.height) ?? 180)
+  const referenceWidth = Math.max(1, numberAttr(attrs.referenceWidth) ?? IMAGE_REFERENCE_WIDTH)
+  const layout = String(attrs.layout ?? '')
+  const align = String(attrs.align ?? 'inline')
+  let x = numberAttr(attrs.x) ?? numberAttr(attrs.offsetX)
+  if (x === undefined) {
+    if (layout !== 'absolute-flow' && align === 'center') x = (referenceWidth - width) / 2
+    else if (layout !== 'absolute-flow' && align === 'right') x = referenceWidth - width
+    else x = 0
+  }
+  return clampImageFlowAttrs({
+    layout: 'absolute-flow',
+    x,
+    offsetY: numberAttr(attrs.offsetY) ?? IMAGE_FLOW_MARGIN,
+    width,
+    height,
+    zIndex: Math.max(1, Math.round(numberAttr(attrs.zIndex) ?? 1)),
+    referenceWidth,
+    lockedAspectRatio: attrs.lockedAspectRatio === true || attrs.lockedAspectRatio === 'true',
+  })
+}
+
+function clampImageFlowAttrs(attrs: ImageFlowAttrs): ImageFlowAttrs {
+  const referenceWidth = Math.max(1, Math.round(attrs.referenceWidth || IMAGE_REFERENCE_WIDTH))
+  const width = Math.min(referenceWidth, Math.max(IMAGE_MIN_SIZE, Math.round(attrs.width)))
+  const height = Math.min(IMAGE_MAX_HEIGHT, Math.max(IMAGE_MIN_SIZE, Math.round(attrs.height)))
+  const x = Math.min(Math.max(0, Math.round(attrs.x)), Math.max(0, referenceWidth - width))
+  return {
+    layout: 'absolute-flow',
+    x,
+    offsetY: Math.max(IMAGE_FLOW_MARGIN, Math.round(attrs.offsetY)),
+    width,
+    height,
+    zIndex: Math.max(1, Math.round(attrs.zIndex)),
+    referenceWidth,
+    lockedAspectRatio: attrs.lockedAspectRatio,
+  }
+}
+
+function initialImageSize(src: string) {
+  return new Promise<{ width: number; height: number }>((resolve) => {
+    const image = new window.Image()
+    image.onload = () => {
+      const naturalWidth = image.naturalWidth || IMAGE_INITIAL_MAX_WIDTH
+      const naturalHeight = image.naturalHeight || 180
+      const width = Math.min(IMAGE_INITIAL_MAX_WIDTH, naturalWidth, IMAGE_REFERENCE_WIDTH)
+      const height = Math.max(IMAGE_MIN_SIZE, Math.round((naturalHeight / Math.max(1, naturalWidth)) * width))
+      resolve({ width, height: Math.min(height, IMAGE_MAX_HEIGHT) })
+    }
+    image.onerror = () => resolve({ width: IMAGE_INITIAL_MAX_WIDTH, height: 180 })
+    image.src = src
+  })
+}
+
+function nextImagePlacementBeside(selected: ImageFlowAttrs, width: number, height: number) {
+  const rightX = selected.x + selected.width + IMAGE_FLOW_MARGIN
+  if (rightX + width <= selected.referenceWidth) {
+    return { x: rightX, offsetY: selected.offsetY }
+  }
+  return {
+    x: Math.min(selected.x, Math.max(0, selected.referenceWidth - width)),
+    offsetY: selected.offsetY + selected.height + IMAGE_FLOW_MARGIN,
+  }
+}
+
+function nextImageZIndex() {
+  let max = 0
+  editor.value?.state.doc.descendants((node) => {
+    if (node.type.name !== 'image') return
+    max = Math.max(max, Number(node.attrs.zIndex || 0))
+  })
+  return max + 1
 }
 
 function cssSize(value: unknown) {
@@ -3440,11 +4065,19 @@ function imageAssetId(node: JSONContent) {
         @click.stop="handleSectionClick"
       />
       <div
+        v-if="imageDropIndicator.visible && !isLinkedSection"
+        class="image-drop-indicator"
+        :style="{ top: `${imageDropIndicator.top}px`, left: `${imageDropIndicator.left}px`, width: `${imageDropIndicator.width}px` }"
+      >
+        Colocar imagen aquí
+      </div>
+      <div
         v-if="blockActionsPosition.visible && !isLinkedSection"
         class="block-actions-float"
         :style="{ top: `${blockActionsPosition.top}px`, left: `${blockActionsPosition.left}px` }"
       >
         <button
+          v-if="blockActionsPosition.kind !== 'image'"
           class="block-action-drag"
           :title="`Arrastrar ${blockKindLabel(blockActionsPosition.kind)}`"
           :aria-label="`Arrastrar ${blockKindLabel(blockActionsPosition.kind)}`"
@@ -3472,6 +4105,7 @@ function imageAssetId(node: JSONContent) {
           <Scissors :size="16" />
         </button>
         <button
+          v-if="blockActionsPosition.kind !== 'image'"
           title="Alinear a la izquierda"
           aria-label="Alinear a la izquierda"
           @mousedown.prevent
@@ -3480,6 +4114,7 @@ function imageAssetId(node: JSONContent) {
           <AlignLeft :size="16" />
         </button>
         <button
+          v-if="blockActionsPosition.kind !== 'image'"
           title="Centrar elemento"
           aria-label="Centrar elemento"
           @mousedown.prevent
@@ -3488,6 +4123,7 @@ function imageAssetId(node: JSONContent) {
           <AlignCenter :size="16" />
         </button>
         <button
+          v-if="blockActionsPosition.kind !== 'image'"
           title="Alinear a la derecha"
           aria-label="Alinear a la derecha"
           @mousedown.prevent
@@ -3524,6 +4160,18 @@ function imageAssetId(node: JSONContent) {
         <button v-if="blockResizeOverlay.kind === 'image'" class="resize-handle s" title="Redimensionar alto" @mousedown="startBlockResize($event, 's')" />
         <button class="resize-handle e" title="Redimensionar" @mousedown="startBlockResize($event, 'e')" />
         <button class="resize-handle w" title="Redimensionar" @mousedown="startBlockResize($event, 'w')" />
+      </div>
+      <div
+        v-if="imageContextMenu.visible && !isLinkedSection"
+        class="image-context-menu"
+        :style="{ top: `${imageContextMenu.top}px`, left: `${imageContextMenu.left}px` }"
+        @mousedown.stop.prevent
+      >
+        <button type="button" @click="setActiveImageLayer('front')">Traer al frente</button>
+        <button type="button" @click="setActiveImageLayer('back')">Enviar al fondo</button>
+        <button type="button" @click="setActiveImageLayer('forward')">Adelantar una capa</button>
+        <button type="button" @click="setActiveImageLayer('backward')">Retroceder una capa</button>
+        <button type="button" @click="duplicateActiveImage">Duplicar imagen</button>
       </div>
       <div
         v-if="noteActionsPosition.visible && !isLinkedSection"
@@ -3638,7 +4286,7 @@ function imageAssetId(node: JSONContent) {
           <label class="image-source-btn upload-box">
             <FileImage :size="18" />
             <span>{{ uploadingImage ? 'Subiendo...' : 'Subir archivo' }}</span>
-            <input type="file" accept="image/*" :disabled="uploadingImage" @change="uploadImage" />
+            <input type="file" accept="image/*" multiple :disabled="uploadingImage" @change="uploadImage" />
           </label>
         </div>
       </div>
@@ -5677,6 +6325,87 @@ function imageAssetId(node: JSONContent) {
 
 .editor-shell.linked :deep(.rich-editor-surface) {
   cursor: not-allowed;
+}
+
+.editor-shell :deep(.absolute-flow-image-block) {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.editor-shell :deep(.absolute-flow-image-block img) {
+  position: absolute !important;
+  display: block !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: translateY(var(--image-flow-shift, 0px));
+  object-fit: fill !important;
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+
+.editor-shell :deep(.absolute-flow-image-block img.movable-block-active),
+.editor-shell :deep(.absolute-flow-image-block img.movable-block-drag-source),
+.editor-shell :deep(.absolute-flow-image-block img:hover) {
+  outline: 1px solid rgba(14, 127, 187, .72);
+  outline-offset: 1px;
+}
+
+.image-drop-indicator {
+  position: absolute;
+  z-index: 20;
+  height: 28px;
+  border-top: 2px solid var(--dikoin-blue);
+  color: var(--dikoin-blue);
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.image-drop-indicator::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -2px;
+  border-top: 2px solid var(--dikoin-blue);
+}
+
+.image-context-menu {
+  position: fixed;
+  z-index: 1300;
+  min-width: 178px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, .18);
+  padding: 5px;
+  display: grid;
+  gap: 2px;
+}
+
+.image-context-menu button {
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  padding: 8px 9px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.image-context-menu button:hover {
+  background: var(--dikoin-blue-lighter);
+  color: var(--dikoin-blue);
 }
 
 .fragment-insert-options {

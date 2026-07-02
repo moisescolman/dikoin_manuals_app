@@ -138,10 +138,15 @@ interface TableCellRender {
 type ContentUnit =
   | { key: string; kind: 'section'; section: ManualSectionResponse; index: number }
   | { key: string; kind: 'block'; block: ManualBlockResponse }
-  | { key: string; kind: 'image-row'; blocks: ManualBlockResponse[] }
+  | { key: string; kind: 'image-group'; blocks: ManualBlockResponse[] }
+type BlockContentUnit =
+  | { key: string; kind: 'block'; block: ManualBlockResponse }
+  | { key: string; kind: 'image-group'; blocks: ManualBlockResponse[] }
 
 let resizeObserver: ResizeObserver | null = null
 let paginationRun = 0
+const IMAGE_REFERENCE_WIDTH = 680
+const IMAGE_FLOW_MARGIN = 12
 
 const contentSections = computed(() => {
   return (props.manual.activeVersion?.sections || [])
@@ -153,31 +158,34 @@ const contentUnits = computed<ContentUnit[]>(() => {
   const units: ContentUnit[] = []
   contentSections.value.forEach((section, index) => {
     units.push({ key: `section-${section.id}`, kind: 'section', section, index })
-    let imageRow: ManualBlockResponse[] = []
-    const flushImageRow = () => {
-      if (imageRow.length === 1) {
-        const block = imageRow[0]
-        units.push({ key: `block-${block.id}-0`, kind: 'block', block })
-      } else if (imageRow.length > 1) {
-        units.push({ key: `image-row-${imageRow.map((block) => block.id).join('-')}`, kind: 'image-row', blocks: imageRow })
-      }
-      imageRow = []
-    }
-
-    visibleBlocks(section).forEach((block) => {
-      splitBlock(block).forEach((split, splitIndex) => {
-        if (isInlineImageBlock(split)) {
-          imageRow.push(split)
-          return
-        }
-        flushImageRow()
-        units.push({ key: `block-${block.id}-${splitIndex}`, kind: 'block', block: split })
-      })
-    })
-    flushImageRow()
+    units.push(...contentUnitsForBlocks(visibleBlocks(section), `section-${section.id}`))
   })
   return units
 })
+
+function contentUnitsForBlocks(blocks: ManualBlockResponse[], prefix = 'blocks'): BlockContentUnit[] {
+  const units: BlockContentUnit[] = []
+  let imageGroup: ManualBlockResponse[] = []
+  const flushImageGroup = () => {
+    if (imageGroup.length) {
+      units.push({ key: `${prefix}-image-group-${imageGroup.map((block) => block.id).join('-')}`, kind: 'image-group', blocks: imageGroup })
+    }
+    imageGroup = []
+  }
+
+  blocks.forEach((block) => {
+    splitBlock(block).forEach((split, splitIndex) => {
+      if (isAbsoluteFlowImageBlock(split)) {
+        imageGroup.push(split)
+        return
+      }
+      flushImageGroup()
+      units.push({ key: `${prefix}-block-${block.id}-${splitIndex}`, kind: 'block', block: split })
+    })
+  })
+  flushImageGroup()
+  return units
+}
 
 const contentSignature = computed(() => {
   return contentSections.value.map((section) => {
@@ -336,10 +344,9 @@ function splitBlock(block: ManualBlockResponse): ManualBlockResponse[] {
   }))
 }
 
-function isInlineImageBlock(block: ManualBlockResponse) {
+function isAbsoluteFlowImageBlock(block: ManualBlockResponse) {
   if (block.blockType !== 'IMAGE') return false
-  const parsed = content(block.contentJson)
-  return (parsed.json?.attrs?.align || parsed.align || 'inline') === 'inline'
+  return true
 }
 
 function tableRows(blockJson: string) {
@@ -383,6 +390,7 @@ function tableHasHeader(blockJson: string) {
 
 function imageFigureStyle(blockJson: string): CSSProperties {
   const parsed = content(blockJson)
+  if (imageLayout(parsed) === 'absolute-flow') return {}
   const align = parsed.json?.attrs?.align || parsed.align || 'inline'
   if (align === 'center') return { display: 'flex', flexDirection: 'column', alignItems: 'center' }
   if (align === 'right') return { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }
@@ -681,6 +689,62 @@ function parseConfig<T extends Record<string, boolean>>(value: string | undefine
   }
 }
 
+function numberValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return undefined
+  const number = Number(String(value).replace('px', ''))
+  return Number.isFinite(number) ? number : undefined
+}
+
+function imageLayout(parsed: Record<string, any>) {
+  return parsed.layout ?? parsed.json?.attrs?.layout ?? 'absolute-flow'
+}
+
+function absoluteImageAttrs(blockJson: string) {
+  const parsed = content(blockJson)
+  const attrs = parsed.json?.attrs || {}
+  const referenceWidth = numberValue(parsed.referenceWidth ?? attrs.referenceWidth) ?? IMAGE_REFERENCE_WIDTH
+  const width = Math.max(1, numberValue(parsed.width ?? attrs.width) ?? 300)
+  const height = Math.max(1, numberValue(parsed.height ?? attrs.height) ?? 180)
+  let x = numberValue(parsed.x ?? attrs.x ?? parsed.offsetX ?? attrs.offsetX)
+  if (x === undefined) {
+    const align = parsed.align ?? attrs.align
+    x = align === 'center' ? (referenceWidth - width) / 2 : align === 'right' ? referenceWidth - width : 0
+  }
+  return {
+    x: Math.min(Math.max(0, x), Math.max(0, referenceWidth - width)),
+    offsetY: Math.max(IMAGE_FLOW_MARGIN, numberValue(parsed.offsetY ?? attrs.offsetY) ?? IMAGE_FLOW_MARGIN),
+    width: Math.min(referenceWidth, width),
+    height,
+    zIndex: Math.max(1, numberValue(parsed.zIndex ?? attrs.zIndex) ?? 1),
+    referenceWidth,
+  }
+}
+
+function imageGroupStyle(blocks: ManualBlockResponse[]): CSSProperties {
+  const height = Math.max(
+    IMAGE_FLOW_MARGIN * 2,
+    ...blocks.map((block) => {
+      const attrs = absoluteImageAttrs(block.contentJson)
+      return attrs.offsetY + attrs.height + IMAGE_FLOW_MARGIN
+    }),
+  )
+  return {
+    '--absolute-flow-height': `${height}px`,
+    '--absolute-flow-reference-width': `${IMAGE_REFERENCE_WIDTH}px`,
+  } as CSSProperties
+}
+
+function absoluteImageStyle(blockJson: string): CSSProperties {
+  const attrs = absoluteImageAttrs(blockJson)
+  return {
+    left: `${attrs.x}px`,
+    top: `${attrs.offsetY}px`,
+    width: `${attrs.width}px`,
+    height: `${attrs.height}px`,
+    zIndex: attrs.zIndex,
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -872,7 +936,7 @@ function contentPageForBlock(blockId: number) {
   const pageIndex = contentPages.value.findIndex((page) => {
     return page.some((unit) => {
       if (unit.kind === 'block') return unit.block.id === blockId
-      if (unit.kind === 'image-row') return unit.blocks.some((block) => block.id === blockId)
+      if (unit.kind === 'image-group') return unit.blocks.some((block) => block.id === blockId)
       return false
     })
   })
@@ -945,10 +1009,9 @@ function contentPageForBlock(blockId: number) {
           <section v-if="unit.kind === 'section'" class="doc-section-title">
             <h2>{{ sectionTitle(unit.section, unit.index) }}</h2>
           </section>
-          <div v-else-if="unit.kind === 'image-row'" class="doc-block doc-image-row">
-            <figure v-for="block in unit.blocks" :key="block.id" class="doc-image" :style="imageFigureStyle(block.contentJson)">
-              <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" :style="{ width: imageWidth(block.contentJson), height: imageHeight(block.contentJson) }" alt="" />
-              <figcaption v-if="content(block.contentJson).caption">{{ content(block.contentJson).caption }}</figcaption>
+          <div v-else-if="unit.kind === 'image-group'" class="doc-block absolute-flow-group" :style="imageGroupStyle(unit.blocks)">
+            <figure v-for="block in unit.blocks" :key="block.id" class="absolute-flow-image" :style="absoluteImageStyle(block.contentJson)">
+              <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" alt="" />
             </figure>
           </div>
           <div v-else class="doc-block">
@@ -967,42 +1030,52 @@ function contentPageForBlock(blockId: number) {
                     || 'Sección reutilizable'
                 }}
               </strong>
-              <div v-for="(innerBlock, innerIndex) in reusableRenderBlocks(content(unit.block.contentJson).reusableBlockId)" :key="innerIndex" class="doc-block">
-                <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
-                <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
-                <ul v-else-if="innerBlock.blockType === 'UNORDERED_LIST'">
-                  <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
-                </ul>
-                <ol v-else-if="innerBlock.blockType === 'ORDERED_LIST'">
-                  <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
-                </ol>
-                <div v-else-if="innerBlock.blockType === 'NOTE'" class="note">
-                  <strong>{{ content(innerBlock.contentJson).title || 'Nota' }}</strong>
-                  <p>{{ content(innerBlock.contentJson).text }}</p>
+              <template v-for="innerUnit in contentUnitsForBlocks(reusableRenderBlocks(content(unit.block.contentJson).reusableBlockId), `reusable-${unit.block.id}`)" :key="innerUnit.key">
+                <div v-if="innerUnit.kind === 'image-group'" class="doc-block absolute-flow-group" :style="imageGroupStyle(innerUnit.blocks)">
+                  <figure v-for="block in innerUnit.blocks" :key="block.id" class="absolute-flow-image" :style="absoluteImageStyle(block.contentJson)">
+                    <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" alt="" />
+                  </figure>
                 </div>
-                <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
-              </div>
+                <div v-else class="doc-block">
+                  <component :is="headingTag(innerUnit.block)" v-if="innerUnit.block.blockType === 'HEADING'" :class="headingClass(innerUnit.block)">{{ headingText(innerUnit.block) }}</component>
+                  <p v-else-if="innerUnit.block.blockType === 'PARAGRAPH'">{{ content(innerUnit.block.contentJson).text }}</p>
+                  <ul v-else-if="innerUnit.block.blockType === 'UNORDERED_LIST'">
+                    <li v-for="item in content(innerUnit.block.contentJson).items" :key="item">{{ item }}</li>
+                  </ul>
+                  <ol v-else-if="innerUnit.block.blockType === 'ORDERED_LIST'">
+                    <li v-for="item in content(innerUnit.block.contentJson).items" :key="item">{{ item }}</li>
+                  </ol>
+                  <div v-else-if="innerUnit.block.blockType === 'NOTE'" class="note">
+                    <strong>{{ content(innerUnit.block.contentJson).title || 'Nota' }}</strong>
+                    <p>{{ content(innerUnit.block.contentJson).text }}</p>
+                  </div>
+                  <div v-else class="text-muted">{{ innerUnit.block.contentJson }}</div>
+                </div>
+              </template>
             </div>
             <div v-else-if="content(unit.block.contentJson).type === 'reusable_fragment_ref'">
-              <div v-for="(innerBlock, innerIndex) in reusableFragmentRenderBlocks(content(unit.block.contentJson).reusableFragmentId)" :key="innerIndex" class="doc-block">
-                <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
-                <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
-                <ul v-else-if="innerBlock.blockType === 'UNORDERED_LIST'">
-                  <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
-                </ul>
-                <ol v-else-if="innerBlock.blockType === 'ORDERED_LIST'">
-                  <li v-for="item in content(innerBlock.contentJson).items" :key="item">{{ item }}</li>
-                </ol>
-                <div v-else-if="innerBlock.blockType === 'NOTE'" class="note">
-                  <strong>{{ content(innerBlock.contentJson).title || 'Nota' }}</strong>
-                  <p>{{ content(innerBlock.contentJson).text }}</p>
+              <template v-for="innerUnit in contentUnitsForBlocks(reusableFragmentRenderBlocks(content(unit.block.contentJson).reusableFragmentId), `fragment-${unit.block.id}`)" :key="innerUnit.key">
+                <div v-if="innerUnit.kind === 'image-group'" class="doc-block absolute-flow-group" :style="imageGroupStyle(innerUnit.blocks)">
+                  <figure v-for="block in innerUnit.blocks" :key="block.id" class="absolute-flow-image" :style="absoluteImageStyle(block.contentJson)">
+                    <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" alt="" />
+                  </figure>
                 </div>
-                <figure v-else-if="innerBlock.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(innerBlock.contentJson)">
-                  <img v-if="imageSource(innerBlock.contentJson)" :src="imageSource(innerBlock.contentJson)" :style="{ width: imageWidth(innerBlock.contentJson), height: imageHeight(innerBlock.contentJson) }" alt="" />
-                  <figcaption v-if="content(innerBlock.contentJson).caption">{{ content(innerBlock.contentJson).caption }}</figcaption>
-                </figure>
-                <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
-              </div>
+                <div v-else class="doc-block">
+                  <component :is="headingTag(innerUnit.block)" v-if="innerUnit.block.blockType === 'HEADING'" :class="headingClass(innerUnit.block)">{{ headingText(innerUnit.block) }}</component>
+                  <p v-else-if="innerUnit.block.blockType === 'PARAGRAPH'">{{ content(innerUnit.block.contentJson).text }}</p>
+                  <ul v-else-if="innerUnit.block.blockType === 'UNORDERED_LIST'">
+                    <li v-for="item in content(innerUnit.block.contentJson).items" :key="item">{{ item }}</li>
+                  </ul>
+                  <ol v-else-if="innerUnit.block.blockType === 'ORDERED_LIST'">
+                    <li v-for="item in content(innerUnit.block.contentJson).items" :key="item">{{ item }}</li>
+                  </ol>
+                  <div v-else-if="innerUnit.block.blockType === 'NOTE'" class="note">
+                    <strong>{{ content(innerUnit.block.contentJson).title || 'Nota' }}</strong>
+                    <p>{{ content(innerUnit.block.contentJson).text }}</p>
+                  </div>
+                  <div v-else class="text-muted">{{ innerUnit.block.contentJson }}</div>
+                </div>
+              </template>
             </div>
             <component :is="headingTag(unit.block)" v-else-if="unit.block.blockType === 'HEADING'" :class="headingClass(unit.block)">
               <span class="heading-number">{{ headingNumber(unit.block) }}</span>
@@ -1089,10 +1162,9 @@ function contentPageForBlock(blockId: number) {
                 <section v-if="unit.kind === 'section'" class="doc-section-title">
                   <h2>{{ sectionTitle(unit.section, unit.index) }}</h2>
                 </section>
-                <div v-else-if="unit.kind === 'image-row'" class="doc-block doc-image-row">
-                  <figure v-for="block in unit.blocks" :key="block.id" class="doc-image" :style="imageFigureStyle(block.contentJson)">
-                    <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" :style="{ width: imageWidth(block.contentJson), height: imageHeight(block.contentJson) }" alt="" />
-                    <figcaption v-if="content(block.contentJson).caption">{{ content(block.contentJson).caption }}</figcaption>
+                <div v-else-if="unit.kind === 'image-group'" class="doc-block absolute-flow-group" :style="imageGroupStyle(unit.blocks)">
+                  <figure v-for="block in unit.blocks" :key="block.id" class="absolute-flow-image" :style="absoluteImageStyle(block.contentJson)">
+                    <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" alt="" />
                   </figure>
                 </div>
                 <div v-else class="doc-block">
@@ -1102,26 +1174,32 @@ function contentPageForBlock(blockId: number) {
                   </div>
                   <div v-else-if="content(unit.block.contentJson).type === 'reusable_block_ref'" class="linked-block">
                     <strong>{{ reusableBlockById(content(unit.block.contentJson).reusableBlockId)?.title || 'Sección reutilizable' }}</strong>
-                    <div v-for="(innerBlock, innerIndex) in reusableRenderBlocks(content(unit.block.contentJson).reusableBlockId)" :key="innerIndex" class="doc-block">
-                      <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
-                      <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
-                      <figure v-else-if="innerBlock.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(innerBlock.contentJson)">
-                        <img v-if="imageSource(innerBlock.contentJson)" :src="imageSource(innerBlock.contentJson)" :style="{ width: imageWidth(innerBlock.contentJson), height: imageHeight(innerBlock.contentJson) }" alt="" />
-                        <figcaption v-if="content(innerBlock.contentJson).caption">{{ content(innerBlock.contentJson).caption }}</figcaption>
-                      </figure>
-                      <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
-                    </div>
+                    <template v-for="innerUnit in contentUnitsForBlocks(reusableRenderBlocks(content(unit.block.contentJson).reusableBlockId), `measure-reusable-${unit.block.id}`)" :key="innerUnit.key">
+                      <div v-if="innerUnit.kind === 'image-group'" class="doc-block absolute-flow-group" :style="imageGroupStyle(innerUnit.blocks)">
+                        <figure v-for="block in innerUnit.blocks" :key="block.id" class="absolute-flow-image" :style="absoluteImageStyle(block.contentJson)">
+                          <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" alt="" />
+                        </figure>
+                      </div>
+                      <div v-else class="doc-block">
+                        <component :is="headingTag(innerUnit.block)" v-if="innerUnit.block.blockType === 'HEADING'" :class="headingClass(innerUnit.block)">{{ headingText(innerUnit.block) }}</component>
+                        <p v-else-if="innerUnit.block.blockType === 'PARAGRAPH'">{{ content(innerUnit.block.contentJson).text }}</p>
+                        <div v-else class="text-muted">{{ innerUnit.block.contentJson }}</div>
+                      </div>
+                    </template>
                   </div>
                   <div v-else-if="content(unit.block.contentJson).type === 'reusable_fragment_ref'">
-                    <div v-for="(innerBlock, innerIndex) in reusableFragmentRenderBlocks(content(unit.block.contentJson).reusableFragmentId)" :key="innerIndex" class="doc-block">
-                      <component :is="headingTag(innerBlock)" v-if="innerBlock.blockType === 'HEADING'" :class="headingClass(innerBlock)">{{ headingText(innerBlock) }}</component>
-                      <p v-else-if="innerBlock.blockType === 'PARAGRAPH'">{{ content(innerBlock.contentJson).text }}</p>
-                      <figure v-else-if="innerBlock.blockType === 'IMAGE'" class="doc-image" :style="imageFigureStyle(innerBlock.contentJson)">
-                        <img v-if="imageSource(innerBlock.contentJson)" :src="imageSource(innerBlock.contentJson)" :style="{ width: imageWidth(innerBlock.contentJson), height: imageHeight(innerBlock.contentJson) }" alt="" />
-                        <figcaption v-if="content(innerBlock.contentJson).caption">{{ content(innerBlock.contentJson).caption }}</figcaption>
-                      </figure>
-                      <div v-else class="text-muted">{{ innerBlock.contentJson }}</div>
-                    </div>
+                    <template v-for="innerUnit in contentUnitsForBlocks(reusableFragmentRenderBlocks(content(unit.block.contentJson).reusableFragmentId), `measure-fragment-${unit.block.id}`)" :key="innerUnit.key">
+                      <div v-if="innerUnit.kind === 'image-group'" class="doc-block absolute-flow-group" :style="imageGroupStyle(innerUnit.blocks)">
+                        <figure v-for="block in innerUnit.blocks" :key="block.id" class="absolute-flow-image" :style="absoluteImageStyle(block.contentJson)">
+                          <img v-if="imageSource(block.contentJson)" :src="imageSource(block.contentJson)" alt="" />
+                        </figure>
+                      </div>
+                      <div v-else class="doc-block">
+                        <component :is="headingTag(innerUnit.block)" v-if="innerUnit.block.blockType === 'HEADING'" :class="headingClass(innerUnit.block)">{{ headingText(innerUnit.block) }}</component>
+                        <p v-else-if="innerUnit.block.blockType === 'PARAGRAPH'">{{ content(innerUnit.block.contentJson).text }}</p>
+                        <div v-else class="text-muted">{{ innerUnit.block.contentJson }}</div>
+                      </div>
+                    </template>
                   </div>
                   <component :is="headingTag(unit.block)" v-else-if="unit.block.blockType === 'HEADING'" :class="headingClass(unit.block)">
                     <span class="heading-number">{{ headingNumber(unit.block) }}</span>
@@ -1571,26 +1649,37 @@ function contentPageForBlock(blockId: number) {
   margin: 10px 0;
 }
 
-.doc-image-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.doc-image-row .doc-image {
-  flex: 0 1 auto;
-  max-width: 100%;
-  margin: 0;
-}
-
 .doc-image img {
   display: block;
   max-width: 100%;
   height: auto;
   object-fit: contain;
+}
+
+.absolute-flow-group {
+  position: relative;
+  width: 100%;
+  height: var(--absolute-flow-height);
+  margin-top: 12px;
+  margin-bottom: 12px;
+  overflow: visible;
+  background: transparent;
+  border: none;
+  outline: none;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.absolute-flow-image {
+  position: absolute;
+  margin: 0;
+}
+
+.absolute-flow-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
 }
 
 .doc-image figcaption {

@@ -42,6 +42,10 @@ export interface EditorSection {
   blocks: EditorBlock[]
 }
 
+const IMAGE_REFERENCE_WIDTH = 680
+const IMAGE_FLOW_MARGIN = 12
+const IMAGE_INITIAL_MAX_WIDTH = 300
+
 export function randomId(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`
 }
@@ -138,17 +142,38 @@ export function blockContentToJson(block: EditorBlock): string {
     return JSON.stringify({ type: 'reusable_fragment_ref', reusableFragmentId: Number(block.content) })
   }
   if (block.type === 'imagen') {
+    const image = normalizeImageData(block.data, savedAttrs)
     return JSON.stringify({
       type: 'image',
       src: block.content,
-      caption: block.data?.caption || '',
       assetId: block.data?.assetId,
-      width: savedAttrs.width || block.data?.width,
-      height: savedAttrs.height || block.data?.height,
-      align: savedAttrs.align || block.data?.align || 'inline',
-      offsetX: savedAttrs.offsetX || block.data?.offsetX || 0,
-      offsetY: savedAttrs.offsetY || block.data?.offsetY || 0,
-      json: block.data?.json,
+      layout: 'absolute-flow',
+      x: image.x,
+      offsetY: image.offsetY,
+      width: image.width,
+      height: image.height,
+      zIndex: image.zIndex,
+      referenceWidth: image.referenceWidth,
+      lockedAspectRatio: image.lockedAspectRatio,
+      json: {
+        ...(block.data?.json as Record<string, unknown> | undefined || {}),
+        type: 'image',
+        attrs: {
+          ...savedAttrs,
+          src: block.content,
+          assetId: block.data?.assetId,
+          layout: 'absolute-flow',
+          x: image.x,
+          offsetX: image.x,
+          offsetY: image.offsetY,
+          width: image.width,
+          height: image.height,
+          zIndex: image.zIndex,
+          referenceWidth: image.referenceWidth,
+          lockedAspectRatio: image.lockedAspectRatio,
+          align: 'left',
+        },
+      },
     })
   }
   if (block.type === 'tabla') {
@@ -286,6 +311,42 @@ export function versionRequestFromEditor(params: {
         reusableFragmentId: typeof block.data?.reusableFragmentId === 'number' ? block.data.reusableFragmentId : undefined,
       })),
     })),
+  }
+}
+
+function numberValue(...values: unknown[]) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue
+    const number = Number(String(value).replace('px', ''))
+    if (Number.isFinite(number)) return number
+  }
+  return undefined
+}
+
+function normalizeImageData(data?: Record<string, unknown>, attrs: Record<string, unknown> = {}) {
+  const width = Math.max(40, numberValue(data?.width, attrs.width) ?? IMAGE_INITIAL_MAX_WIDTH)
+  const height = Math.max(40, numberValue(data?.height, attrs.height) ?? 180)
+  const referenceWidth = Math.max(1, numberValue(data?.referenceWidth, attrs.referenceWidth) ?? IMAGE_REFERENCE_WIDTH)
+  const layout = String(data?.layout ?? attrs.layout ?? '')
+  const align = String(data?.align ?? attrs.align ?? 'inline')
+  let x = numberValue(data?.x, attrs.x, data?.offsetX, attrs.offsetX)
+  if (x === undefined) {
+    if (layout !== 'absolute-flow' && align === 'center') x = Math.max(0, (referenceWidth - width) / 2)
+    else if (layout !== 'absolute-flow' && align === 'right') x = Math.max(0, referenceWidth - width)
+    else x = 0
+  }
+  x = Math.min(Math.max(0, x), Math.max(0, referenceWidth - width))
+  return {
+    x: Math.round(x),
+    offsetY: Math.max(IMAGE_FLOW_MARGIN, Math.round(numberValue(data?.offsetY, attrs.offsetY) ?? IMAGE_FLOW_MARGIN)),
+    width: Math.min(referenceWidth, Math.round(width)),
+    height: Math.round(height),
+    zIndex: Math.max(1, Math.round(numberValue(data?.zIndex, attrs.zIndex) ?? 1)),
+    referenceWidth: Math.round(referenceWidth),
+    lockedAspectRatio: data?.lockedAspectRatio === true
+      || attrs.lockedAspectRatio === true
+      || data?.lockedAspectRatio === 'true'
+      || attrs.lockedAspectRatio === 'true',
   }
 }
 
