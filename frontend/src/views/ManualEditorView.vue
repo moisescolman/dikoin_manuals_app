@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ChevronDown, ChevronRight, Copy, Eye, GripVertical, Languages, Link2, PanelLeftClose, PanelLeftOpen, Plus, Save } from '@lucide/vue'
 import { translateManualVersionToEnglish } from '@/api/manuals.api'
@@ -35,6 +35,11 @@ type IndexItem = IndexHeading & {
 }
 
 type IndexDropPosition = 'before' | 'after'
+type SectionEditorRef = {
+  flushEditorSync: () => void
+  scrollToSection?: (sectionId: string, language: LanguageCode) => boolean
+  scrollToBlock?: (sectionId: string, language: LanguageCode, blockId: string) => boolean
+}
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
@@ -59,7 +64,7 @@ const indexPanelWidth = ref(280)
 const resizingIndexPanel = ref(false)
 const sectionsPanelCollapsed = ref(false)
 const expandedIndexSectionIds = ref<string[]>([])
-const sectionEditorRefs = ref<Array<{ flushEditorSync: () => void }>>([])
+const sectionEditorRefs = ref<SectionEditorRef[]>([])
 const selectionOwnerKey = ref('')
 const blockSelectionSync = ref<BlockSelectionSync | null>(null)
 const infoMessage = ref('')
@@ -515,6 +520,31 @@ function openSectionFromIndex(section: EditorSection) {
   section.collapsed = false
   selectedSectionId.value = section.id
   activateEditor(section.id, indexLanguage.value)
+}
+
+async function handleIndexSectionClick(section: EditorSection, event: MouseEvent) {
+  openSectionFromIndex(section)
+  if (!event.ctrlKey && !event.metaKey) return
+  await scrollToEditorSection(section.id, indexLanguage.value)
+}
+
+async function handleIndexItemClick(section: EditorSection, item: IndexItem, event: MouseEvent) {
+  openSectionFromIndex(section)
+  if (!event.ctrlKey && !event.metaKey) return
+  await scrollToEditorBlock(section.id, indexLanguage.value, item.blockId)
+}
+
+async function scrollToEditorSection(sectionId: string, language: LanguageCode) {
+  await nextTick()
+  sectionEditorRefs.value.some((editorRef) => editorRef?.scrollToSection?.(sectionId, language))
+}
+
+async function scrollToEditorBlock(sectionId: string, language: LanguageCode, blockId: string) {
+  await nextTick()
+  const foundBlock = sectionEditorRefs.value.some((editorRef) => editorRef?.scrollToBlock?.(sectionId, language, blockId))
+  if (!foundBlock) {
+    sectionEditorRefs.value.some((editorRef) => editorRef?.scrollToSection?.(sectionId, language))
+  }
 }
 
 function isIndexSectionExpanded(sectionId: string) {
@@ -1403,7 +1433,7 @@ function sectionTitle(section: EditorSection) {
             @dragover.prevent="indexDropSectionId = section.id"
             @drop.prevent="dropIndexSection(section.id)"
           >
-            <header class="index-section-header" @click="openSectionFromIndex(section)">
+            <header class="index-section-header" @click="handleIndexSectionClick(section, $event)">
               <button
                 type="button"
                 class="index-section-collapse"
@@ -1434,7 +1464,7 @@ function sectionTitle(section: EditorSection) {
                 }"
                 :style="{ '--heading-indent': `${Math.max(0, heading.level - 1) * 16}px` }"
                 draggable="true"
-                @click="openSectionFromIndex(section)"
+                @click="handleIndexItemClick(section, heading, $event)"
                 @dragstart.stop="startIndexItemDrag(section.id, heading)"
                 @dragend="clearIndexDragState"
                 @dragover.prevent.stop="updateIndexItemDrop(section.id, heading, $event)"

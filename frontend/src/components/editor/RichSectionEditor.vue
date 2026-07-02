@@ -124,6 +124,7 @@ const reusableBlocks = ref<ReusableBlockResponse[]>(props.reusableLibrary || sha
 const reusableLibraryLoading = ref(props.reusableLibrary ? Boolean(props.reusableLibraryLoading) : !sharedReusableLibraryCache)
 const reusableLibraryLoaded = ref(props.reusableLibrary ? !props.reusableLibraryLoading : Boolean(sharedReusableLibraryCache))
 const showImageModal = ref(false)
+const showAssetImageModal = ref(false)
 const showNoticeModal = ref(false)
 const noteMode = ref<NoteMode>('new')
 const noticeSearch = ref('')
@@ -131,6 +132,7 @@ const uploadingImage = ref(false)
 const syncingFromProps = ref(false)
 const hasPendingTableSync = ref(false)
 const showNoteMenu = ref(false)
+const sectionRootRef = ref<HTMLElement | null>(null)
 const sectionContentRef = ref<HTMLElement | null>(null)
 const tableDeletePosition = ref<{ visible: boolean; top: number; left: number }>({ visible: false, top: 0, left: 0 })
 const blockActionsPosition = ref<{ visible: boolean; top: number; left: number; kind: MovableBlockKind | null }>({ visible: false, top: 0, left: 0, kind: null })
@@ -1139,7 +1141,25 @@ function flushEditorSync() {
   }
 }
 
-defineExpose({ flushEditorSync })
+function scrollToSection(targetSectionId: string, language: LanguageCode) {
+  if (props.section.id !== targetSectionId || props.language !== language) return false
+  sectionRootRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  return Boolean(sectionRootRef.value)
+}
+
+function scrollToBlock(targetSectionId: string, language: LanguageCode, blockId: string) {
+  if (props.section.id !== targetSectionId || props.language !== language) return false
+  const blockElement = Array.from(sectionContentRef.value?.querySelectorAll<HTMLElement>('[data-block-id]') || [])
+    .find((element) => element.dataset.blockId === blockId)
+  if (!blockElement) {
+    sectionRootRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return Boolean(sectionRootRef.value)
+  }
+  blockElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  return true
+}
+
+defineExpose({ flushEditorSync, scrollToSection, scrollToBlock })
 
 function markEditorDirty() {
   editorDirty.value = true
@@ -2358,6 +2378,18 @@ function isInsideLinkedNote() {
 
 function openImageModal() {
   showImageModal.value = true
+  showAssetImageModal.value = false
+  loadModalData()
+}
+
+function closeImageModals() {
+  showImageModal.value = false
+  showAssetImageModal.value = false
+}
+
+function openAssetImageModal() {
+  showImageModal.value = false
+  showAssetImageModal.value = true
   loadModalData()
 }
 
@@ -2798,7 +2830,7 @@ function insertImage(src: string, assetId?: number) {
     updateBlockActionsPosition()
   })
   markEditorDirty()
-  showImageModal.value = false
+  closeImageModals()
 }
 
 function clipboardImageFile(event: ClipboardEvent) {
@@ -2845,7 +2877,7 @@ async function loadModalData() {
   const reusablePromise = props.reusableLibrary ? Promise.resolve() : loadReusableLibraryIntoState()
   try {
     const [loadedAssets, loadedNotices] = await Promise.all([
-      getAssets(props.manualId ? { manualId: props.manualId } : undefined),
+      getAssets(),
       getNotices('NOTE'),
     ])
     assets.value = loadedAssets.filter((asset) => ['IMAGE', 'EXTRACTED_IMAGE', 'PRODUCT_IMAGE'].includes(asset.assetType))
@@ -3223,7 +3255,7 @@ function imageAssetId(node: JSONContent) {
 </script>
 
 <template>
-  <article class="rich-section" :class="{ selected, hidden: !section.visible, linked: isLinkedSection }" @click="selectSection">
+  <article ref="sectionRootRef" class="rich-section" :class="{ selected, hidden: !section.visible, linked: isLinkedSection }" @click="selectSection">
     <header class="section-bar">
       <button class="drag-handle" draggable="true" title="Arrastrar sección" @click.stop @mousedown.stop>
         <GripVertical class="drag-dots" :size="17" />
@@ -3244,12 +3276,12 @@ function imageAssetId(node: JSONContent) {
         class="section-review-switch"
         :class="{ active: section.status === 'REVIEW' }"
         :aria-pressed="section.status === 'REVIEW'"
-        :title="section.status === 'REVIEW' ? 'Cambiar a válido' : 'Cambiar a revisión'"
+        :title="section.status === 'REVIEW' ? 'Desactivar revisión' : 'Activar revisión'"
         @click.stop="toggleReviewMode"
         @mousedown.stop
       >
         <span class="switch-track"><span class="switch-thumb"></span></span>
-        <span>{{ section.status === 'REVIEW' ? 'Revisión' : 'Válido' }}</span>
+        <span>{{ section.status === 'REVIEW' ? 'Revisión ON' : 'Revisión OFF' }}</span>
       </button>
       <button
         class="visibility-toggle"
@@ -3592,22 +3624,40 @@ function imageAssetId(node: JSONContent) {
       </template>
     </AppModal>
 
-    <div v-if="showImageModal" class="modal-backdrop" @click.self="showImageModal = false">
+    <div v-if="showImageModal" class="modal-backdrop" @click.self="closeImageModals">
       <div class="modal-card image-modal">
         <header>
           <h3>Insertar imagen</h3>
-          <button @click="showImageModal = false">×</button>
+          <button @click="closeImageModals">×</button>
         </header>
-        <label class="upload-box">
-          <FileImage :size="16" />
-          <span>{{ uploadingImage ? 'Subiendo...' : 'Subir imagen nueva' }}</span>
-          <input type="file" accept="image/*" :disabled="uploadingImage" @change="uploadImage" />
-        </label>
-        <div class="asset-grid">
-          <button v-for="asset in assets" :key="asset.id" @click="insertImage(assetSrc(asset), asset.id)">
-            <img :src="assetSrc(asset)" :alt="asset.originalFilename" />
-            <span>{{ asset.originalFilename }}</span>
+        <div class="image-source-actions">
+          <button type="button" class="image-source-btn" @click="openAssetImageModal">
+            <Library :size="18" />
+            <span>Insertar desde Assets</span>
           </button>
+          <label class="image-source-btn upload-box">
+            <FileImage :size="18" />
+            <span>{{ uploadingImage ? 'Subiendo...' : 'Subir archivo' }}</span>
+            <input type="file" accept="image/*" :disabled="uploadingImage" @change="uploadImage" />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showAssetImageModal" class="modal-backdrop" @click.self="closeImageModals">
+      <div class="modal-card image-modal asset-image-modal">
+        <header>
+          <h3>Insertar desde Assets</h3>
+          <button @click="closeImageModals">×</button>
+        </header>
+        <div class="asset-grid-scroll">
+          <div v-if="assets.length" class="asset-grid">
+            <button v-for="asset in assets" :key="asset.id" @click="insertImage(assetSrc(asset), asset.id)">
+              <img :src="assetSrc(asset)" :alt="asset.originalFilename" />
+              <span>{{ asset.originalFilename }}</span>
+            </button>
+          </div>
+          <p v-else class="asset-empty-state">No hay imagenes disponibles en Assets.</p>
         </div>
       </div>
     </div>
@@ -5240,21 +5290,57 @@ function imageAssetId(node: JSONContent) {
   padding: 12px 16px 16px;
 }
 
-.upload-box {
-  border: 1px dashed var(--border);
-  background: var(--dikoin-blue-lighter);
-  color: var(--dikoin-blue);
-  padding: 14px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
+.image-modal {
+  width: min(520px, 100%);
+}
+
+.asset-image-modal {
+  width: min(900px, 96vw);
+  max-height: min(760px, 88vh);
+  overflow: hidden;
+}
+
+.image-source-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.image-source-btn {
+  min-height: 92px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--dikoin-blue-dark);
+  padding: 16px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 9px;
   cursor: pointer;
-  font-weight: 600;
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+}
+
+.image-source-btn:hover {
+  border-color: var(--dikoin-blue);
+  background: var(--dikoin-blue-lighter);
+}
+
+.upload-box {
+  border-style: dashed;
+  color: var(--dikoin-blue);
 }
 
 .upload-box input {
   display: none;
+}
+
+.asset-grid-scroll {
+  max-height: calc(88vh - 110px);
+  min-height: 240px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .asset-grid {
@@ -5285,6 +5371,15 @@ function imageAssetId(node: JSONContent) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-empty-state {
+  margin: 0;
+  padding: 36px 12px;
+  border: 1px dashed var(--border);
+  background: #f8fbfe;
+  color: var(--muted-foreground);
+  text-align: center;
 }
 
 .notice-list {
@@ -5425,7 +5520,7 @@ function imageAssetId(node: JSONContent) {
 
 .section-review-switch {
   border: 0;
-  background: rgba(255, 255, 255, .16);
+  background: rgba(23, 23, 23, 0.16);
   color: #fff;
   border-radius: 999px;
   padding: 3px 8px 3px 4px;
@@ -5459,11 +5554,15 @@ function imageAssetId(node: JSONContent) {
 }
 
 .section-review-switch.active .switch-track {
-  background: #d9943b;
+  background: #ff961f;
 }
 
 .section-review-switch.active .switch-thumb {
   transform: translateX(16px);
+}
+
+.section-review-switch.active > span:last-child {
+  color: #ff961f;
 }
 
 .section-review-switch:hover {
