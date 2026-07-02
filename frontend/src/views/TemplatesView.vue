@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { CheckCircle, Eye, FileText, Image as ImageIcon, ImageUp, ListTree, Pencil, Plus, Save, Search, Trash2, X } from '@lucide/vue'
+import { FileText, Image as ImageIcon, ImageUp, ListTree, Pencil, Plus, Save, Search, Trash2, X } from '@lucide/vue'
 import AppModal from '@/components/shared/AppModal.vue'
 import BackendError from '@/components/shared/BackendError.vue'
 import { toBackendUrl } from '@/api/http'
@@ -129,7 +129,6 @@ const form = reactive({
 const formConfig = reactive<TemplateLayoutConfig>(defaultLayoutConfig())
 
 const selectedTemplate = computed(() => store.templates.find((template) => template.id === selectedId.value) || store.templates[0] || null)
-const defaultTemplate = computed(() => store.templates.find((template) => template.systemDefault) || store.templates[0] || null)
 const filteredTemplates = computed(() => {
   const query = normalize(searchQuery.value)
   if (!query) return store.templates
@@ -137,7 +136,6 @@ const filteredTemplates = computed(() => {
     return [
       template.name,
       template.description,
-      template.companyName,
       template.contactEmail,
       template.contactPhone,
       template.website,
@@ -400,7 +398,7 @@ function payload() {
   return {
     name: form.name.trim(),
     description: form.description,
-    companyName: form.companyName,
+    companyName: 'DIKOIN',
     contactEmail: form.contactEmail,
     contactPhone: form.contactPhone,
     website: form.website,
@@ -458,10 +456,24 @@ async function activate(template: TemplateResponse) {
   }
 }
 
-async function deactivate(template: TemplateResponse) {
-  const fallback = defaultTemplate.value
-  if (!fallback || fallback.id === template.id) return
-  await activate(fallback)
+async function toggleTemplateActive(template: TemplateResponse) {
+  if (activating.value !== null) return
+  if (!template.active) {
+    await activate(template)
+    return
+  }
+  activating.value = template.id
+  savedMessage.value = ''
+  localError.value = ''
+  try {
+    await store.saveTemplate(template.id, { active: false })
+    selectedId.value = template.id
+    savedMessage.value = 'Plantilla desactivada.'
+  } catch (err) {
+    localError.value = err instanceof Error ? err.message : 'No se pudo desactivar la plantilla'
+  } finally {
+    activating.value = null
+  }
 }
 
 async function uploadLogo(event: Event) {
@@ -610,7 +622,7 @@ function formatDate(value?: string) {
           </div>
           <div class="template-search">
             <Search :size="14" />
-            <input v-model="searchQuery" type="search" placeholder="Buscar por nombre, empresa o estado..." />
+            <input v-model="searchQuery" type="search" placeholder="Buscar por nombre o estado..." />
             <button v-if="searchQuery" type="button" title="Limpiar búsqueda" @click="searchQuery = ''"><X :size="14" /></button>
           </div>
         </div>
@@ -620,7 +632,6 @@ function formatDate(value?: string) {
             <thead>
               <tr>
                 <th>Plantilla</th>
-                <th>Empresa</th>
                 <th>Estado</th>
                 <th>Última modificación</th>
                 <th class="actions-col">Acciones</th>
@@ -628,13 +639,13 @@ function formatDate(value?: string) {
             </thead>
             <tbody>
               <tr v-if="store.loading && !store.templates.length">
-                <td colspan="5">Cargando plantillas...</td>
+                <td colspan="4">Cargando plantillas...</td>
               </tr>
               <tr v-else-if="!store.templates.length">
-                <td colspan="5">No hay plantillas creadas.</td>
+                <td colspan="4">No hay plantillas creadas.</td>
               </tr>
               <tr v-else-if="!filteredTemplates.length">
-                <td colspan="5">No hay plantillas que coincidan con la búsqueda.</td>
+                <td colspan="4">No hay plantillas que coincidan con la búsqueda.</td>
               </tr>
               <tr
                 v-for="template in filteredTemplates"
@@ -646,33 +657,23 @@ function formatDate(value?: string) {
                   <strong>{{ template.name }}</strong>
                   <span>{{ template.description || 'Sin descripción' }}</span>
                 </td>
-                <td>{{ template.companyName || '-' }}</td>
                 <td>
-                  <span class="state-pill" :class="{ active: template.active, default: template.systemDefault }">
-                    {{ template.active ? 'Activa' : template.systemDefault ? 'Por defecto' : 'Inactiva' }}
-                  </span>
+                  <button
+                    type="button"
+                    class="template-switch"
+                    :class="{ active: template.active }"
+                    :aria-pressed="template.active"
+                    :aria-label="template.active ? 'Desactivar plantilla' : 'Activar plantilla'"
+                    :title="template.active ? 'Desactivar plantilla' : 'Activar plantilla'"
+                    :disabled="activating === template.id"
+                    @click.stop="toggleTemplateActive(template)"
+                  >
+                    <span></span>
+                  </button>
                 </td>
                 <td>{{ formatDate(template.updatedAt || template.createdAt) }}</td>
                 <td>
                   <div class="quick-actions">
-                    <button
-                      v-if="!template.active"
-                      type="button"
-                      title="Activar"
-                      :disabled="activating === template.id"
-                      @click.stop="activate(template)"
-                    >
-                      <CheckCircle :size="16" />
-                    </button>
-                    <button
-                      v-else-if="!template.systemDefault"
-                      type="button"
-                      title="Desactivar"
-                      :disabled="activating !== null"
-                      @click.stop="deactivate(template)"
-                    >
-                      <X :size="16" />
-                    </button>
                     <button type="button" title="Editar" @click.stop="openEdit(template)">
                       <Pencil :size="16" />
                     </button>
@@ -694,18 +695,18 @@ function formatDate(value?: string) {
 
       <aside class="preview-column" aria-label="Vista previa de la plantilla">
         <section class="card preview-panel">
-          <div class="panel-title">
+          <div class="preview-head">
             <div>
               <span>Vista previa</span>
               <strong>{{ selectedTemplate?.name || 'Sin plantilla' }}</strong>
             </div>
-            <small>{{ selectedTemplate?.active ? 'Activa' : selectedTemplate?.systemDefault ? 'Por defecto' : 'Inactiva' }}</small>
-          </div>
-
-          <div class="preview-tabs" role="tablist">
-            <button :class="{ active: previewView === 'cover' }" @click="previewView = 'cover'"><ImageIcon :size="14" /> Portada</button>
-            <button :class="{ active: previewView === 'index' }" @click="previewView = 'index'"><ListTree :size="14" /> Índice</button>
-            <button :class="{ active: previewView === 'pages' }" @click="previewView = 'pages'"><FileText :size="14" /> Páginas</button>
+            <div class="preview-actions">
+              <div class="preview-tabs" role="tablist">
+                <button type="button" :class="{ active: previewView === 'cover' }" @click="previewView = 'cover'"><ImageIcon :size="14" /> Portada</button>
+                <button type="button" :class="{ active: previewView === 'index' }" @click="previewView = 'index'"><ListTree :size="14" /> Índice</button>
+                <button type="button" :class="{ active: previewView === 'pages' }" @click="previewView = 'pages'"><FileText :size="14" /> Páginas</button>
+              </div>
+            </div>
           </div>
 
           <div class="mini-paper-wrap">
@@ -742,7 +743,7 @@ function formatDate(value?: string) {
               <div v-else class="content-page">
                 <header v-if="selectedPreviewConfig.header.enabled" class="doc-header">
                   <img v-if="selectedPreviewConfig.header.showLogo && selectedPreviewLogo" :src="selectedPreviewLogo" alt="Logo plantilla" />
-                  <strong v-if="selectedPreviewConfig.header.showCompanyName">{{ selectedTemplate?.companyName || 'DIKOIN' }}</strong>
+                  <strong v-if="selectedPreviewConfig.header.showCompanyName">DIKOIN</strong>
                   <span v-if="selectedPreviewConfig.header.showManualCode">DMP-HY100-2501</span>
                 </header>
                 <main>
@@ -777,24 +778,13 @@ function formatDate(value?: string) {
       size="xl"
       @close="closeEdit"
     >
-      <template #header-actions>
-        <div class="modal-view-tabs">
-          <button :class="{ active: modalPreviewView === 'cover' }" @click="modalPreviewView = 'cover'"><ImageIcon :size="14" /> Portada</button>
-          <button :class="{ active: modalPreviewView === 'index' }" @click="modalPreviewView = 'index'"><ListTree :size="14" /> Índice</button>
-          <button :class="{ active: modalPreviewView === 'pages' }" @click="modalPreviewView = 'pages'"><FileText :size="14" /> Páginas</button>
-        </div>
-      </template>
-
       <form class="template-editor" @submit.prevent="save(true)">
         <div class="editor-controls">
           <section class="control-section">
             <h3>Datos</h3>
             <label>Nombre <input v-model="form.name" class="field" required /></label>
             <label>Descripción <input v-model="form.description" class="field" /></label>
-            <div class="control-grid">
-              <label>Empresa <input v-model="form.companyName" class="field" /></label>
-              <label>Web <input v-model="form.website" class="field" /></label>
-            </div>
+            <label>Web <input v-model="form.website" class="field" /></label>
             <div class="control-grid">
               <label>Email <input v-model="form.contactEmail" class="field" /></label>
               <label>Teléfono <input v-model="form.contactPhone" class="field" /></label>
@@ -907,7 +897,7 @@ function formatDate(value?: string) {
             <div class="check-grid">
               <label class="check"><input v-model="formConfig.header.enabled" type="checkbox" /> Encabezado</label>
               <label class="check"><input v-model="formConfig.header.showLogo" type="checkbox" /> Logo cabecera</label>
-              <label class="check"><input v-model="formConfig.header.showCompanyName" type="checkbox" /> Empresa</label>
+              <label class="check"><input v-model="formConfig.header.showCompanyName" type="checkbox" /> Mostrar DIKOIN</label>
               <label class="check"><input v-model="formConfig.header.showManualCode" type="checkbox" /> Código manual</label>
               <label class="check"><input v-model="formConfig.footer.enabled" type="checkbox" /> Pie</label>
               <label class="check"><input v-model="formConfig.footer.showContact" type="checkbox" /> Contacto</label>
@@ -956,6 +946,11 @@ function formatDate(value?: string) {
         </div>
 
         <div class="editor-preview">
+          <div class="modal-view-tabs">
+            <button type="button" :class="{ active: modalPreviewView === 'cover' }" @click="modalPreviewView = 'cover'"><ImageIcon :size="14" /> Portada</button>
+            <button type="button" :class="{ active: modalPreviewView === 'index' }" @click="modalPreviewView = 'index'"><ListTree :size="14" /> Índice</button>
+            <button type="button" :class="{ active: modalPreviewView === 'pages' }" @click="modalPreviewView = 'pages'"><FileText :size="14" /> Páginas</button>
+          </div>
           <div class="paper-wrap">
             <div class="paper" :style="previewStyles(formConfig)">
               <div v-if="modalPreviewView === 'cover'" class="cover-page" :class="`align-${formConfig.cover.alignment}`">
@@ -991,7 +986,7 @@ function formatDate(value?: string) {
               <div v-else class="content-page">
                 <header v-if="formConfig.header.enabled" class="doc-header">
                   <img v-if="formConfig.header.showLogo && logoSrc" :src="logoSrc" alt="Logo plantilla" />
-                  <strong v-if="formConfig.header.showCompanyName">{{ form.companyName || 'DIKOIN' }}</strong>
+                  <strong v-if="formConfig.header.showCompanyName">DIKOIN</strong>
                   <span v-if="formConfig.header.showManualCode">DMP-HY100-2501</span>
                 </header>
                 <main>
@@ -1063,7 +1058,7 @@ function formatDate(value?: string) {
 .templates-shell {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(360px, .75fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: stretch;
 }
@@ -1181,7 +1176,7 @@ function formatDate(value?: string) {
 }
 
 .actions-col {
-  width: 128px;
+  width: 92px;
 }
 
 .quick-actions {
@@ -1211,65 +1206,78 @@ function formatDate(value?: string) {
   cursor: not-allowed;
 }
 
-.state-pill {
+.template-switch {
+  width: 54px;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: #d9d9d9;
+  padding: 3px;
   display: inline-flex;
-  justify-content: center;
-  min-width: 76px;
-  border: 1px solid #d8e6f0;
-  border-radius: var(--radius);
-  background: #f8fbfe;
-  color: var(--muted-foreground);
-  padding: 3px 7px;
-  font-size: 11px;
-  font-weight: 700;
+  align-items: center;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .04);
+  transition: background .18s ease, opacity .18s ease;
 }
 
-.state-pill.active {
-  border-color: #86efac;
-  background: #dcfce7;
-  color: #065f46;
+.template-switch span {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, .25);
+  transition: transform .18s ease;
 }
 
-.state-pill.default:not(.active) {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+.template-switch.active {
+  background: #65d857;
+}
+
+.template-switch.active span {
+  transform: translateX(24px);
+}
+
+.template-switch:disabled {
+  opacity: .58;
+  cursor: wait;
 }
 
 .preview-panel {
-  gap: 14px;
-  padding: 16px;
   background: #fff;
 }
 
-.panel-title {
+.preview-head {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
 }
 
-.panel-title > div {
+.preview-head > div:first-child {
   display: grid;
   gap: 3px;
 }
 
-.panel-title span {
+.preview-head span {
   color: var(--muted-foreground);
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
 }
 
-.panel-title strong {
+.preview-head strong {
   color: var(--foreground);
   font-size: 15px;
 }
 
-.panel-title small {
-  color: var(--muted-foreground);
-  font-size: 11px;
-  font-weight: 700;
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .preview-tabs,
@@ -1742,10 +1750,14 @@ label {
 
 .editor-preview {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .paper-wrap {
-  max-height: calc(86vh - 180px);
+  flex: 1;
+  max-height: calc(86vh - 230px);
 }
 
 .success-msg {
@@ -1781,7 +1793,8 @@ label {
     grid-template-columns: 1fr;
   }
 
-  .list-head {
+  .list-head,
+  .preview-head {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1789,6 +1802,10 @@ label {
   .template-search {
     width: 100%;
     min-width: 0;
+  }
+
+  .preview-actions {
+    justify-content: flex-start;
   }
 }
 
